@@ -1,0 +1,32 @@
+-- BNB Chain registry scheduled flip (migration 0035). The same reviewed flip the
+-- Metaplex chain pass received from 0021, the 8004 pass from 0027, and the SAID
+-- pass from 0031: the source moves from operator-paced to the scheduler, so the
+-- backfill finishes without anyone pressing "Run chain pass" about 35 more times.
+--
+-- Preconditions, all encoded in the WHERE so a fresh or unhealthy deployment
+-- never wakes up to an unattended pass: the row is the approved BNB Chain
+-- registry source, it is active, it is still manual_only (so re-running this
+-- file is a no-op and an operator's later cadence change is never overwritten),
+-- it holds a `bsc:` cursor (an operator staged and approved it and ran the first
+-- pass, which succeeded on 2026-10-14), it has a recorded success, and it has no
+-- recorded failure.
+--
+-- What the unattended pass is: the reviewed chain-facts-only posture. It reads
+-- windows of at most 50,000 blocks through the approved NodeReal host, applies
+-- them strictly in chain order, and stops at a run budget of 30 seconds and
+-- 20,000 events. It writes registry rows, ledger rows, and URI updates. It
+-- fetches no registration URI and adds no agent, snapshot, or evidence event, so
+-- no run can add a reviewed record. A failed pass leaves the cursor untouched and
+-- the next tick retries from the same place. Nothing reaches the public
+-- directory until a run reaches the finalized head; the listing rules then
+-- publish the registrations that pass them in one go.
+--
+-- Cadence 15 minutes. finishIngestionRun sets nextRunAt to the finish time plus
+-- the cadence, and the cron fires on fixed 15-minute marks, so a 15-minute source
+-- runs about every 30 minutes (observed for the identity registry). That is about
+-- 17 hours for the 35 or so runs that remain. A shorter cadence would make it one
+-- run per tick, but it would halve the refresh rate of the other registries for
+-- the length of the backfill, and once caught up the source needs very little.
+-- nextRunAt uses NOW(), not UTC_TIMESTAMP(), for the reason migration 0031
+-- records. The worker's maxSourcesPerTick and interval are not touched.
+UPDATE `ingestion_sources` SET `executionPolicy` = 'scheduled', `scheduleMinutes` = 15, `nextRunAt` = NOW() WHERE `sourceKey` = 'bsc-erc8004-identity-registry' AND `protocol` = 'erc8004_bsc' AND `state` = 'active' AND `executionPolicy` = 'manual_only' AND `cursor` LIKE 'bsc:%' AND `lastSuccessfulAt` IS NOT NULL AND `failureCount` = 0;

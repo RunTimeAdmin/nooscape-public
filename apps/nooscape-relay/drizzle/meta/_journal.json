@@ -1,0 +1,349 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1791399053644,
+      "tag": "0000_real_fabian_cortez",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1791426471338,
+      "tag": "0001_short_sersi",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1791438422633,
+      "tag": "0002_dusty_lady_deathstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1791440026472,
+      "tag": "0003_cloudy_tyger_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1791460221635,
+      "tag": "0004_handy_redwing",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1791461926282,
+      "tag": "0005_happy_calypso",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1791465355657,
+      "tag": "0006_next_proudstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1791466168163,
+      "tag": "0007_slim_hex",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1791493243113,
+      "tag": "0008_nostalgic_karen_page",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1791498017152,
+      "tag": "0009_omniscient_mojo",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1791506679955,
+      "tag": "0010_record_withdrawals",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1791593079955,
+      "tag": "0011_agent_directory",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1791642655420,
+      "tag": "0012_agent_directory_registrant",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1791662103215,
+      "tag": "0013_agent_directory_chain_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1791667614000,
+      "tag": "0014_usdg_settlements",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1791673869000,
+      "tag": "0015_directory_entry_hidden",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1791673870000,
+      "tag": "0016_directory_fulltext_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1791738609000,
+      "tag": "0017_erc8004_scheduled_walk",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1791744870000,
+      "tag": "0018_erc8004_reputation",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1791753055000,
+      "tag": "0019_suppressed_locator_hosts",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1791753056000,
+      "tag": "0020_directory_search_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1791754325000,
+      "tag": "0021_solana_chain_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1791761623000,
+      "tag": "0022_solana_activity_false_close_purge",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1791767586000,
+      "tag": "0023_solana_asset_closed_marker",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1791773869000,
+      "tag": "0024_solana_8004",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1791778581000,
+      "tag": "0025_solana_activity_event_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1791784986000,
+      "tag": "0026_solana8004_chain_facts",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "5",
+      "when": 1791784987000,
+      "tag": "0027_solana8004_scheduled_flip",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1791804382000,
+      "tag": "0028_solana8004_step3",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1791824521574,
+      "tag": "0029_publisher_read_model_expiry",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1791901902913,
+      "tag": "0030_said_solana_registry",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1791907304678,
+      "tag": "0031_said_scheduled_flip",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1791910271297,
+      "tag": "0032_reputation_false_failure_reset",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1791928720214,
+      "tag": "0033_bsc_erc8004_registry",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "5",
+      "when": 1791935863497,
+      "tag": "0034_directory_registry_rows",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1791950201931,
+      "tag": "0035_bsc_scheduled_flip",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1792050897280,
+      "tag": "0036_owls_catch",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1792120560761,
+      "tag": "0037_agent_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1792177706155,
+      "tag": "0038_bsc_clusters",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "5",
+      "when": 1792184541154,
+      "tag": "0039_bsc_rater_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "5",
+      "when": 1792249964998,
+      "tag": "0040_bsc_endpoint_host_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1792283897029,
+      "tag": "0041_agent_directory_first_seen_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "5",
+      "when": 1792356369915,
+      "tag": "0042_agent_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "5",
+      "when": 1792375550163,
+      "tag": "0043_api_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "5",
+      "when": 1792416707829,
+      "tag": "0044_api_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "5",
+      "when": 1792433232802,
+      "tag": "0045_api_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "5",
+      "when": 1792495814087,
+      "tag": "0046_multichain_erc8004_protocols",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "5",
+      "when": 1792579118796,
+      "tag": "0047_registry_overflow_counts",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "5",
+      "when": 1792586258937,
+      "tag": "0048_chain_reputation_counts",
+      "breakpoints": true
+    }
+  ]
+}

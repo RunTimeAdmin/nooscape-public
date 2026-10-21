@@ -1,0 +1,1 @@
+ALTER TABLE `agent_read_model` ADD `publisherExpiresAt` timestamp;

@@ -1,0 +1,17 @@
+ALTER TABLE `agent_solana_activity` DROP INDEX `agent_solana_activity_event_uq`, ADD UNIQUE KEY `agent_solana_activity_event_uq` (`sourceId`,`transactionSignature`,`externalKey`,`kind`);--> statement-breakpoint
+-- Reviewed apply note (2026-10-12): Solana activity ledger event-kind key.
+-- External review found the ledger's uniqueness key (sourceId,
+-- transactionSignature, externalKey) silently dropped the second event of any
+-- transaction that produced two kinds for one asset — a transferred-and-renamed
+-- agent kept only whichever event INSERT-IGNORE saw first, and because the
+-- directory upsert had already recorded both changes, no later pass could
+-- re-detect the lost event. The fix adds the event kind to the key in one
+-- atomic ALTER (DROP + ADD are a single statement, so the table always has
+-- exactly one uniqueness constraint). No data repair is possible for pairs
+-- already dropped pre-fix: the production window is the Metaplex chain pass
+-- since 15e2f94 (2026-10-11, event-free ack refreshes at steady state) and the
+-- 8004 seed (zero events by design), so the exposure is expected to be empty
+-- or a handful of rows. Existing rows cannot violate the wider key: they are
+-- already unique on the narrower one. Both Solana sources (solana_registry,
+-- solana_8004) share this ledger, so the Metaplex pass gains the same
+-- guarantee with no code change beyond the key itself.

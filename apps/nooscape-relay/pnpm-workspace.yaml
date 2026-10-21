@@ -1,0 +1,15 @@
+# Dependency-resolution policy. Keep patched versions here for pnpm 10+.
+overrides:
+  # Preserve the template's Tailwind compatibility pin.
+  "tailwindcss>nanoid": "3.3.7"
+  # Security remediations for transitive dependencies.
+  "qs": "6.16.0"
+  "esbuild": "0.28.2"
+  "source-map-js": "1.2.2"
+  "postcss-selector-parser": "7.1.6"
+  "tar": "7.5.19"
+  "@babel/core": "7.29.6"
+  "browserslist": "4.28.7"
+  "baseline-browser-mapping": "2.11.0"
+patchedDependencies:
+  "wouter@3.7.1": "patches/wouter@3.7.1.patch"

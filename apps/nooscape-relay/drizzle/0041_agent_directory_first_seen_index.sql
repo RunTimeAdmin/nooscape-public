@@ -1,0 +1,18 @@
+-- An index on when each directory entry was first seen (migration 0041). The home page's "New to the Owl" counts read the entries
+-- first seen in the last 24 hours. Without this index that read goes through every row of the table (about 250,000) and took 11
+-- to 15 seconds on the host whenever its cache was cold, ahead of the agent pages that share the database connections. With it the
+-- same read finds its few hundred rows directly: on a copy of the table at production size it took 0.1 second, against 3.6
+-- seconds for the first version and 1.0 second for the one-pass version without the index.
+--
+-- This migration is MANUAL: the boot runner skips it (MANUAL_MIGRATIONS in server/dbMigrations.ts). The owner applies it by
+-- pasting this file into the host's SQL console, when they choose. docs/new-to-the-owl-2026-10-17.md ("The migration (0041) is
+-- run by hand") has the order, the record to insert afterwards, the check and the rollback.
+--
+-- Review notes:
+--   * One index on one live table that the public reads. InnoDB builds it online: reads and writes carry on while it builds. It
+--     took 1.7 seconds on 252,000 rows on a local MySQL 8; allow longer on the host.
+--   * No column, no data and no constraint changes. Nothing reads the index by name, so the code works without it (slowly) and
+--     with it (quickly), and dropping it only slows the read down again.
+--   * Running the file a second time fails with "Duplicate key name" (error 1061) and changes nothing.
+--
+CREATE INDEX `agent_directory_first_seen_idx` ON `agent_directory_entries` (`firstSeenAt`);

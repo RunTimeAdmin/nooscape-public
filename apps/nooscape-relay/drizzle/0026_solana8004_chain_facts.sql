@@ -1,0 +1,21 @@
+ALTER TABLE `agent_directory_entries` ADD COLUMN `accountPubkey` varchar(64) NULL, ADD COLUMN `profileUriHash` varchar(64) NULL;--> statement-breakpoint
+-- Reviewed apply note (2026-10-12): 8004 chain-facts columns, migration 0026.
+-- External review items 3 and 4: profile-link edits that change neither the
+-- display name nor the https host (755 of the 1,504 live registration URIs are
+-- ipfs:// links) were invisible to the diff, and closures were inferred purely
+-- from absence in the getProgramAccounts listing, so a truncated response
+-- could hide live agents as closures. The pass now (a) fingerprints the whole
+-- registration URI into profileUriHash and diffs the hash, and (b) stores the
+-- AgentAccount PDA in accountPubkey so every closure candidate takes one
+-- getAccountInfo confirmation read before the row is hidden, beside a 98%-of-
+-- prior-live enumeration floor that stops the pass loudly on truncation.
+-- Backfill semantics: both columns start NULL for all existing rows and are
+-- written by each row's next live 8004 pass (every live account is enumerated,
+-- so one pass repopulates the whole source). A NULL prior profileUriHash adopts
+-- the chain state silently — the same rule as a NULL prior registrant — so the
+-- first post-migration pass backfills 1,504 hashes without emitting events. A
+-- closure candidate with a NULL accountPubkey (an account that closed between
+-- this migration and its row's first live pass under it) has no confirmable
+-- address: it closes unconfirmed, counted distinctly by the pass, which is the
+-- pre-0026 behavior narrowed to that one transition window. Every other
+-- protocol writes NULL to both columns and is unaffected.

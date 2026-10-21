@@ -1,0 +1,62 @@
+# Monthly update pull requests for the workflow actions (pinned to commit SHAs, which Dependabot bumps with the
+# release comment) and for the app's npm packages. The actions arrive as one grouped pull request, and the npm minor
+# and patch updates as another. Each pull request costs a CI run and the private repository's Actions minutes are
+# limited, which is why this is monthly (it was weekly until 2026-10-20).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: npm
+    directory: /apps/nooscape-relay
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    # Majors that need a deliberate decision, not a bump. Their minor and patch updates still arrive. TypeScript 7
+    # removed the baseUrl option that tsconfig.json uses; Express 5 changes routing and fails the tests' type check;
+    # lucide-react 1.x redraws 7 of the 13 icons used on /field and renames 2, a visible design change; cookie 2 renames
+    # parse to parseCookie, which would break the operator session read, and the shim in server/_core/types/cookie.d.ts
+    # hides that from the type check; @types/node 26 runs ahead of the Node 22 runtime and fails the type check in
+    # server/evidence.ts; vitest 5 timed out the stalled-body test in server/ingestion/deadlineFetch.test.ts on the
+    # first CI run each time it was tried (twice), and passed on a re-run; Vite 8 swaps the bundler for Rolldown and
+    # changes the plugin API, so vite.config.ts, the build's esbuild step and the CSP hash that the server derives from
+    # the built index.html all need re-checking, and @vitejs/plugin-react 6 needs Vite 8, so the two move together.
+    # Remove an entry when its migration or decision is done.
+    ignore:
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      - dependency-name: express
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@types/express"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: lucide-react
+        update-types:
+          - version-update:semver-major
+      - dependency-name: cookie
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: vitest
+        update-types:
+          - version-update:semver-major
+      - dependency-name: vite
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@vitejs/plugin-react"
+        update-types:
+          - version-update:semver-major

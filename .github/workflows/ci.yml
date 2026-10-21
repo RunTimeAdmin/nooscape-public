@@ -1,0 +1,146 @@
+# The same gate the handoff asks for before every push, run on every pull
+# request and on main: typecheck, the full test suite against a throwaway
+# MySQL (so the database-backed reviewed-run gate tests actually run instead of
+# skipping), and the production build. Pushing main deploys to production, so a
+# green check here is the signal that makes a merge safe to trust.
+#
+# A change to Markdown files only runs the secret scan and skips the rest of the
+# gate, which saves about six minutes of Actions time. It is decided inside the
+# job (the Scope step), not with a workflow-level `paths-ignore`: that would leave
+# `gate` unreported, and the `main` ruleset requires `gate`, so a docs-only pull
+# request or push could not merge. See apps/nooscape-relay/scripts/ci-scope.mjs.
+#
+# A push to main skips the tests, which ran on the pull request and are most of the
+# run. It keeps the secret scan, the install, the type check and the build, which
+# is what catches two pull requests that were each fine and do not fit together.
+# To run the full gate on main, start this workflow by hand (Actions, CI, Run
+# workflow).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/nooscape-relay
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: nooscape
+        ports:
+          - 3307:3306
+        # tmpfs keeps DDL fast: on a slow disk the migration-built test schema
+        # can take minutes (see the handoff's validation-gate note).
+        options: >-
+          --tmpfs /var/lib/mysql:rw
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pnooscape"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      # Full history, so the secret scan can read every commit a pull request adds.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Fails when the tree, or a commit this pull request adds, holds something shaped like a
+      # credential. It names the rule, file and line and never prints the value. Needs no install.
+      - name: Secret scan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            node scripts/scan-secrets.mjs --range "origin/$BASE_REF..HEAD"
+          else
+            node scripts/scan-secrets.mjs
+          fi
+
+      # Whether every file this change touches is Markdown that no test reads (scripts/ci-scope.mjs). Anything it cannot
+      # tell is "not docs only", so the full gate runs. Every step below this one must carry the condition, which
+      # server/ciScope.test.ts holds.
+      - name: Scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            node scripts/ci-scope.mjs --base "origin/$BASE_REF"
+          elif [ "$EVENT" = "push" ]; then
+            node scripts/ci-scope.mjs --before "$BEFORE"
+          else
+            node scripts/ci-scope.mjs
+          fi
+
+      - name: Documentation only
+        if: steps.scope.outputs.docs_only == 'true'
+        run: echo "Only documentation changed. The install, type check, tests, build and audit were skipped. The secret scan ran." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tests ran on the pull request
+        if: steps.scope.outputs.docs_only != 'true' && github.event_name == 'push'
+        run: echo "A push to main does not run the tests, which ran on the pull request. Start this workflow by hand for the full gate." >> "$GITHUB_STEP_SUMMARY"
+
+      # The pnpm version comes from the packageManager field in package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.scope.outputs.docs_only != 'true'
+        with:
+          package_json_file: apps/nooscape-relay/package.json
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.scope.outputs.docs_only != 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/nooscape-relay/pnpm-lock.yaml
+
+      - name: Install
+        if: steps.scope.outputs.docs_only != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        if: steps.scope.outputs.docs_only != 'true'
+        run: pnpm check
+
+      - name: Test
+        if: steps.scope.outputs.docs_only != 'true' && github.event_name != 'push'
+        run: pnpm test
+        env:
+          # The default in gateIntegration.test.ts, stated here so the wiring is visible.
+          GATE_TEST_DATABASE_URL: mysql://root:nooscape@127.0.0.1:3307
+
+      - name: Build
+        if: steps.scope.outputs.docs_only != 'true'
+        run: pnpm build
+
+      # The Manus template's debug collector and runtime bridge shipped once as a public file (review 2026-10-16).
+      - name: No Manus tooling in the build
+        if: steps.scope.outputs.docs_only != 'true'
+        run: |
+          if grep -rIlE '__manus__|manus-runtime|debug-collector' dist; then
+            echo 'Manus tooling is in the build output.' >&2
+            exit 1
+          fi
+
+      # Advisory: a new upstream advisory should be seen, but must not block an
+      # unrelated merge.
+      - name: Dependency audit (advisory)
+        if: steps.scope.outputs.docs_only != 'true'
+        run: pnpm audit --prod
+        continue-on-error: true

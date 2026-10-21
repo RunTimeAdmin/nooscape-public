@@ -1,0 +1,12 @@
+ALTER TABLE `agent_directory_entries` ADD COLUMN `assetClosedAt` timestamp NULL;
+-- Reviewed apply note (2026-10-12): Metaplex chain closures become hide-once.
+-- When a chain pass observes a previously acknowledged agent's Core asset
+-- closed/burned, it acknowledges exactly one asset_closed ledger event and
+-- marks the directory row with assetClosedAt; every public read excludes
+-- marked rows, and the row deliberately keeps its last display name and
+-- registrant (no placeholder overwrite, no owner clearing). Later passes see
+-- the marker in their prior state and skip the row without emitting another
+-- event, so acknowledged closures can never consume the per-pass event cap;
+-- an asset that registers again gets a fresh live upsert, which clears the
+-- marker and returns the row to public reads. The column stays null for every
+-- row of every other protocol. Applied automatically at boot before traffic.

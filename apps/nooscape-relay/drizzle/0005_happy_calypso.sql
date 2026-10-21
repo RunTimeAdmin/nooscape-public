@@ -1,0 +1,3 @@
+ALTER TABLE `agent_endpoints` MODIFY COLUMN `protocol` enum('a2a','anp','agntcy','erc8004','catalog','census') NOT NULL;--> statement-breakpoint
+ALTER TABLE `ingestion_sources` MODIFY COLUMN `protocol` enum('a2a','anp','agntcy','erc8004','catalog','census') NOT NULL;--> statement-breakpoint
+ALTER TABLE `source_observations` MODIFY COLUMN `protocol` enum('a2a','anp','agntcy','erc8004','catalog','census') NOT NULL;

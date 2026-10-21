@@ -1,0 +1,51 @@
+{
+  "name": "nooscape-mcp",
+  "version": "0.1.0",
+  "mcpName": "io.github.RunTimeAdmin/nooscape-mcp",
+  "description": "MCP server for Nooscape: ask what is on record about an AI agent, a wallet or an endpoint before you pay it or rely on it. A read-only client of the public Nooscape API.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "nooscape-mcp": "dist/cli.js"
+  },
+  "main": "dist/server.js",
+  "files": [
+    "dist",
+    "manifest.json",
+    "server.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RunTimeAdmin/nooscape.git",
+    "directory": "packages/nooscape-mcp"
+  },
+  "homepage": "https://nooscape.si/developers",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "erc-8004",
+    "x402",
+    "nooscape"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

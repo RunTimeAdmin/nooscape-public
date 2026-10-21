@@ -1,0 +1,4 @@
+ALTER TABLE `agent_identities` MODIFY COLUMN `identityType` enum('a2a_url','anp_url','erc8004','did','domain','wallet','solana_mint') NOT NULL;--> statement-breakpoint
+ALTER TABLE `ingestion_sources` MODIFY COLUMN `protocol` enum('a2a','anp','agntcy','erc8004','catalog','census','solana_registry') NOT NULL;--> statement-breakpoint
+ALTER TABLE `source_observations` MODIFY COLUMN `protocol` enum('a2a','anp','agntcy','erc8004','catalog','census','solana_registry') NOT NULL;--> statement-breakpoint
+ALTER TABLE `ingestion_sources` ADD `executionPolicy` enum('scheduled','manual_only') DEFAULT 'scheduled' NOT NULL;

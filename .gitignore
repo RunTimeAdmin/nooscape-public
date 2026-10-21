@@ -1,0 +1,15 @@
+# Workspace dependencies and generated output
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Runtime and local tooling data
+.manus-logs/
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.DS_Store
+*.swp

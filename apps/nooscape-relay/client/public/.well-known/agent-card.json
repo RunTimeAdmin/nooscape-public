@@ -1,0 +1,22 @@
+{
+  "name": "Nooscape Observatory",
+  "description": "Public metadata-only A2A discovery card for Nooscape's evidence-first machine-mind observatory. This pilot card is owned by Nooscape and exists solely to validate bounded discovery, immutable evidence retention, and provenance records.",
+  "version": "1.0.0",
+  "protocolVersion": "0.3.0",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "skills": [
+    {
+      "id": "agent-discovery-metadata",
+      "name": "Agent discovery metadata",
+      "description": "Exposes public capability and provenance metadata without invoking tools or transacting."
+    },
+    {
+      "id": "evidence-verification",
+      "name": "Evidence verification",
+      "description": "Explains the public verification surface for signed Nooscape evidence packets."
+    }
+  ]
+}

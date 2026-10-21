@@ -1,0 +1,7 @@
+# Public pages are discoverable; API and internal operator surfaces are not.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+
+Sitemap: https://nooscape.si/sitemap.xml

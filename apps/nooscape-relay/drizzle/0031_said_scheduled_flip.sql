@@ -1,0 +1,28 @@
+-- SAID chain pass scheduled flip (migration 0031). The same reviewed flip the
+-- Metaplex chain pass received from 0021 and the 8004 pass from 0027: the
+-- source moves from operator-paced to the scheduler, so the SAID identity
+-- directory refreshes itself and no one has to press "Fill chain state".
+--
+-- Preconditions, all encoded in the WHERE so a fresh or unhealthy deployment
+-- never wakes up to an unattended pass: the source is active, it is still
+-- manual_only (so re-running this file is a no-op and an operator's later
+-- cadence change is never overwritten), it holds a `said:` seed cursor (an
+-- operator staged, approved, and ran the seed, which acknowledged 13,313 of
+-- 13,313 enumerated identities on 2026-10-13), it has a recorded success, and
+-- it has no recorded failure.
+--
+-- What the unattended pass is: the reviewed directory-only posture. Two
+-- Solana RPC requests, one memcmp-filtered getProgramAccounts, strict
+-- fail-closed decode, a 98%-of-prior enumeration floor, and an upsert into
+-- agent_directory_entries. It writes no agent, snapshot, or evidence event, so
+-- no run can add a reviewed record. A failed pass leaves the cursor and every
+-- directory row untouched, and the next tick retries from the same place.
+--
+-- Cadence 60 minutes: SAID registers roughly 60 identities a day, each pass
+-- downloads about 8 MB, and the worker claims due sources oldest-nextRunAt
+-- first at two per 15-minute tick, so an hourly source takes its turn without
+-- starving the 15- and 30-minute chain passes. nextRunAt uses NOW(), not
+-- UTC_TIMESTAMP(): NOW() is correct for a TIMESTAMP column whatever the
+-- session time zone, while UTC_TIMESTAMP() is only correct when the session is
+-- already UTC. The worker's maxSourcesPerTick and interval are not touched.
+UPDATE `ingestion_sources` SET `executionPolicy` = 'scheduled', `scheduleMinutes` = 60, `nextRunAt` = NOW() WHERE `sourceKey` = 'solana-said-agent-registry' AND `protocol` = 'solana_said' AND `state` = 'active' AND `executionPolicy` = 'manual_only' AND `cursor` LIKE 'said:%' AND `lastSuccessfulAt` IS NOT NULL AND `failureCount` = 0;

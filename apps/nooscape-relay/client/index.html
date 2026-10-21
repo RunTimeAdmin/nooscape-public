@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#05070A" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="application-name" content="Nooscape" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Nooscape" />
+    <meta
+      name="description"
+      content="Nooscape is an open agent observatory. It watches the public agent registries on Solana, Robinhood Chain and BNB Chain, keeps the evidence it can read, and labels each record by how much has been checked."
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://nooscape.si/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="alternate icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#bfff76" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:site_name" content="Nooscape" />
+    <meta property="og:url" content="https://nooscape.si/" />
+    <meta property="og:title" content="Nooscape: Open Agent Observatory" />
+    <meta
+      property="og:description"
+      content="Look up any agent in the public registries on Solana, Robinhood Chain and BNB Chain, and see what the evidence shows."
+    />
+    <meta property="og:image" content="https://nooscape.si/nooscape-card-observatory.png" />
+    <meta property="og:image:secure_url" content="https://nooscape.si/nooscape-card-observatory.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Nooscape: an owl in a cap and goggles, with a radar eye, inside rings of nodes, beside the words Open agent observatory, the name Nooscape and the line No scores for sale. No rankings for hire." />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@Nooscape" />
+    <meta name="twitter:creator" content="@Nooscape" />
+    <meta name="twitter:title" content="Nooscape: Open Agent Observatory" />
+    <meta
+      name="twitter:description"
+      content="Look up any agent in the public registries on Solana, Robinhood Chain and BNB Chain, and see what the evidence shows."
+    />
+    <meta name="twitter:image" content="https://nooscape.si/nooscape-card-observatory.png" />
+    <meta name="twitter:image:alt" content="Nooscape: an owl in a cap and goggles, with a radar eye, inside rings of nodes, beside the words Open agent observatory, the name Nooscape and the line No scores for sale. No rankings for hire." />
+
+    <title>Nooscape: Open Agent Observatory</title>
+    <style>
+      /* The page before any script has run: the header, the headline and the subcopy, painted at once.
+         React replaces everything inside #root when it mounts, so none of this outlives the first render. */
+      html { background: #05070a; }
+      body { margin: 0; background: #05070a; color: #eaf7ee; font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif; }
+      .ns-boot { min-height: 100vh; background-image: radial-gradient(circle at 75% -10%, rgba(106, 74, 180, 0.1), transparent 34%), radial-gradient(circle at 0 38%, rgba(120, 255, 118, 0.05), transparent 35%); }
+      .ns-boot-header, .ns-boot-main { max-width: 1540px; margin: 0 auto; padding-inline: 1.25rem; box-sizing: border-box; }
+      .ns-boot-header { display: flex; align-items: center; gap: 0.75rem; padding-block: 1.25rem; }
+      .ns-boot-mark { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border: 1px solid rgba(191, 255, 118, 0.5); border-radius: 999px; background: rgba(191, 255, 118, 0.08); }
+      .ns-boot-mark img { width: 2rem; height: 2rem; border-radius: 0.75rem; }
+      .ns-boot-brand b { display: block; font-size: 0.875rem; font-weight: 600; letter-spacing: 0.29em; text-transform: uppercase; color: #f1fff3; }
+      .ns-boot-brand small { display: block; margin-top: 0.125rem; font: 12px "DM Mono", ui-monospace, monospace; letter-spacing: 0.18em; text-transform: uppercase; color: #9aa8b8; }
+      .ns-boot-main { padding-block: 1.5rem 3rem; }
+      .ns-boot-headline { margin: 0; max-width: 64rem; font-size: clamp(2.5rem, 5vw, 4.5rem); font-weight: 600; line-height: 1.02; letter-spacing: -0.045em; text-wrap: balance; color: #e8eef5; }
+      .ns-boot-headline span { display: block; }
+      .ns-boot-headline span + span { background: linear-gradient(100deg, #bfff76 10%, #d7cbff 50%, #65ecff 85%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .ns-boot-copy { margin: 1.25rem 0 0; max-width: 44rem; font-size: 1.125rem; line-height: 1.65; color: #9aa8b8; }
+      .ns-boot-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; }
+      .ns-boot-actions i { display: block; width: 9.5rem; height: 3rem; border-radius: 999px; background: rgba(255, 255, 255, 0.08); }
+      .ns-boot-actions i:first-child { background: rgba(124, 245, 200, 0.25); }
+      .ns-boot-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; max-width: 44rem; margin-top: 2rem; }
+      .ns-boot-figures i { display: block; height: 2.5rem; border-radius: 0.5rem; background: rgba(255, 255, 255, 0.08); }
+      @media (min-width: 1024px) { .ns-boot-header, .ns-boot-main { padding-inline: 2rem; } }
+      @media (prefers-reduced-motion: no-preference) { .ns-boot-actions i, .ns-boot-figures i { animation: ns-boot-pulse 1.6s ease-in-out infinite; } }
+      @keyframes ns-boot-pulse { 50% { opacity: 0.45; } }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="ns-boot">
+        <header class="ns-boot-header">
+          <span class="ns-boot-mark"><img src="/favicon.svg" alt="" width="32" height="32" /></span>
+          <span class="ns-boot-brand"><b>Nooscape</b><small>Open agent observatory</small></span>
+        </header>
+        <main class="ns-boot-main">
+          <h1 class="ns-boot-headline"><span>The Owl watches the Noosphere.</span><span>Look up any agent. See what the evidence shows.</span></h1>
+          <p class="ns-boot-copy">Nooscape watches the public agent registries on Solana, Robinhood Chain and BNB Chain, groups the copycat fleets, and keeps the evidence it can read, labeled by how much has been checked. Most records are listed only. A few are reviewed. No scores for sale. No rankings for hire.</p>
+          <div class="ns-boot-actions" aria-hidden="true"><i></i><i></i></div>
+          <div class="ns-boot-figures" aria-hidden="true"><i></i><i></i><i></i></div>
+        </main>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script defer src="https://cloud.umami.is/script.js" data-website-id="a007d65a-2990-479a-9480-8af3cef59de9" data-domains="nooscape.si,www.nooscape.si"></script>
+  </body>
+</html>

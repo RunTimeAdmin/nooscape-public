@@ -1,0 +1,19 @@
+-- Clear the false failures recorded on the Robinhood reputation source
+-- (migration 0032). The source's cursor is `rb:done`: the reputation backfill
+-- reached genesis cleanly. Two manual runs were then started in backfill mode
+-- (the "Backfill window" button, still offered at that position), and the
+-- adapter refused each with its own guard message, "The reputation backfill
+-- already reached genesis (rb:done); continue with the ratings fill (activity)
+-- mode." Each refusal was recorded as a failed run, so the source reads
+-- failureCount 2 and the public status and the live health check warn forever.
+-- That was an operator mistake the code now refuses before it opens a run (and
+-- the console no longer offers that button at this position), not a fault.
+--
+-- This resets only that exact situation. Every condition in the WHERE must
+-- hold: the reputation source, a cursor of exactly `rb:done`, a recorded
+-- failure, and a lastError that is the guard message above. A source with any
+-- other error (a real RPC failure, a reorg, a tripwire) is untouched, so a real
+-- fault can never be cleared by this file. The failed ingestion_runs rows keep
+-- their history; only the source row's counter and last-error text reset. A
+-- second run is a no-op (failureCount is already 0).
+UPDATE `ingestion_sources` SET `failureCount` = 0, `lastError` = NULL WHERE `sourceKey` = 'robinhood-erc8004-reputation-registry' AND `protocol` = 'erc8004_reputation' AND `cursor` = 'rb:done' AND `failureCount` > 0 AND `lastError` LIKE 'The reputation backfill already reached genesis (rb:done)%';

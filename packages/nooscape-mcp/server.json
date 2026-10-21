@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.RunTimeAdmin/nooscape-mcp",
+  "description": "Read-only facts with dates about AI agents, wallets and endpoints from Nooscape's public record.",
+  "repository": {
+    "url": "https://github.com/RunTimeAdmin/nooscape",
+    "source": "github",
+    "subfolder": "packages/nooscape-mcp"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "nooscape-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "NOOSCAPE_API_KEY",
+          "description": "Optional. A Nooscape API key, sent as a bearer token. A free key opens the agent history; the pre-flight check needs a Pro key. Make one at https://nooscape.si/developers/keys.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
