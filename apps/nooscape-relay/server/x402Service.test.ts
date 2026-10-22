@@ -19,8 +19,8 @@ function setup(options: { script?: Parameters<typeof newFacilitator>[1]; config?
   const clock = { ms: Date.now() };
   const service = createPaymentService({ config, ledger: store.ledger, fetchImpl: facilitator.fetchImpl, now: () => new Date(clock.ms) });
   const buyer = newBuyer();
-  const context = (endpoint: "agent" | "check" = "check", over: Parameters<typeof buyer.pay>[2] = {}): PayContext => {
-    const payment = buyer.pay(config, endpoint, over);
+  const context = (endpoint: "agent" | "check" = "check", over: Parameters<typeof buyer.pay>[2] = {}, from = buyer): PayContext => {
+    const payment = from.pay(config, endpoint, over);
     const accepted = service.accept(endpoint, headerOf(payment), RESOURCE);
     if (!accepted.ok) throw new Error(`not accepted: ${JSON.stringify(accepted.reply.body)}`);
     return accepted.context;
@@ -337,8 +337,9 @@ describe("a burst", () => {
 
   it("starts at most 300 new payments a minute from everyone, and says so without recording the rest", async () => {
     const { service, store, facilitator, context } = setup();
-    for (let index = 0; index < MAX_NEW_PER_MINUTE; index += 1) expect((await service.charge(context(), "s")).deliver, `payment ${index + 1}`).toBe(true);
-    const over = await service.charge(context(), "s");
+    // Each from a wallet of its own: one wallet may start only so many in a minute (the cases on the funds and the pace of a payer).
+    for (let index = 0; index < MAX_NEW_PER_MINUTE; index += 1) expect((await service.charge(context("check", {}, newBuyer()), "s")).deliver, `payment ${index + 1}`).toBe(true);
+    const over = await service.charge(context("check", {}, newBuyer()), "s");
     expect(statusOf(over)).toBe(503);
     expect(said(over)).toMatch(/started right now/);
     expect(!over.deliver && over.reply.headers["retry-after"]).toBe("10");

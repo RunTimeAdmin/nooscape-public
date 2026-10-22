@@ -505,6 +505,9 @@ describe("what the check is held to", () => {
       expect(Object.keys((API_V1_SPEC.components.schemas.CheckResult.properties.flags.properties as Record<string, unknown>)), flag).toContain(flag);
     }
     expect(read("../client/src/lib/apiKeysFlow.ts")).toContain("needs a Pro key");
+    // Where pay per call is on a call with no key can be paid for, and the pages say so beside the key.
+    expect(read("../client/src/lib/apiKeysFlow.ts")).toContain("With no key it can be paid for per call where pay per call is on");
+    expect(developer).toContain('label="Pro key, or pay per call');
     expect(read("../shared/apiKey.ts")).toContain('export const CHECK_MIN_TIER: ApiTier = "pro";');
   });
 

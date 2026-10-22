@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bazaarFor, checkDiscovery, CHECK_BODY_EXAMPLE, LOOKUP_ROUTE_TEMPLATE, lookupDiscovery, type BazaarExtension } from "./x402Bazaar";
+import { problems, schemaOf } from "./apiV1Check";
+import { bazaarFor, checkDiscovery, CHECK_BODY_EXAMPLE, CHECK_OUTPUT_EXAMPLE, LOOKUP_ROUTE_TEMPLATE, lookupDiscovery, type BazaarExtension } from "./x402Bazaar";
 
 /**
  * The Bazaar block of a 402 (docs/x402-discovery-2026-10-21.md). The reference package's validator checks that `info` validates against
@@ -15,7 +16,23 @@ const LONG_DASH = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`);
 describe("the check's block", () => {
   it("is the reference package's shape for a JSON body, with the check's own body schema", () => {
     expect(checkDiscovery()).toEqual({
-      info: { input: { type: "http", method: "POST", bodyType: "json", body: { agent: { chain: "arc", id: "1" } } } },
+      info: {
+        input: { type: "http", method: "POST", bodyType: "json", body: { agent: { chain: "arc", id: "1" } } },
+        output: {
+          type: "json",
+          example: {
+            data: {
+              subject: { type: "agent", value: "arc/1" },
+              results: [
+                {
+                  evidence: { level: "checked_unproven" },
+                  flags: { first_seen: { present: false }, ownership_changes: { present: false }, revoked_feedback: { present: null }, fleet: { present: false } },
+                },
+              ],
+            },
+          },
+        },
+      },
       schema: {
         $schema: SCHEMA,
         type: "object",
@@ -40,6 +57,8 @@ describe("the check's block", () => {
             required: ["type", "method", "bodyType", "body"],
             additionalProperties: false,
           },
+          // What the reference package declares for an answer shown as an example: AgentCash's validator calls a block without it an error.
+          output: { type: "object", properties: { type: { type: "string" }, example: { type: "object" } }, required: ["type"] },
         },
         required: ["input"],
       },
@@ -136,15 +155,33 @@ describe("what info says and what schema allows", () => {
 
 describe("its size", () => {
   it("stays small, because the PAYMENT-REQUIRED header is the base64 of the body and a client sends the block back in its payment", () => {
-    expect(JSON.stringify(checkDiscovery()).length).toBeLessThan(900);
+    // The check's block was 790 bytes before it showed an answer; it is 1,185 with the output schema and the abridged example.
+    expect(JSON.stringify(checkDiscovery()).length).toBeLessThan(1300);
     expect(JSON.stringify(lookupDiscovery()).length).toBeLessThan(700);
   });
 
-  it("describes the calls with no example of an answer and no free text", () => {
+  it("shows an answer for the check alone, and has no free text in either block", () => {
+    expect(checkDiscovery().info.output).toEqual({ type: "json", example: CHECK_OUTPUT_EXAMPLE });
+    expect(lookupDiscovery().info).not.toHaveProperty("output");
     for (const extension of [checkDiscovery(), lookupDiscovery()]) {
-      expect(extension.info).not.toHaveProperty("output");
       expect(JSON.stringify(extension)).not.toContain("description");
       expect(JSON.stringify(extension)).not.toMatch(LONG_DASH);
     }
+  });
+
+  it("holds the abridged answer to the real one: every key is in the API's document with a type and a value it allows, and only what is left out is missing", () => {
+    const found = problems(schemaOf("CheckResponse"), CHECK_OUTPUT_EXAMPLE);
+    // An abridged example leaves keys out on purpose; nothing in it may be unknown, mistyped or out of the document's enum.
+    expect(found.filter(line => !line.endsWith(": missing"))).toEqual([]);
+    expect(found.some(line => line.endsWith(": missing"))).toBe(true);
+  });
+
+  it("the schema allows what the example says: an object with a type, and the example an object", () => {
+    const schema = (checkDiscovery().schema as { properties: { output: { properties: { type: { type: string }; example: { type: string } }; required: string[] } } }).properties.output;
+    expect(schema.required).toEqual(["type"]);
+    expect(schema.properties.type.type).toBe("string");
+    expect(schema.properties.example.type).toBe("object");
+    expect(typeof checkDiscovery().info.output!.type).toBe("string");
+    expect(typeof checkDiscovery().info.output!.example).toBe("object");
   });
 });

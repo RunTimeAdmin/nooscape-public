@@ -6,10 +6,11 @@ import { API_TIERS, type ApiKeyRecord } from "./apiKeys";
 import { API_V1_SPEC } from "./apiV1Spec";
 import { problems, schemaOf } from "./apiV1Check";
 import { resetRateLimits } from "./rateLimit";
-import { ARC_MAINNET } from "./x402";
+import { ARC_MAINNET, BASE_MAINNET } from "./x402";
+import { CDP_FACILITATOR_URL } from "./x402Cdp";
 import { createPaymentService } from "./x402Service";
 import type { Rpc } from "./x402Chain";
-import { facilitatorAnswers, fakeChain, headerOf, memoryLedger, newBuyer, newContractBuyer, newFacilitator, testConfig, TEST_CIRCLE_KEY } from "./x402Testing";
+import { facilitatorAnswers, fakeChain, headerOf, memoryLedger, newBuyer, newCdpKeys, newContractBuyer, newFacilitator, testConfig, TEST_CIRCLE_KEY } from "./x402Testing";
 
 /**
  * Pay per call on the REST API (docs/data-access-2026-10-19.md, stage D4), over a real port with the data and the facilitator injected.
@@ -76,9 +77,10 @@ function world(options: { config?: ReturnType<typeof testConfig> | null; ready?:
   return { deps, store, facilitator, buyer: newBuyer(), payments };
 }
 
-async function start(deps: ApiV1Deps) {
+async function start(deps: ApiV1Deps, before?: (app: express.Express) => void) {
   await stop();
   const app = express();
+  before?.(app);
   registerApiV1(app, deps);
   await new Promise<void>(done => {
     server = app.listen(0, "127.0.0.1", () => done());
@@ -376,6 +378,26 @@ describe("the check", () => {
     expect(offer.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("is told the price in a reply without the headers only a document needs, and the free answer beside it keeps them", async () => {
+    const { deps } = world();
+    // What server/_core/securityHeaders.ts puts on every response of the site.
+    const all = { "Content-Security-Policy": "default-src 'none'", "Permissions-Policy": "camera=()", "Cross-Origin-Opener-Policy": "same-origin", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "Strict-Transport-Security": "max-age=1" };
+    await start(deps, app =>
+      app.use((_req, res, next) => {
+        res.set(all);
+        next();
+      })
+    );
+    const offer = await check(CHECK_AGENT);
+    expect(offer.status).toBe(402);
+    for (const name of ["content-security-policy", "permissions-policy", "cross-origin-opener-policy", "referrer-policy", "x-frame-options"]) expect(offer.headers.get(name), name).toBeNull();
+    expect(offer.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(offer.headers.get("strict-transport-security")).toBe("max-age=1");
+    const free = await lookup();
+    expect(free.status).toBe(200);
+    for (const [name, value] of Object.entries(all)) expect(free.headers.get(name), name).toBe(value);
+  });
+
   it("is delivered for a payment with exactly the answer a Pro key gets: payment changes nothing about what is said", async () => {
     const { deps, buyer, store, facilitator } = world();
     await start(deps);
@@ -593,6 +615,94 @@ describe("what is written down", () => {
     const logged = [console.log, console.warn, console.error].flatMap(spy => vi.mocked(spy).mock.calls.flat()).join(" ");
     expect(logged).not.toContain(payment.payload.signature);
     expect(logged).not.toContain(TEST_CIRCLE_KEY);
+    expect(logged.toLowerCase()).not.toContain(buyer.address.toLowerCase());
+    expect(logged).toMatch(/\[x402\] paid check nsc_/);
+  });
+});
+
+describe("with Base on beside Arc", () => {
+  const keys = newCdpKeys();
+  const both = testConfig(keys.env);
+
+  it("offers Base first and Arc second in a 402 that fits the spec, and lists both networks in the index, which fits it too", async () => {
+    const { deps } = world({ config: both });
+    await start(deps);
+    const response = await check(CHECK_AGENT);
+    expect(response.status).toBe(402);
+    const terms = required(response);
+    expect(terms.accepts.map((item: { network: string }) => item.network)).toEqual([BASE_MAINNET, ARC_MAINNET]);
+    const body = await json(response);
+    expect(body).toEqual(terms);
+    expect(problems(schemaOf("PaymentRequired"), body)).toEqual([]);
+    const index = await json(await fetch(`${base}/api/v1`));
+    expect(problems(schemaOf("IndexResponse"), index)).toEqual([]);
+    expect(index.pay_per_call.networks.map((item: { network: string }) => item.network)).toEqual([BASE_MAINNET, ARC_MAINNET]);
+  });
+
+  it("delivers the check for a payment on Base, settled by Coinbase, with the settlement on Base in PAYMENT-RESPONSE, and serves it again without a second charge", async () => {
+    const { deps, buyer, store, facilitator } = world({ config: both });
+    await start(deps);
+    const payment = buyer.pay(both, "check", { network: BASE_MAINNET });
+    const paid = await check(CHECK_AGENT, { "payment-signature": headerOf(payment) });
+    expect(paid.status).toBe(200);
+    expect(problems(schemaOf("CheckResponse"), await json(paid))).toEqual([]);
+    expect(receipt(paid)).toEqual({ success: true, transaction: store.rows[0]!.transaction, network: BASE_MAINNET, payer: buyer.address.toLowerCase() });
+    expect(facilitator.calls.map(call => call.url)).toEqual([`${CDP_FACILITATOR_URL}/settle`]);
+    expect(facilitator.calls[0]!.authorization).not.toBe(`Bearer ${TEST_CIRCLE_KEY}`);
+    expect(store.rows[0]).toMatchObject({ network: BASE_MAINNET, status: "paid", endpoint: "check" });
+    expect((await check(CHECK_AGENT, { "payment-signature": headerOf(payment) })).status).toBe(200);
+    expect(facilitator.calls).toHaveLength(1);
+  });
+
+  it("still delivers a payment on Arc through Circle beside it", async () => {
+    const { deps, buyer, store, facilitator } = world({ config: both });
+    await start(deps);
+    const paid = await check(CHECK_AGENT, { "payment-signature": headerOf(buyer.pay(both, "check", { network: ARC_MAINNET })) });
+    expect(paid.status).toBe(200);
+    expect(receipt(paid)).toMatchObject({ success: true, network: ARC_MAINNET });
+    expect(facilitator.calls[0]!.authorization).toBe(`Bearer ${TEST_CIRCLE_KEY}`);
+    expect(store.rows[0]).toMatchObject({ network: ARC_MAINNET, status: "paid" });
+  });
+
+  it("offers both networks for a lookup past the free limit, and sends Coinbase the route's template for the lookup it settles", async () => {
+    const { deps, buyer, store, facilitator } = world({ config: both });
+    await start(deps);
+    await useUpFreeLookups();
+    const asked = await lookup();
+    expect(asked.status).toBe(402);
+    expect(required(asked).accepts.map((item: { network: string; amount: string }) => `${item.network} ${item.amount}`)).toEqual([`${BASE_MAINNET} 5000`, `${ARC_MAINNET} 5000`]);
+    const paid = await lookup({ "payment-signature": headerOf(buyer.pay(both, "agent", { network: BASE_MAINNET })) });
+    expect(paid.status).toBe(200);
+    expect(store.rows[0]).toMatchObject({ network: BASE_MAINNET, status: "paid", endpoint: "agent", amount: 5000 });
+    expect(facilitator.calls[0]!.body.paymentPayload.resource.url).toBe("https://nooscape.si/api/v1/agents/robinhood/7");
+    expect(JSON.stringify(facilitator.calls[0]!.body.paymentPayload.extensions)).toContain("/api/v1/agents/:chain/:id");
+  });
+
+  it("offers no price for a percent-encoded lookup path, which the route reads as the plain one, and charges nothing for it", async () => {
+    const { deps, buyer, store, facilitator } = world({ config: both });
+    await start(deps);
+    await useUpFreeLookups();
+    const encoded = "/api/v1/agents/%72obinhood/7";
+    const asked = await lookup({}, encoded);
+    expect(asked.status).toBe(429);
+    expect(asked.headers.get("payment-required")).toBeNull();
+    const paid = await lookup({ "payment-signature": headerOf(buyer.pay(both, "agent", { network: BASE_MAINNET })) }, encoded);
+    expect(paid.status).toBe(429);
+    expect(facilitator.calls).toHaveLength(0);
+    expect(store.rows).toHaveLength(0);
+    // The plain path is still offered.
+    expect((await lookup()).status).toBe(402);
+  });
+
+  it("never puts the signature, either key or the payer's address in the log", async () => {
+    const { deps, buyer } = world({ config: both });
+    await start(deps);
+    const payment = buyer.pay(both, "check", { network: BASE_MAINNET });
+    await check(CHECK_AGENT, { "payment-signature": headerOf(payment) });
+    const logged = [console.log, console.warn, console.error].flatMap(spy => vi.mocked(spy).mock.calls.flat()).join(" ");
+    expect(logged).not.toContain(payment.payload.signature);
+    expect(logged).not.toContain(TEST_CIRCLE_KEY);
+    expect(logged).not.toContain(keys.env.CDP_API_KEY_SECRET);
     expect(logged.toLowerCase()).not.toContain(buyer.address.toLowerCase());
     expect(logged).toMatch(/\[x402\] paid check nsc_/);
   });

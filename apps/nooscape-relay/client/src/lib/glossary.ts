@@ -4,6 +4,16 @@
 // shows one of these terms should wrap it in <Term> so the definition is one
 // hover away.
 
+import { EXTRA_CHAIN_LABEL, extraChainsOn } from "@shared/chains";
+
+/**
+ * The regions the Home tabs show (components/home/chainTabsModel.ts), named in a sentence: the three Nooscape has always read, then
+ * each extra chain whose switch is on in this build. With none on it is the sentence the glossary has always had.
+ */
+const REGION_NAMES = ["Robinhood Chain", "BNB Chain", "Solana", ...extraChainsOn(import.meta.env.VITE_FEATURES).map(chain => EXTRA_CHAIN_LABEL[chain])];
+const COUNT_WORD = ["no", "one", "two", "three", "four", "five", "six"];
+const REGIONS_SENTENCE = `${REGION_NAMES.slice(0, -1).join(", ")} and ${REGION_NAMES[REGION_NAMES.length - 1]}: the ${COUNT_WORD[REGION_NAMES.length] ?? REGION_NAMES.length} places Nooscape reads agent registries. Pick one to see only its counts.`;
+
 export type GlossaryKey =
   | "acknowledgement"
   | "erc8004"
@@ -103,7 +113,7 @@ export const glossary: Record<GlossaryKey, { title: string; sentence: string }> 
   },
   regions: {
     title: "Regions",
-    sentence: "Robinhood Chain, BNB Chain and Solana: the three places Nooscape reads agent registries. Pick one to see only its counts.",
+    sentence: REGIONS_SENTENCE,
   },
   askTheOwl: {
     title: "Ask the Owl",

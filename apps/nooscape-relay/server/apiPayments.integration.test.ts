@@ -208,6 +208,19 @@ describe.skipIf(!dbReachable)("pay per call against a real database", { timeout:
     expect(await ledger.find(ARC_TESTNET, row.payer, row.nonce)).toMatchObject({ status: "open", transaction: named, reason: "third" });
   });
 
+  it("keeps the first transaction a payment named when a later send names another, and records the one that settled", async () => {
+    const ledger = ledgerModule.dbPaymentLedger;
+    const row = (await ledger.begin(payment({ nonce: `0x${"0a".repeat(32)}` })))!;
+    const first = `0x${"ab".repeat(32)}`;
+    const later = `0x${"cd".repeat(32)}`;
+    expect(await ledger.resolve(row.id, { status: "open", reason: "first", transaction: first })).toBe(true);
+    expect(await ledger.resolve(row.id, { status: "open", reason: "a later send named another", transaction: later })).toBe(true);
+    expect(await ledger.find(ARC_TESTNET, row.payer, row.nonce)).toMatchObject({ status: "open", transaction: first, reason: "a later send named another" });
+    // A settlement records its own transaction.
+    expect(await ledger.resolve(row.id, { status: "paid", transaction: later })).toBe(true);
+    expect(await ledger.find(ARC_TESTNET, row.payer, row.nonce)).toMatchObject({ status: "paid", transaction: later });
+  });
+
   it("counts the payments nobody will resolve by retrying, and lets the operator set one aside once: never a paid one, and never again", async () => {
     const ledger = ledgerModule.dbPaymentLedger;
     const hourAgo = () => new Date(Date.now() - 60 * 60 * 1000);

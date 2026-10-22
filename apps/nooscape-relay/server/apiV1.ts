@@ -23,7 +23,7 @@ import { checkFlags, checkRequestSchemaFor, CHECK_RESULT_LIMIT, CHECK_STATEMENT,
 import { findVisibleDirectoryEntriesByKey, getAgentDirectoryEntry, listVisibleDirectoryKeys, MAX_AGENT_ENTRY_ACTIVITY_EVENTS, readAgentCheckFacts, searchAgentDirectory } from "./db";
 import { isCircuitOpenError } from "./dbBreaker";
 import { clientKeyFrom, consumeRateLimit } from "./rateLimit";
-import { ARC_USDC, usdOf, type Reply, type X402Config, type X402Endpoint } from "./x402";
+import { railsOf, usdOf, type Rail, type Reply, type X402Config, type X402Endpoint } from "./x402";
 import { sharedPaymentService, type PayContext, type PaymentService } from "./x402Service";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
@@ -378,6 +378,25 @@ export function searchAnswer(query: SearchQuery, page: SearchPage, keys: Map<str
   };
 }
 
+/** The pay-per-call block of the index: every network that takes payment in the order a 402 offers them, and the first of them repeated at the top. */
+function payPerCall(pay: X402Config) {
+  const rails = railsOf(pay);
+  // Only Arc takes a smart-contract wallet, and only when its node is set.
+  const wallets = (rail: Rail) => (rail.network === pay.network && pay.rpc ? ["regular", "smart_contract"] : ["regular"]);
+  const first = rails[0]!;
+  return {
+    protocol: "x402",
+    version: 2,
+    network: first.network,
+    asset: first.asset,
+    pay_to: first.payTo,
+    networks: rails.map(rail => ({ network: rail.network, asset: rail.asset, pay_to: rail.payTo, wallets: wallets(rail) })),
+    prices: { lookup: { amount: pay.prices.agent, usd: usdOf(pay.prices.agent) }, check: { amount: pay.prices.check, usd: usdOf(pay.prices.check) } },
+    applies_to: ["GET /api/v1/agents/{chain}/{id} past the free limit, with no key", "POST /api/v1/check with no key"],
+    wallets: wallets(first),
+  };
+}
+
 export function indexAnswer(now: Date, pay: X402Config | null = null, unresolvedOverHour: number | null | undefined = undefined, chains: readonly ApiChain[] = servedChains()) {
   return {
     api_version: "v1",
@@ -386,20 +405,7 @@ export function indexAnswer(now: Date, pay: X402Config | null = null, unresolved
     documentation: `${PAGE_ORIGIN}/developers`,
     openapi: `${PAGE_ORIGIN}/api/v1/openapi.json`,
     rate_limit: { requests: API_V1_RATE_LIMIT.requests, per: "minute", scope: "ip_address" },
-    ...(pay
-      ? {
-          pay_per_call: {
-            protocol: "x402",
-            version: 2,
-            network: pay.network,
-            asset: ARC_USDC,
-            pay_to: pay.payTo,
-            prices: { lookup: { amount: pay.prices.agent, usd: usdOf(pay.prices.agent) }, check: { amount: pay.prices.check, usd: usdOf(pay.prices.check) } },
-            applies_to: ["GET /api/v1/agents/{chain}/{id} past the free limit, with no key", "POST /api/v1/check with no key"],
-            wallets: pay.rpc ? ["regular", "smart_contract"] : ["regular"],
-          },
-        }
-      : {}),
+    ...(pay ? { pay_per_call: payPerCall(pay) } : {}),
     // Present while pay per call is on or paused: how many payments have not settled for over an hour. The live health check reads it.
     ...(unresolvedOverHour === undefined ? {} : { payments_unresolved_over_hour: unresolvedOverHour }),
     keys: {
@@ -414,7 +420,12 @@ export function indexAnswer(now: Date, pay: X402Config | null = null, unresolved
       { method: "POST", path: "/api/v1/agents/batch", summary: "Up to 25 agents in one request. Needs a key." },
       { method: "GET", path: "/api/v1/agents/{chain}/{id}/history", summary: "An agent's registry events and the public history of its claims. Needs a key." },
       { method: "GET", path: "/api/v1/usage", summary: "What the key has used. Needs a key." },
-      { method: "POST", path: "/api/v1/check", summary: "Pre-flight facts for an agent, a wallet or an endpoint URL, with their dates. Needs a Pro key." },
+      // While pay per call takes payments the check can also be paid for with no key, and the index says so; otherwise a Pro key is the only way in.
+      {
+        method: "POST",
+        path: "/api/v1/check",
+        summary: `Pre-flight facts for an agent, a wallet or an endpoint URL, with their dates. Needs a Pro key${pay ? `, or ${usdOf(pay.prices.check)} a call with no key` : ""}.`,
+      },
       { method: "GET", path: "/api/v1/watches", summary: "The listings this key watches. Needs a Builder key." },
       { method: "POST", path: "/api/v1/watches", summary: "Watch up to 25 more listings, up to 100 in all. Needs a Builder key." },
       { method: "DELETE", path: "/api/v1/watches/{nooscape_id}", summary: "Stop watching a listing. Needs a Builder key." },
@@ -580,13 +591,25 @@ const OFFERS_PER_MINUTE = 300;
 
 function payableEndpoint(req: Request): X402Endpoint | null {
   if (req.path.length > 200) return null;
+  // The route reads a percent-encoded chain or id as the plain one, and the address of the resource is what a catalogue lists: an encoding is not paid for.
+  if (req.path.includes("%")) return null;
   const endpoint = endpointOf(req.path);
   if (req.method === "GET" && endpoint === "agent") return "agent";
   if (req.method === "POST" && endpoint === "check") return "check";
   return null;
 }
 
-const sendReply = (res: Response, reply: Reply) => void res.status(reply.status).set("Cache-Control", "no-store").set(reply.headers).json(reply.body);
+/**
+ * A payment reply is read by a program, so it leaves out the headers that only a document needs: a Content-Security-Policy of about 360
+ * bytes, a Permissions-Policy, a Cross-Origin-Opener-Policy, a Referrer-Policy and an X-Frame-Options, about 540 bytes together. The 402's
+ * header block was 3.9 KB at the edge and a proxy may buffer 4 KB; the room goes to the block that describes the route. Nosniff, HSTS and the
+ * cross-origin resource policy stay, and an answer, and every other response, keeps all of them.
+ */
+const DOCUMENT_ONLY_HEADERS = ["Content-Security-Policy", "Permissions-Policy", "Cross-Origin-Opener-Policy", "Referrer-Policy", "X-Frame-Options"];
+const sendReply = (res: Response, reply: Reply) => {
+  for (const name of DOCUMENT_ONLY_HEADERS) res.removeHeader(name);
+  res.status(reply.status).set("Cache-Control", "no-store").set(reply.headers).json(reply.body);
+};
 
 /**
  * A request with no key that may be paid for. With no payment it is told the price (402). With one, the payment is checked here
