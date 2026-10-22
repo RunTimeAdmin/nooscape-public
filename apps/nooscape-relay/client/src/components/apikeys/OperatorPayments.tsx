@@ -105,7 +105,7 @@ export function OperatorPayments() {
       {data ? (
         <div className="source-ops-loading" style={{ display: "block", overflowWrap: "anywhere" }}>
           <p><strong>{STATE_TEXT[data.state]}</strong></p>
-          {"network" in data ? <p>{data.network}. Pays to <code>{data.payTo}</code>. Lookup {dollars(data.prices.lookup)}, check {dollars(data.prices.check)}.</p> : null}
+          {"networks" in data ? <p>{data.networks.join(" and ")}. Pays to <code>{data.payTo}</code>. Lookup {dollars(data.prices.lookup)}, check {dollars(data.prices.check)}.</p> : null}
         </div>
       ) : null}
       {detailed ? (

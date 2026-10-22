@@ -17,7 +17,8 @@ export const EMAIL_USE_LINE = "Your email is kept with the key and used only to 
 export const USAGE_COUNTS_LINE = "Looking up the use of a key counts as one request against it.";
 export const NEVER_CHANGES_LINE = "A key raises how much you can ask. It never changes what the API says: payment never changes a record, a tier or an evidence level.";
 export const PAID_TIERS_LINE = "The Builder and Pro tiers are arranged by email. No prices are set yet.";
-export const CHECK_TIER_LINE = "The pre-flight check, which gives dated facts about an agent, a wallet or an endpoint address, needs a Pro key.";
+export const CHECK_TIER_LINE =
+  "The pre-flight check, which gives dated facts about an agent, a wallet or an endpoint address, needs a Pro key. With no key it can be paid for per call where pay per call is on: see the developer page.";
 export const KEY_UNLOCKS = ["a batch lookup of up to 25 agents in one request", "an agent's history: its registry events and the public history of its claims", "the use of your own key"] as const;
 
 /** The tiers as the page lists them: the name, what it allows, and the plain-words line. */

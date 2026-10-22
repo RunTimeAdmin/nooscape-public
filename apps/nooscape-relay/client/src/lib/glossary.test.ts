@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { directoryFunnelStepCopy, glossary, notYetMeasurable, type GlossaryKey } from "./glossary";
 
 /**
@@ -148,5 +148,26 @@ describe("where the names carry their definitions", () => {
     const component = read("../components/Term.tsx");
     expect(component).toContain("if (!glossary[k]) return <>{children}</>;");
     expect(component).toContain("if (!glossary[k]) return children;");
+  });
+});
+
+describe("the regions sentence", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("names the extra chains whose switch is on in the build, as the Home tabs do, and counts them", async () => {
+    vi.stubEnv("VITE_FEATURES", "chain_base,chain_arc");
+    vi.resetModules();
+    const { glossary: switched } = await import("./glossary");
+    expect(switched.regions.sentence).toBe("Robinhood Chain, BNB Chain, Solana, Base and Arc: the five places Nooscape reads agent registries. Pick one to see only its counts.");
+  });
+
+  it("is the sentence it has always been while no extra chain is on", async () => {
+    vi.stubEnv("VITE_FEATURES", "");
+    vi.resetModules();
+    const { glossary: plain } = await import("./glossary");
+    expect(plain.regions.sentence).toBe("Robinhood Chain, BNB Chain and Solana: the three places Nooscape reads agent registries. Pick one to see only its counts.");
   });
 });

@@ -254,6 +254,8 @@ x402 pay per call (D4, needs the receiving wallet), the Builder-tier fleet, owne
 
 **Status.** Merged (PR 161, 19 Oct 2026) and **live on Arc mainnet**. One manual migration (0044, run by the operator), no new dependency. It was switched on in order: migration 0044, then testnet (a payment from a throwaway wallet through the live site), then mainnet (a real $0.01 payment made by the operator from his own wallet, which arrived at his receiving address exactly once). Testnet and mainnet rows are kept apart in the ledger.
 
+**Later.** Base was added to pay per call on 21 October 2026, settled by Coinbase's facilitator, with Arc left as described here: see [x402-base-bazaar-2026-10-21.md](./x402-base-bazaar-2026-10-21.md).
+
 ## What D4 adds
 
 Where it is switched on, a caller with no key can pay for two things, in USDC on Arc, over [x402](https://x402.org) (version 2):

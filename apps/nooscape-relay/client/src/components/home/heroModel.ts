@@ -12,7 +12,7 @@ import { formatAsOf } from "./chainTabsModel";
 export const HERO_COPY = {
   headline: ["The Owl watches the Noosphere.", "Look up any agent. See what the evidence shows."],
   subcopy:
-    "Nooscape watches the public agent registries on Solana, Robinhood Chain and BNB Chain, groups the copycat fleets, and keeps the evidence it can read, labeled by how much has been checked. Most records are listed only. A few are reviewed. No scores for sale. No rankings for hire.",
+    "Nooscape watches the public agent registries on Solana, Robinhood Chain, BNB Chain, Base and Arc, groups the copycat fleets, and keeps the evidence it can read, labeled by how much has been checked. Most records are listed only. A few are reviewed. No scores for sale. No rankings for hire.",
   primaryCta: "Ask the Owl",
   secondaryCta: "Explore the Noosphere",
 } as const;

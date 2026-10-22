@@ -250,15 +250,31 @@ const indexResponse = {
     payments_unresolved_over_hour: { type: ["integer", "null"], description: "Present while pay per call is on or paused: how many payments have not settled for over an hour and are waiting for the operator, or null when that cannot be read." },
     pay_per_call: {
       type: "object",
-      description: "Present only while pay per call is on: what a caller with no key may pay for, in USDC on Arc (x402, version 2), and to whom.",
-      required: ["protocol", "version", "network", "asset", "pay_to", "prices", "applies_to", "wallets"],
+      description: "Present only while pay per call is on: what a caller with no key may pay for, in USDC on Base (where it is offered) or on Arc (x402, version 2), and to whom. `networks` lists every network that takes payment, in the order a 402 offers them; network, asset, pay_to and wallets repeat the first of them.",
+      required: ["protocol", "version", "network", "asset", "pay_to", "networks", "prices", "applies_to", "wallets"],
       additionalProperties: false,
       properties: {
         protocol: { const: "x402" },
         version: { const: 2 },
-        network: { type: "string" },
+        network: { type: "string", description: "CAIP-2 chain id of the first of networks: where a client that takes the first terms it can sign pays." },
         asset: { type: "string" },
         pay_to: { type: "string" },
+        networks: {
+          type: "array",
+          minItems: 1,
+          maxItems: 2,
+          items: {
+            type: "object",
+            required: ["network", "asset", "pay_to", "wallets"],
+            additionalProperties: false,
+            properties: {
+              network: { type: "string", description: "CAIP-2 chain id: eip155:8453 is Base and eip155:5042 is Arc mainnet." },
+              asset: { type: "string", description: "The USDC contract on that network." },
+              pay_to: { type: "string" },
+              wallets: { type: "array", items: { enum: ["regular", "smart_contract"] }, description: "The kinds of wallet a payment may come from on this network. Base takes regular wallets only." },
+            },
+          },
+        },
         prices: {
           type: "object",
           required: ["lookup", "check"],
@@ -651,14 +667,15 @@ const paymentRequired = {
     accepts: {
       type: "array",
       minItems: 1,
-      maxItems: 1,
+      maxItems: 2,
+      description: "One set of terms for each network that takes payment, Base first where it is offered and then Arc. Pay on any one of them.",
       items: {
         type: "object",
         required: ["scheme", "network", "amount", "asset", "payTo", "maxTimeoutSeconds", "extra"],
         additionalProperties: false,
         properties: {
           scheme: { const: "exact" },
-          network: { type: "string", description: "CAIP-2 chain id: eip155:5042 is Arc mainnet." },
+          network: { type: "string", description: "CAIP-2 chain id: eip155:8453 is Base and eip155:5042 is Arc mainnet." },
           amount: { type: "string", description: "USDC base units (six decimals): 5000 is $0.005." },
           asset: { type: "string", description: "The USDC contract on that network." },
           payTo: { type: "string", description: "The receiving address. The transfer goes from the caller's wallet to it and Nooscape never holds a caller's funds." },
@@ -860,7 +877,7 @@ export const API_V1_SPEC = {
     version: "1.0.0",
     summary: "Read-only facts about agents listed in public registries, each with the date it was read.",
     description:
-      "Nooscape is an observatory. It reads public agent registries and says what it saw and when. This API changes no record: payment never changes a record, a tier or an evidence level, and nothing here says an agent is safe or unsafe. Agents listed here are acknowledged, not reviewed, and have no tier. Text an owner wrote is shown only as the owner's word. The public tier needs no key and allows 30 requests a minute from one address. A free key raises that to 60 a minute and 1,000 a day, and unlocks a batch lookup, an agent's history and the key's own usage. The pre-flight check needs a Pro key. A Builder or Pro key may watch up to 100 listings and have one https address called when something is recorded about one of them (an ownership change, a rating added or taken back, a claim edit, a listing leaving or returning to the public view): the one thing a key can write is its own watchlist and webhook. An event states a recorded fact with its date, in the words this API already uses. It is signed, is sent at least once, and may arrive out of order. Where pay per call is switched on, a caller with no key may instead pay in USDC on Arc (x402, v2) for a lookup past the free limit and for the check: the transfer goes from the caller's wallet to Nooscape's receiving address, and Nooscape never holds a caller's funds.",
+      "Nooscape is an observatory. It reads public agent registries and says what it saw and when. This API changes no record: payment never changes a record, a tier or an evidence level, and nothing here says an agent is safe or unsafe. Agents listed here are acknowledged, not reviewed, and have no tier. Text an owner wrote is shown only as the owner's word. The public tier needs no key and allows 30 requests a minute from one address. A free key raises that to 60 a minute and 1,000 a day, and unlocks a batch lookup, an agent's history and the key's own usage. The pre-flight check needs a Pro key. A Builder or Pro key may watch up to 100 listings and have one https address called when something is recorded about one of them (an ownership change, a rating added or taken back, a claim edit, a listing leaving or returning to the public view): the one thing a key can write is its own watchlist and webhook. An event states a recorded fact with its date, in the words this API already uses. It is signed, is sent at least once, and may arrive out of order. Where pay per call is switched on, a caller with no key may instead pay in USDC on Arc, or on Base where it is offered (x402, v2), for a lookup past the free limit and for the check: the transfer goes from the caller's wallet to Nooscape's receiving address, and Nooscape never holds a caller's funds.",
     license: { name: "Provisional terms", url: "https://nooscape.si/terms" },
     contact: { name: "Nooscape", url: "https://nooscape.si/contact" },
   },

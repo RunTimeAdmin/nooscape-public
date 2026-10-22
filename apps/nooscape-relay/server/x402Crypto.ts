@@ -42,9 +42,13 @@ export function usdcDomainSeparator(chainId: number, verifyingContract: string, 
 
 export type TransferAuthorization = { from: string; to: string; value: string; validAfter: string; validBefore: string; nonce: string };
 
+/** The name and version a USDC contract signs under. Arc's is "USDC" and "2"; Base's is "USD Coin" and "2" (read from its DOMAIN_SEPARATOR). */
+export type UsdcDomain = { name: string; version: string };
+const ARC_DOMAIN: UsdcDomain = { name: "USDC", version: "2" };
+
 /** The digest a wallet signs for this transfer, or null when any field is not what the contract takes. */
-export function transferAuthorizationDigest(chainId: number, verifyingContract: string, authorization: TransferAuthorization): Uint8Array | null {
-  const separator = usdcDomainSeparator(chainId, verifyingContract);
+export function transferAuthorizationDigest(chainId: number, verifyingContract: string, authorization: TransferAuthorization, domain: UsdcDomain = ARC_DOMAIN): Uint8Array | null {
+  const separator = usdcDomainSeparator(chainId, verifyingContract, domain.name, domain.version);
   const value = decimal(authorization.value);
   const validAfter = decimal(authorization.validAfter);
   const validBefore = decimal(authorization.validBefore);
@@ -58,8 +62,8 @@ export function transferAuthorizationDigest(chainId: number, verifyingContract: 
 }
 
 /** The lower-case address that signed this transfer, or null for a signature that is not a canonical 65-byte one or a transfer that is malformed. */
-export function signerOfTransferAuthorization(chainId: number, verifyingContract: string, authorization: TransferAuthorization, signature: string): string | null {
-  const digest = transferAuthorizationDigest(chainId, verifyingContract, authorization);
+export function signerOfTransferAuthorization(chainId: number, verifyingContract: string, authorization: TransferAuthorization, signature: string, domain: UsdcDomain = ARC_DOMAIN): string | null {
+  const digest = transferAuthorizationDigest(chainId, verifyingContract, authorization, domain);
   return digest ? recoverEvmAddress(digest, signature) : null;
 }
 

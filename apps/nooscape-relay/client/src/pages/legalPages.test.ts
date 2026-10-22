@@ -456,9 +456,15 @@ describe("what the privacy and terms pages say about paying for an API call, hel
     expect(migration.split(/\r?\n/).filter(line => !line.startsWith("--")).join(" ")).not.toMatch(/signature|email|ipAddress|clientKey/i);
   });
 
-  it("says who settles a payment, and that Nooscape holds no funds: the facilitator is Circle's and no key that moves money is on the server", () => {
+  it("says who settles a payment, and that Nooscape holds no funds: the facilitators are Circle's and Coinbase's and no key that moves money is on the server", () => {
     expect(privacy).toContain("Circle&rsquo;s x402 facilitator service");
     expect(protocol).toContain("https://api.circle.com/v1/facilitator/x402");
+    // Base is settled by Coinbase's facilitator, which is named on the page and is the one address a Coinbase request is sent to.
+    expect(privacy).toContain("Coinbase&rsquo;s CDP facilitator");
+    expect(privacy).toContain("Coinbase also lists our API in its public catalogue of paid endpoints (the Bazaar)");
+    const cdp = read(join(app, "server", "x402Cdp.ts"));
+    expect(cdp).toContain('CDP_HOST = "api.cdp.coinbase.com"');
+    expect(cdp).toContain('CDP_X402_PATH = "/platform/v2/x402"');
     expect(privacy).toContain("Nooscape never holds your funds");
     for (const text of [protocol, service]) expect(text).not.toMatch(/privateKey|mnemonic|signTypedData|sendTransaction|eth_send/i);
   });
@@ -497,6 +503,9 @@ describe("what the privacy and terms pages say about paying for an API call, hel
     expect(developers).toContain("a request that carries a key is never asked to pay");
     expect(developers).toContain("This version has no refunds.");
     expect(developers).toContain("a wallet has one payment going at a time");
+    // A wallet that holds less than the price is turned away first, and one wallet may start only so many a minute: held to the constant.
+    expect(developers).toContain("A wallet that holds less USDC than the price is refused before the payment is sent on, and one wallet may start 60 new payments a minute.");
+    expect(service).toContain("export const MAX_NEW_PER_PAYER_PER_MINUTE = 60;");
   });
 
   it("says a deployed smart-contract wallet is accepted where the API says so, and one not deployed yet is not, held to the code", () => {
@@ -508,7 +517,8 @@ describe("what the privacy and terms pages say about paying for an API call, hel
     expect(protocol).toContain("the wallet is not deployed yet (an ERC-6492 signature)");
     expect(service).toContain("MAX_CONTRACT_CHECKS_AT_ONCE");
     expect(service).toContain("openFor(cfg.network, payer)");
-    expect(read(join(app, "server", "apiV1.ts"))).toContain('wallets: pay.rpc ? ["regular", "smart_contract"] : ["regular"]');
+    // Only Arc takes such a wallet, and only with its node set: the index says so per network.
+    expect(read(join(app, "server", "apiV1.ts"))).toContain('rail.network === pay.network && pay.rpc ? ["regular", "smart_contract"] : ["regular"]');
   });
 
   it("says the node provider is asked about a smart-contract wallet and sees only public chain data, and the code sends nothing else", () => {
@@ -519,6 +529,15 @@ describe("what the privacy and terms pages say about paying for an API call, hel
     expect(chain).toContain("eth_call");
     expect(chain).not.toMatch(/clientKey|req\.ip|email/i);
     expect(chain).toContain('headers: { "content-type": "application/json" }');
+  });
+
+  it("says the node provider may be asked what a paying wallet holds and sees only public chain data, held to the code", () => {
+    expect(privacy).toContain("our server may also ask a blockchain node provider how much USDC the paying wallet holds");
+    expect(privacy).toContain("That call carries only the wallet&rsquo;s address and the token&rsquo;s address, which are public chain data");
+    const chain = read(join(app, "server", "x402Chain.ts"));
+    // What is sent: one eth_call of balanceOf to the token, naming the wallet. Nothing of the caller's travels with it.
+    expect(chain).toContain('selector("balanceOf(address)")');
+    expect(chain).toContain('rpc("eth_call", [{ to: usdc, data:');
   });
 });
 

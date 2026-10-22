@@ -143,9 +143,10 @@ export const dbPaymentLedger: PaymentLedger = {
       .update(apiPayments)
       .set({
         status: change.status,
-        // A transaction the facilitator named once is never forgotten: a later send that names none keeps it, because it is the best evidence
-        // the operator has when a payment has to be looked at by hand.
-        transaction: change.transaction ?? sql`${apiPayments.transaction}`,
+        // The first transaction a payment names is kept: it is the best evidence the operator has when a payment has to be looked at by hand.
+        // A later send that names none, or another (a broadcast that reverted because the first had already spent the authorization), does not
+        // replace it. Only a settlement replaces it, with the transaction that settled.
+        transaction: change.status === "paid" ? (change.transaction ?? sql`${apiPayments.transaction}`) : sql`COALESCE(${apiPayments.transaction}, ${change.transaction ?? null})`,
         reason: change.reason === undefined || change.reason === null ? null : change.reason.slice(0, 200),
         ...(change.status === "paid" ? { serves: sql`${apiPayments.serves} + 1` } : {}),
         updatedAt: new Date(),

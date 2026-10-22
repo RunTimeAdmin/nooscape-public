@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { bytesToHex, concatBytes, hexToBytes } from "@noble/hashes/utils.js";
 import { addressOfUncompressedKey } from "./claimsCrypto";
 import type { NewPayment, PaymentLedger, PaymentRow } from "./apiPayments";
-import { ARC_MAINNET, ARC_USDC, base64Json, loadX402, requirements, type PaymentPayload, type X402Config, type X402Endpoint } from "./x402";
+import { ARC_MAINNET, base64Json, loadX402, railFor, requirements, type PaymentPayload, type X402Config, type X402Endpoint } from "./x402";
 import { transferAuthorizationDigest } from "./x402Crypto";
 
 /**
@@ -13,6 +13,23 @@ import { transferAuthorizationDigest } from "./x402Crypto";
 
 export const TEST_PAY_TO = "0x14791697260e4c9a71f18484c9f997b308e59325";
 export const TEST_CIRCLE_KEY = `LIVE_API_KEY:${"a".repeat(24)}:${"b".repeat(24)}`;
+
+export const TEST_CDP_ID = "00000000-0000-4000-8000-0000000000c0";
+
+/**
+ * The two CDP settings, from a key made for the test: Ed25519 (what the portal recommends) or ECDSA P-256 (a PEM). `publicKey` verifies the
+ * tokens the key signs. Nothing here is a real key, and none is written down: every call makes a new one.
+ */
+export function newCdpKeys(kind: "ed25519" | "ec" = "ed25519"): { env: { CDP_API_KEY_ID: string; CDP_API_KEY_SECRET: string }; publicKey: KeyObject } {
+  if (kind === "ec") {
+    const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    return { env: { CDP_API_KEY_ID: TEST_CDP_ID, CDP_API_KEY_SECRET: String(pair.privateKey.export({ type: "sec1", format: "pem" })) }, publicKey: pair.publicKey };
+  }
+  const pair = generateKeyPairSync("ed25519");
+  const seed = pair.privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32);
+  const half = pair.publicKey.export({ type: "spki", format: "der" }).subarray(-32);
+  return { env: { CDP_API_KEY_ID: TEST_CDP_ID, CDP_API_KEY_SECRET: Buffer.concat([seed, half]).toString("base64") }, publicKey: pair.publicKey };
+}
 
 export function testConfig(env: Record<string, string> = {}): X402Config {
   return loadX402({ X402_NETWORK: ARC_MAINNET, X402_PAY_TO: TEST_PAY_TO, X402_API_KEY: TEST_CIRCLE_KEY, ...env } as NodeJS.ProcessEnv)!;
@@ -56,7 +73,7 @@ export function memoryLedger(options: { ready?: boolean } = {}) {
       const row = rows.find(item => item.id === id);
       if (!row || (row.status !== "settling" && row.status !== "open")) return false;
       row.status = change.status;
-      row.transaction = change.transaction ?? row.transaction;
+      row.transaction = change.status === "paid" ? (change.transaction ?? row.transaction) : (row.transaction ?? change.transaction ?? null);
       row.reason = change.reason ?? null;
       row.updatedAt = new Date();
       if (change.status === "paid") row.serves += 1;
@@ -94,8 +111,9 @@ export function newBuyer() {
   const secret = secp256k1.utils.randomSecretKey();
   const address = addressOfUncompressedKey(secp256k1.getPublicKey(secret, false));
   let counter = 0;
-  const signature = (cfg: X402Config, authorization: PaymentPayload["payload"]["authorization"]) => {
-    const digest = transferAuthorizationDigest(cfg.chainId, ARC_USDC, authorization);
+  const signature = (cfg: X402Config, authorization: PaymentPayload["payload"]["authorization"], network: string) => {
+    const rail = railFor(cfg, network)!;
+    const digest = transferAuthorizationDigest(rail.chainId, rail.asset, authorization, rail.domain);
     const recoverable = secp256k1.sign(digest ?? new Uint8Array(32), secret, { prehash: false, format: "recovered" });
     const bytes = new Uint8Array(65);
     bytes.set(recoverable.slice(1, 65), 0);
@@ -104,31 +122,41 @@ export function newBuyer() {
   };
   return {
     address,
-    /** A payment for an endpoint. `nonce` defaults to a new one each time; `validFor` is seconds from `nowSeconds`. */
-    pay(cfg: X402Config, endpoint: X402Endpoint, over: { nonce?: string; validFor?: number; nowSeconds?: number } = {}): PaymentPayload {
+    /** A payment for an endpoint, on Arc unless `network` says another. `nonce` defaults to a new one each time; `validFor` is seconds from `nowSeconds`. */
+    pay(cfg: X402Config, endpoint: X402Endpoint, over: { nonce?: string; validFor?: number; nowSeconds?: number; network?: string } = {}): PaymentPayload {
       counter += 1;
+      const rail = railFor(cfg, over.network ?? cfg.network)!;
       const nowSeconds = over.nowSeconds ?? Math.floor(Date.now() / 1000);
       const authorization = {
         from: address,
-        to: cfg.payTo,
+        to: rail.payTo,
         value: cfg.prices[endpoint],
         validAfter: "0",
         validBefore: String(nowSeconds + (over.validFor ?? 120)),
         nonce: over.nonce ?? `0x${randomUUID().replace(/-/g, "")}${counter.toString(16).padStart(32, "0")}`,
       };
-      return { x402Version: 2, accepted: requirements(cfg, endpoint), payload: { signature: signature(cfg, authorization), authorization } };
+      return { x402Version: 2, accepted: requirements(cfg, endpoint, rail), payload: { signature: signature(cfg, authorization, rail.network), authorization } };
     },
   };
 }
 
 export const headerOf = (payment: PaymentPayload) => base64Json(payment);
 
-export type FacilitatorCall = { url: string; authorization: string | undefined; body: { paymentPayload: { payload: { authorization: { from: string; nonce: string } }; extensions: { "payment-identifier": { info: { id: string } } } } } };
+export type FacilitatorCall = {
+  url: string;
+  authorization: string | undefined;
+  body: {
+    paymentPayload: { accepted: { network: string }; resource: { url: string }; payload: { authorization: { from: string; nonce: string } }; extensions: Record<string, { info: { id: string } }> };
+    paymentRequirements: { network: string; payTo: string };
+  };
+};
 
 /**
  * A facilitator that answers each /settle as scripted: by default it settles and names a transaction (the same one for the same
- * payment id, as Circle's idempotency does). `script` is a list of answers used in order, then the default. "lost" settles on the
- * facilitator's side and then never answers, which is the case a payer cannot tell from a payment that did not happen.
+ * payment, as Circle's idempotency does; a call to Coinbase has no idempotency key, so it is keyed by payer and nonce, and a replay of a
+ * payment it settled is refused as Coinbase refuses it). `script` is a list of answers used in order, then the default. "lost" settles on the
+ * facilitator's side and then never answers, which is the case a payer cannot tell from a payment that did not happen. A call to
+ * Coinbase's address is answered in Coinbase's shape, with the Bazaar's EXTENSION-RESPONSES header.
  */
 export function newFacilitator(cfg: X402Config, script: Array<(() => Response | Promise<Response>) | "lost"> = []) {
   const calls: FacilitatorCall[] = [];
@@ -145,14 +173,19 @@ export function newFacilitator(cfg: X402Config, script: Array<(() => Response | 
   const fetchImpl = (async (url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as FacilitatorCall["body"];
     calls.push({ url, authorization: (init.headers as Record<string, string>).authorization, body });
-    const id = body.paymentPayload.extensions["payment-identifier"].info.id;
+    const id = body.paymentPayload.extensions["payment-identifier"]?.info.id ?? `${body.paymentPayload.payload.authorization.from}:${body.paymentPayload.payload.authorization.nonce}`;
     const next = queue.shift();
     if (next === "lost") {
       settle(id);
       throw new TypeError("fetch failed");
     }
     if (next) return next();
-    return Response.json({ success: true, transaction: settle(id), network: cfg.network, payer: body.paymentPayload.payload.authorization.from });
+    const coinbase = String(url).startsWith("https://api.cdp.coinbase.com/");
+    // Coinbase has no idempotency key: a replay of an authorization it has settled is refused, with its catch-all reason (invalid_payload).
+    if (coinbase && settled.has(id)) return Response.json({ success: false, errorReason: "invalid_payload" }, { status: 400 });
+    const answer = { success: true, transaction: settle(id), network: body.paymentPayload.accepted.network, payer: body.paymentPayload.payload.authorization.from };
+    if (!coinbase) return Response.json(answer);
+    return Response.json(answer, { headers: { "extension-responses": base64Json({ bazaar: { status: "processing" } }) } });
   }) as unknown as typeof fetch;
   return { fetchImpl, calls, settled };
 }
@@ -173,18 +206,19 @@ export function newContractBuyer(address = `0x${"c0".repeat(20)}`) {
   let counter = 0;
   return {
     address,
-    pay(cfg: X402Config, endpoint: X402Endpoint, over: { nonce?: string; validFor?: number; nowSeconds?: number; signature?: string } = {}): PaymentPayload {
+    pay(cfg: X402Config, endpoint: X402Endpoint, over: { nonce?: string; validFor?: number; nowSeconds?: number; signature?: string; network?: string } = {}): PaymentPayload {
       counter += 1;
+      const rail = railFor(cfg, over.network ?? cfg.network)!;
       const nowSeconds = over.nowSeconds ?? Math.floor(Date.now() / 1000);
       const authorization = {
         from: address,
-        to: cfg.payTo,
+        to: rail.payTo,
         value: cfg.prices[endpoint],
         validAfter: "0",
         validBefore: String(nowSeconds + (over.validFor ?? 120)),
         nonce: over.nonce ?? `0x${randomUUID().replace(/-/g, "")}${counter.toString(16).padStart(32, "0")}`,
       };
-      return { x402Version: 2, accepted: requirements(cfg, endpoint), payload: { signature: over.signature ?? `0x${randomUUID().replace(/-/g, "").repeat(7).slice(0, 260)}`, authorization } };
+      return { x402Version: 2, accepted: requirements(cfg, endpoint, rail), payload: { signature: over.signature ?? `0x${randomUUID().replace(/-/g, "").repeat(7).slice(0, 260)}`, authorization } };
     },
   };
 }

@@ -160,3 +160,22 @@ export async function checkContractSignature(rpc: Rpc, input: { chainId: number;
     return null;
   }
 }
+
+const BALANCE_OF = selector("balanceOf(address)");
+
+/**
+ * How much USDC a wallet holds, in base units, from one plain eth_call of the token's balanceOf. It is asked before a new payment is sent on to
+ * a facilitator, so that a wallet with nothing in it is turned away here: a signed authorization costs its maker nothing, and each one that
+ * reached the facilitator took a place in the shared budget. Null when the node cannot say (it failed, or its answer is not one 32-byte number),
+ * and then the facilitator decides, as it did before. The node is not trusted to settle anything: it only lets an empty wallet be turned away early.
+ */
+export async function usdcBalance(rpc: Rpc, usdc: string, holder: string): Promise<bigint | null> {
+  try {
+    if (!isEvmAddress(holder) || !isEvmAddress(usdc)) return null;
+    const answer = await rpc("eth_call", [{ to: usdc, data: `0x${bytesToHex(concatBytes(BALANCE_OF, addressWord(holder)))}` }, "latest"]);
+    if (typeof answer !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(answer)) return null;
+    return BigInt(answer);
+  } catch {
+    return null;
+  }
+}

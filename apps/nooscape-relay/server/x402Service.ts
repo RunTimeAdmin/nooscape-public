@@ -3,14 +3,18 @@ import { dbPaymentLedger, type PaymentLedger, type PaymentRow } from "./apiPayme
 import { consumeRateLimit } from "./rateLimit";
 import {
   ARC_USDC,
+  BASE_MAINNET,
   base64Json,
   contractCandidate,
   decodePayment,
   loadX402,
   paymentIdOf,
+  ledgerNetworks,
   paymentProblem,
+  railFor,
+  railsOf,
   settleBody,
-  settleOnce,
+  settleOnRail,
   signatureProblem,
   termsReply,
   timeProblem,
@@ -19,7 +23,7 @@ import {
   type X402Config,
   type X402Endpoint,
 } from "./x402";
-import { checkContractSignature, rpcClient, type Rpc } from "./x402Chain";
+import { checkContractSignature, rpcClient, usdcBalance, type Rpc } from "./x402Chain";
 
 /**
  * What the server does with a payment (docs/data-access-2026-10-19.md, stage D4). The rules that keep a caller's money safe, in the
@@ -37,7 +41,13 @@ import { checkContractSignature, rpcClient, type Rpc } from "./x402Chain";
  *  - A smart-contract wallet (stage D4b) is taken only when a chain node is set, and only after the chain says the wallet's own code accepts
  *    the signature and the transfer would settle (a simulation, before anything is recorded). One such wallet has one payment unresolved at a
  *    time, is paused for a day after a settlement that failed after it was broadcast, and is sent to the facilitator at most twice, because
- *    a wallet's code can change its answer between the simulation and the settlement and the facilitator pays that gas.
+ *    a wallet's code can change its answer between the simulation and the settlement and the facilitator pays that gas. The node is Arc's,
+ *    so only Arc takes such a wallet: a payment on Base must be signed by a regular wallet's key.
+ *  - A payment belongs to the network it names (docs/x402-base-bazaar-2026-10-21.md): it is recorded under that network, and sent to the
+ *    facilitator that settles it. The same authorization on two networks is two payments.
+ *  - A new payment is screened before it takes a place in the shared budget (docs/x402-base-bazaar-2026-10-21.md, "Funds and pace"): a
+ *    regular wallet that holds less USDC than the price is turned away, where a node is set for its network, and one wallet may start only so
+ *    many in a minute. Neither is recorded, so a retry of the same authorization after the wallet is funded is simply a new start.
  * Nothing here changes what an answer says. Payment buys the call and nothing else.
  */
 
@@ -53,6 +63,13 @@ export const MAX_SERVES = 3;
 export const MAX_IN_FLIGHT = 8;
 /** New payments started in a minute, from everyone. The facilitator and the database are shared, and an authorization costs its maker nothing. */
 export const MAX_NEW_PER_MINUTE = 300;
+/** New payments one wallet may start in a minute, once it is known to hold the price: more than that is a flood and not a caller. */
+export const MAX_NEW_PER_PAYER_PER_MINUTE = 60;
+/** Funds checks of payers (each a read on a metered node): how many at once, and how many a minute from everyone. Past either, the check is skipped and the facilitator decides. */
+export const MAX_BALANCE_CHECKS_AT_ONCE = 32;
+export const MAX_BALANCE_CHECKS_PER_MINUTE = 1_200;
+/** How long a node may take to say what a payer holds: the check is on the way of every new payment, and a node that is slow is skipped. */
+export const BALANCE_TIMEOUT_MS = 3_000;
 /** A payment that has been unresolved this long is not going to be resolved by a retry: it is for the operator to look at. */
 export const STALE_AFTER_MS = 60 * 60 * 1000;
 const STALE_COUNT_MS = 60_000;
@@ -88,6 +105,8 @@ export type PaymentServiceOptions = {
   settleTimeoutMs?: number;
   /** The chain node used to check a smart-contract wallet's signature. Defaults to the one in the settings, if any. */
   rpc?: Rpc | null;
+  /** Nodes that say what a payer holds, by network (see balanceNodesOf). None by default, so a service built any other way asks no node. */
+  balanceNodes?: Record<string, Rpc>;
 };
 
 const NO_STORE = { "cache-control": "no-store" };
@@ -107,6 +126,8 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
   const locks = new Map<string, Promise<unknown>>();
   let inFlight = 0;
   let contractChecks = 0;
+  let balanceChecks = 0;
+  const balanceNodes = options.balanceNodes ?? {};
   const rpc: Rpc | null = options.rpc !== undefined ? options.rpc : cfg.rpc ? rpcClient(cfg.rpc, fetchImpl) : null;
 
   /** One at a time for one authorization, so two requests carrying it cannot both start a settlement. */
@@ -158,10 +179,16 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
 
   /** Sends a payment to the facilitator. The caller holds a place for it. */
   async function send(ctx: PayContext, row: PaymentRow, resend: boolean): Promise<Charge> {
-    const result = await settleOnce(cfg, settleBody(cfg, ctx.endpoint, ctx.resource, ctx.payment, row.paymentId), row.payer, fetchImpl, options.settleTimeoutMs);
+    const rail = railFor(cfg, row.network);
+    if (!rail) {
+      // Not reachable from a payment that was accepted (a network we do not take is refused before anything is recorded); never guess a facilitator.
+      await record(row, { status: "open", reason: `not settled: no settlement for ${row.network}` });
+      return { deliver: false, reply: unavailable("Payments cannot be settled right now. Nothing was charged. Try again later.", 60) };
+    }
+    const result = await settleOnRail(cfg, rail, settleBody(cfg, ctx.endpoint, ctx.resource, ctx.payment, row.paymentId), row.payer, fetchImpl, options.settleTimeoutMs);
     if (result.kind === "paid") {
       await record(row, { status: "paid", transaction: result.transaction });
-      console.log(`[x402] paid ${row.endpoint} ${row.paymentId} ${result.transaction}`);
+      console.log(`[x402] paid ${row.endpoint} ${row.paymentId} ${result.transaction} on ${row.network}${result.bazaar ? ` (bazaar: ${result.bazaar})` : ""}`);
       return deliver(row, result.transaction);
     }
     if (result.kind === "refused") {
@@ -169,19 +196,31 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
       // it could not be confirmed, with the id to quote.
       if (resend) {
         await record(row, { status: "open", reason: `refused on resend: ${result.reason}` });
-        return again(ctx, `The payment could not be confirmed (${result.reason}). Sign a new payment. If you were charged, contact the operator and quote ${row.paymentId}.`);
+        return again(ctx, `The payment could not be confirmed (${result.reason}). Check your wallet before paying again: if the USDC was not sent, sign a new payment, and if it was, contact the operator and quote ${row.paymentId}.`);
       }
       await record(row, { status: "refused", reason: result.reason });
       return again(ctx, `The payment was refused (${result.reason}). Nothing was charged. Sign a new payment.`);
     }
     if (result.kind === "unavailable") {
-      console.error(`[x402] the payment service refused our credentials or address (${result.reason}); ${row.paymentId} is open`);
+      console.error(`[x402] the payment service refused our credentials, terms or address (${result.reason}); ${row.paymentId} is open`);
       await record(row, { status: "open", reason: `not settled: ${result.reason}` });
+      // A first send that was refused before anything could move cost nothing. A later send may follow a first whose answer was lost, and that
+      // one may have settled: the caller is not told that nothing was charged.
+      if (resend) {
+        return {
+          deliver: false,
+          reply: unavailable(`This payment could not be confirmed right now. If you were charged, contact the operator and quote ${row.paymentId}. Send the same request again later to try once more.`, 60, { payment_id: row.paymentId }),
+        };
+      }
       return { deliver: false, reply: unavailable("Payments cannot be settled right now. Nothing was charged. Try again later.", 60) };
     }
     // A transaction was named and the facilitator did not call it pending: it was broadcast and failed. The wallet is paused for a day.
     const failed = result.transaction !== undefined && !result.pending;
-    await record(row, { status: "open", reason: failed ? `failed after broadcast: ${result.reason}` : result.reason, transaction: result.transaction ?? null });
+    const said = failed ? `failed after broadcast: ${result.reason}` : result.reason;
+    // The ledger keeps the first transaction a payment named. A later send that names another (a broadcast that reverted because the first had
+    // spent the authorization, for one) is told in the reason, because either may be the one that moved the money.
+    const later = result.transaction !== undefined && row.transaction !== null && result.transaction !== row.transaction ? ` (a later send named ${result.transaction})` : "";
+    await record(row, { status: "open", reason: `${said}${later}`, transaction: result.transaction ?? null });
     return {
       deliver: false,
       reply: unavailable("The payment has not settled yet. Send this same request again with the same payment: you are charged once, and the answer comes when it settles.", 5, { payment_id: row.paymentId }),
@@ -202,13 +241,13 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
     if (row.status === "closed") return again(ctx, `This payment was set aside after the operator looked at it. Sign a new payment. If you were charged, contact the operator and quote ${row.paymentId}.`);
     // settling or open: it may have settled, so it is sent again with the same key, a limited number of times.
     if (row.sends >= (ctx.contract ? MAX_SENDS_CONTRACT : MAX_SENDS)) {
-      return { deliver: false, reply: unavailable(`This payment could not be confirmed. If you were charged, contact the operator and quote ${row.paymentId}. To ask again, sign a new payment.`, null, { payment_id: row.paymentId }) };
+      return { deliver: false, reply: unavailable(`This payment could not be confirmed. If you were charged, contact the operator and quote ${row.paymentId}, and do not pay again until you have heard back. If you were not charged, sign a new payment.`, null, { payment_id: row.paymentId }) };
     }
     const release = reserve();
     if (!release) return busy();
     try {
       if (!(await ledger.countSend(row.id))) {
-        const settled = await ledger.find(cfg.network, row.payer, row.nonce);
+        const settled = await ledger.find(row.network, row.payer, row.nonce);
         if (settled && settled.status !== "settling" && settled.status !== "open") {
           release();
           return await resume(ctx, settled, subjectHash);
@@ -230,6 +269,33 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
     return null;
   }
 
+  /**
+   * What a new payment must pass before it takes a place in the shared budget: the wallet's funds, and then its pace. A regular wallet that
+   * holds less than the price is turned away here with nothing recorded and nothing sent on, because its authorization cost it nothing to
+   * sign and the facilitator would refuse it anyway. A node that cannot say, or a check over its budget, lets the payment through to the
+   * facilitator, which decides as it always has. A smart-contract wallet's funds were part of the chain's simulation already. Only a
+   * wallet that holds the price is counted for its pace, so a flood of empty wallets cannot fill the table of limits.
+   */
+  async function screenPayer(ctx: PayContext, payer: string): Promise<Charge | null> {
+    const network = ctx.payment.accepted.network;
+    const node = ctx.contract ? undefined : balanceNodes[network];
+    const rail = railFor(cfg, network);
+    if (node && rail && consumeRateLimit("x402-balance", MAX_BALANCE_CHECKS_PER_MINUTE, 60_000).allowed && balanceChecks < MAX_BALANCE_CHECKS_AT_ONCE) {
+      balanceChecks += 1;
+      let held: bigint | null;
+      try {
+        held = await usdcBalance(node, rail.asset, payer);
+      } finally {
+        balanceChecks -= 1;
+      }
+      if (held !== null && held < BigInt(ctx.payment.payload.authorization.value)) return again(ctx, "This wallet holds less USDC than the price. Nothing was charged.");
+    }
+    if (!consumeRateLimit(`x402-payer:${network}:${payer}`, MAX_NEW_PER_PAYER_PER_MINUTE, 60_000).allowed) {
+      return { deliver: false, reply: unavailable("Too many payments from this wallet in the last minute. Try again shortly.", 15) };
+    }
+    return null;
+  }
+
   async function start(ctx: PayContext, payer: string, nonce: string, subjectHash: string): Promise<Charge> {
     if (cfg.pauseNew) return { deliver: false, reply: unavailable("Pay per call is paused. Try again later, or use an API key.", 60) };
     const late = timeProblem(ctx.payment, nowSeconds());
@@ -238,14 +304,17 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
       const blocked = await contractGate(payer);
       if (blocked) return blocked;
     }
+    const screened = await screenPayer(ctx, payer);
+    if (screened) return screened;
     if (!consumeRateLimit("x402-start", MAX_NEW_PER_MINUTE, 60_000).allowed) return { deliver: false, reply: unavailable("Too many payments are being started right now. Try again in a moment.", 10) };
     const release = reserve();
     if (!release) return busy();
     try {
       const z = ctx.payment.payload.authorization;
+      const network = ctx.payment.accepted.network;
       const row = await ledger.begin({
         paymentId: paymentIdOf(cfg, ctx.payment, subjectHash),
-        network: cfg.network,
+        network,
         endpoint: ctx.endpoint,
         payer,
         nonce,
@@ -255,7 +324,7 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
       });
       if (row) return await send(ctx, row, false);
       // Another request recorded it first.
-      const found = await ledger.find(cfg.network, payer, nonce);
+      const found = await ledger.find(network, payer, nonce);
       if (found) {
         release();
         return await resume(ctx, found, subjectHash);
@@ -317,8 +386,11 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
       if (staleRead && now().getTime() - staleRead.at < STALE_COUNT_MS) return staleRead.value;
       let value: number | null = null;
       try {
-        value = await ledger.stale(cfg.network, new Date(now().getTime() - STALE_AFTER_MS));
+        const before = new Date(now().getTime() - STALE_AFTER_MS);
+        value = 0;
+        for (const network of ledgerNetworks(cfg)) value += await ledger.stale(network, before);
       } catch {
+        value = null;
         // The count is for telling the operator: a database that does not answer is told as unknown.
       }
       staleRead = { at: now().getTime(), value };
@@ -332,24 +404,39 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
       const seen = inspect(endpoint, header, resource);
       if (seen.kind === "ok") return { ok: true, context: seen.context };
       if (seen.kind === "refused") return { ok: false, reply: seen.reply };
-      // Not a regular wallet's key's signature. Without a node, a smart-contract wallet is not accepted.
-      if (!rpc) return { ok: false, reply: termsReply(cfg, endpoint, resource, seen.keyProblem) };
+      // Not a regular wallet's key's signature. Without a node, a smart-contract wallet is not accepted, and the node is Arc's: on any
+      // other network the chain is not asked.
+      if (!rpc || seen.payment.accepted.network !== cfg.network) return { ok: false, reply: termsReply(cfg, endpoint, resource, seen.keyProblem) };
       return verifyContract(endpoint, seen.payment, resource, rpc);
     },
     charge: (context, subject) => {
       const z = context.payment.payload.authorization;
       const payer = z.from.toLowerCase();
       const nonce = z.nonce.toLowerCase();
+      const network = context.payment.accepted.network;
+      // A payment that was accepted names a network we take; a context built any other way is sent the terms again.
+      if (!railFor(cfg, network)) return Promise.resolve(again(context, "payment terms do not match this resource"));
       const subjectHash = createHash("sha256").update(`${context.endpoint}|${subject}`).digest("hex");
       const run = () =>
-        locked(`${payer}:${nonce}`, async () => {
-          const existing = await ledger.find(cfg.network, payer, nonce);
+        locked(`${network}:${payer}:${nonce}`, async () => {
+          const existing = await ledger.find(network, payer, nonce);
           return existing ? resume(context, existing, subjectHash) : start(context, payer, nonce, subjectHash);
         });
       // A smart-contract wallet has one payment going at a time, so two at once cannot both pass the check for another unresolved one.
       return context.contract ? locked(`payer:${payer}`, run) : run();
     },
   };
+}
+
+/**
+ * The nodes that say what a payer holds, by network: Arc's (X402_RPC, the operator's own) and Base's (BASE_RPC_URL, the provider the Base
+ * identity pass uses). A network with no node is not checked, and its payments go to the facilitator as they did before.
+ */
+export function balanceNodesOf(cfg: X402Config, fetchImpl: typeof fetch = fetch): Record<string, Rpc> {
+  const nodes: Record<string, Rpc> = {};
+  if (cfg.rpc) nodes[cfg.network] = rpcClient(cfg.rpc, fetchImpl, BALANCE_TIMEOUT_MS);
+  if (cfg.baseRpc && railFor(cfg, BASE_MAINNET)) nodes[BASE_MAINNET] = rpcClient(cfg.baseRpc, fetchImpl, BALANCE_TIMEOUT_MS);
+  return nodes;
 }
 
 /**
@@ -360,8 +447,12 @@ export function paymentServiceFromEnv(env: NodeJS.ProcessEnv = process.env, ledg
   try {
     const config = loadX402(env);
     if (!config) return null;
-    console.log(`[x402] pay per call is configured for ${config.network}${config.pauseNew ? " (paused)" : ""}; it takes payments once the api_payments table exists`);
-    return createPaymentService({ config, ledger });
+    console.log(`[x402] pay per call is configured for ${railsOf(config).map(rail => rail.network).join(" and ")}${config.pauseNew ? " (paused)" : ""}; it takes payments once the api_payments table exists`);
+    if (config.baseProblem) console.error(`[x402] Base is not offered: ${config.baseProblem}`);
+    const balanceNodes = balanceNodesOf(config);
+    const unchecked = railsOf(config).filter(rail => !balanceNodes[rail.network]);
+    if (unchecked.length > 0) console.log(`[x402] funds are not checked before a payment is sent on, on ${unchecked.map(rail => rail.network).join(" and ")} (no node is set for it)`);
+    return createPaymentService({ config, ledger, balanceNodes });
   } catch (error) {
     console.error(`[x402] pay per call is off: ${error instanceof Error ? error.message : String(error)}`);
     return null;
