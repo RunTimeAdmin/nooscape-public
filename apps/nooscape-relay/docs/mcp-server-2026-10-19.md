@@ -39,7 +39,7 @@ All five are marked read-only. Each returns a short plain summary, then the API'
 ## Where it lives
 
 - **Public repository:** `RunTimeAdmin/nooscape-mcp` (public, created 19 Oct 2026). One package, TypeScript, `@modelcontextprotocol/sdk` 1.32, zod 4, Node 18 or later, MIT, copyright RunTimeAdmin. Commits are authored with the account's GitHub no-reply address.
-- **In this repository:** `packages/nooscape-mcp` is the copy merged in PR 166. It is standalone (its own `package.json` and lockfile; there is no root workspace, and CI's `gate` only runs in `apps/nooscape-relay`). Its metadata still points at this private repository and its manifest still lists the tools, so it is behind the public repository. **Open: remove it so the public repository is the one home** (recommended), or keep the two in step.
+- **In this repository:** `packages/nooscape-mcp` was the copy merged in PR 166. It was standalone (its own `package.json` and lockfile; there is no root workspace, and CI's `gate` only runs in `apps/nooscape-relay`), and it fell behind the public repository (0.1.0 here, against 0.4.0 there). **Removed on 2026-10-27**, with a pointer left in `packages/nooscape-mcp/README.md`, so the public repository is the one home.
 - **Built files in the public repository:** `server.json` (official MCP registry, schema 2025-12-11, name `io.github.RunTimeAdmin/nooscape-mcp`, which must equal `mcpName` in `package.json`), and `manifest.json` (an MCPB manifest). Both agree on the name and version, and a test holds that.
 
 ## Verified

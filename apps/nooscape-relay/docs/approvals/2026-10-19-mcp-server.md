@@ -9,7 +9,7 @@
 1. **The shape of `check`.** It takes exactly one of `agent`, `wallet` or `url`, not one string (a Solana address could be a wallet or an agent id). A bare host is accepted. `get_agent` and `get_agent_history` take an optional `registry` for Solana.
 2. **No payment from the server in v1.** Without a Pro key, `check` explains the 402 and charges nothing. A non-custodial payer is a later option.
 3. **The rules in `docs/mcp-server-2026-10-19.md`:** no verdict words in a summary, an owner's words labelled as the owner's and cut, the key never shown, no retry, no redirect.
-4. **The public repository and the license.** The public repository is the home, MIT, with RunTimeAdmin as the copyright holder. The copy in `packages/nooscape-mcp` is behind it and should be removed (open).
+4. **The public repository and the license.** The public repository is the home, MIT, with RunTimeAdmin as the copyright holder. The copy in `packages/nooscape-mcp` fell behind it and was removed on 2026-10-27, with a pointer left.
 5. **The HTTP mode is local only.** Hosting it needs per-caller keys and a deployment, and is not built.
 6. **No `/developers` section yet.** It waits until the package is published, so the site does not promise a command that does not work.
 
@@ -31,6 +31,6 @@ Listing on Smithery (blocked by a 403 from Smithery when it creates the server, 
 - [x] Published to npm (`nooscape-mcp@0.1.0`, 2026-10-19), and run from the registry against the live API (`scripts/live-check.mjs --npx nooscape-mcp@0.1.0`, all seven checks).
 - [x] Published to the official MCP registry (2026-10-19; the registry's search returns it as active, latest 0.1.0).
 - [ ] Listed on Smithery (blocked: 403 at server creation, with support).
-- [ ] The copy in `packages/nooscape-mcp` removed or brought into step.
+- [x] The copy in `packages/nooscape-mcp` removed (2026-10-27), with a pointer left.
 - [ ] MCP section added to `/developers`, after publishing.
 - [ ] An independent security review.

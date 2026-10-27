@@ -476,7 +476,7 @@ A Builder or Pro key may **watch** up to 100 listings and set one **webhook**: a
 |---|---|
 | `GET /watches`, `POST /watches` | List the watchlist (with whether each listing is in the public view). Add up to 25 listings in one call, 100 in all; each gets its own result. |
 | `DELETE /watches/{nooscape_id}` | Stop watching. The id is the one the list shows, so a listing that has left the public view can still be removed. |
-| `GET /webhook`, `PUT /webhook`, `DELETE /webhook` | Show the webhook with its signing secret, set its address (https, public name, no user name, no password, no port; at most 500 characters), remove it. Setting it sends one signed test event (`ping`) at once and says what the address answered; the address is saved either way, and setting it again turns a webhook that was turned off back on. |
+| `GET /webhook`, `PUT /webhook`, `DELETE /webhook` | Show the webhook with its signing secret, set its address (https, public name, no user name, no password, no port; at most 500 characters), remove it. Setting it sends one signed test event (`ping`) at once and says what the address answered; the address is saved either way, and setting it again turns a webhook that was turned off back on. A new address keeps the signing secret, so a receiver that only moved keeps working; `rotate_secret: true` in the body replaces the secret in the same call (added 27 October 2026, for an owner whose old receiver may still hold the secret). The test event is then signed with the new secret. |
 | `POST /webhook/rotate-secret` | A new signing secret (the old one stops working at once). |
 | `GET /webhook/deliveries` | The last 20 events written for the key and what became of each. |
 

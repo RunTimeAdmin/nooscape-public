@@ -314,7 +314,7 @@ describe("the watchlist", () => {
 });
 
 describe("the webhook", () => {
-  const put = (url: unknown, key = KEY_BUILDER) => call("PUT", "/webhook", key, { url });
+  const put = (url: unknown, key = KEY_BUILDER, more: Record<string, unknown> = {}) => call("PUT", "/webhook", key, { url, ...more });
 
   it("is not set until it is, and says what it may be sent", async () => {
     await start(rig().deps);
@@ -415,6 +415,45 @@ describe("the webhook", () => {
     expect(rotated.data.signing_secret).not.toBe(first);
     // Setting the address again keeps the version, so a key that only changes where it listens keeps its secret.
     expect((await json(await put("https://hooks.example.com/y"))).data.signing_secret).toBe(rotated.data.signing_secret);
+  });
+
+  it("gives a new secret in the same call as a new address when asked, and not otherwise", async () => {
+    const r = rig();
+    await start(r.deps);
+    // A webhook that is being created has no secret to rotate: it starts at version 1 whatever is sent.
+    const first = await json(await put("https://hooks.example.com/a", KEY_BUILDER, { rotate_secret: true }));
+    expect(first.data.secret_version).toBe(1);
+    // A new address alone keeps the secret, so a receiver that only moved keeps working.
+    const moved = await json(await put("https://hooks.example.com/b"));
+    expect(moved.data).toMatchObject({ url: "https://hooks.example.com/b", secret_version: 1, signing_secret: first.data.signing_secret });
+    // With rotate_secret the secret is replaced, and the test event is signed with the new one, not the old.
+    const before = r.sent.length;
+    const rotated = await json(await put("https://hooks.example.com/c", KEY_BUILDER, { rotate_secret: true }));
+    expect(problems(schemaOf("WebhookResponse"), rotated)).toEqual([]);
+    expect(rotated.data).toMatchObject({ url: "https://hooks.example.com/c", secret_version: 2, ping: { ok: true } });
+    expect(rotated.data.signing_secret).toBe(signingSecret(SIGNING_KEY, "key-builder", 2));
+    expect(rotated.data.signing_secret).not.toBe(first.data.signing_secret);
+    const ping = r.sent[before]!;
+    const timestamp = Number(ping.headers["x-nooscape-timestamp"]);
+    expect(ping.headers["x-nooscape-signature"]).toBe(`t=${timestamp},v1=${signature(rotated.data.signing_secret, timestamp, ping.body)}`);
+    expect(ping.headers["x-nooscape-signature"]).not.toBe(`t=${timestamp},v1=${signature(first.data.signing_secret, timestamp, ping.body)}`);
+    // The same address again, or false, does not rotate it again.
+    expect((await json(await put("https://hooks.example.com/c"))).data.secret_version).toBe(2);
+    expect((await json(await put("https://hooks.example.com/d", KEY_BUILDER, { rotate_secret: false }))).data.secret_version).toBe(2);
+    expect((await json(await call("GET", "/webhook"))).data.secret_version).toBe(2);
+  });
+
+  it("refuses a rotate_secret that is not true or false, and changes nothing", async () => {
+    const r = rig();
+    await start(r.deps);
+    await put("https://hooks.example.com/a");
+    for (const bad of ["yes", "true", 1, null]) {
+      const response = await put("https://hooks.example.com/b", KEY_BUILDER, { rotate_secret: bad });
+      expect(response.status, String(bad)).toBe(400);
+    }
+    const mine = (await json(await call("GET", "/webhook"))).data;
+    expect(mine).toMatchObject({ url: "https://hooks.example.com/a", secret_version: 1 });
+    expect(r.sent).toHaveLength(1);
   });
 
   it("does not bring back a secret that was rotated away when the webhook is removed and set again", async () => {

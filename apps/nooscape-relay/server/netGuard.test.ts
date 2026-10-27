@@ -14,8 +14,15 @@ describe("fetch-boundary address guard", () => {
       "172.31.255.255",
       "192.168.1.1",
       "192.0.0.10",
+      "192.0.2.1",
+      "192.0.2.255",
+      "192.88.99.2",
       "198.18.0.1",
       "198.19.255.255",
+      "198.51.100.1",
+      "198.51.100.255",
+      "203.0.113.1",
+      "203.0.113.255",
       "224.0.0.1",
       "255.255.255.255",
     ]) {
@@ -33,9 +40,16 @@ describe("fetch-boundary address guard", () => {
       "172.15.255.255",
       "172.32.0.1",
       "192.0.1.1",
+      "192.0.3.1",
+      "192.88.98.255",
+      "192.88.100.1",
       "192.167.255.255",
       "198.17.255.255",
       "198.20.0.1",
+      "198.51.99.255",
+      "198.51.101.1",
+      "203.0.112.255",
+      "203.0.114.1",
       "223.255.255.255",
     ]) {
       expect(isForbiddenIpv4(address), address).toBe(false);
@@ -43,7 +57,7 @@ describe("fetch-boundary address guard", () => {
     }
   });
 
-  it("blocks every IPv4-mapped, loopback, ULA, link-local, multicast, NAT64, 6to4, and Teredo IPv6 form", () => {
+  it("blocks every IPv4-mapped, loopback, ULA, link-local, multicast, NAT64, 6to4, Teredo, documentation, discard, and segment-routing IPv6 form", () => {
     for (const address of [
       "::",
       "::1",
@@ -65,14 +79,22 @@ describe("fetch-boundary address guard", () => {
       "64:ff9b:1::1",
       "2002:0a00::1",
       "2001::1",
+      "2001:2::1",
+      "2001:10::1",
+      "2001:1ff:ffff::1",
       "2001:db8::1",
+      "3fff::1",
+      "3fff:fff:ffff::1",
+      "100::1",
+      "100:0:0:1::1",
+      "5f00::1",
     ]) {
       expect(isForbiddenIp(address), address).toBe(true);
     }
   });
 
   it("allows IPv6 addresses outside the forbidden special-purpose ranges", () => {
-    for (const address of ["2606:4700::1111", "2001:4860:4860::8888", "2a00:1450:4001:81b::200e", "fe7f::1"]) {
+    for (const address of ["2606:4700::1111", "2001:4860:4860::8888", "2001:200::1", "2a00:1450:4001:81b::200e", "fe7f::1"]) {
       expect(isForbiddenIp(address), address).toBe(false);
     }
   });
