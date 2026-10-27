@@ -20,7 +20,7 @@ import { ARC_LIGHTS_LIMIT, fleetKindLabel, fleetShape, fleetTitle, type MapFleet
 export const MAX_NODES = 400;
 
 /** What a node stands for: a reviewed record, an entry the directory lists that Nooscape has not reviewed, or a group of registrations that share one fact (BNB Chain), or are held by one owner wallet (Solana). */
-export type ConstellationKind = "reviewed" | "acknowledged" | "fleet";
+type ConstellationKind = "reviewed" | "acknowledged" | "fleet";
 /** The tier an acknowledged entry carries on the map, so nothing reads it as one of the reviewed tiers. */
 export const ACKNOWLEDGED_TIER = "acknowledged";
 export const isAcknowledged = (node: Pick<ConstellationNode, "kind">) => node.kind === "acknowledged";
@@ -119,7 +119,7 @@ export type ConstellationNode = {
   y: number;
 };
 
-export const TIER_COLOR: Record<string, string> = {
+const TIER_COLOR: Record<string, string> = {
   tier_2: "#66E8FF",
   tier_3: "#BFFF76",
   tier_4: "#C3A6FF",
@@ -228,14 +228,31 @@ const MARGIN_Y = 0.08;
  * depends only on the set of ids, not on the order they arrived in. `aspect` is the
  * canvas's width over its height, so "apart" means apart on screen.
  */
-export function layoutNodes(records: readonly ConstellationRecord[], aspect = 1.6): ConstellationNode[] {
-  const plain = layoutPlainNodes(records.filter(record => record.kind !== "fleet"), aspect);
+export function layoutNodes(records: readonly ConstellationRecord[], aspect = 1.6, options: { place?: boolean } = {}): ConstellationNode[] {
+  // `place: false` is for a caller that needs the nodes (which ones, in which order, their kind, tier and chain) and never their positions:
+  // every node stays at the spot its id hashes to, and the pushing apart, which costs 30 to 400 ms with the real records, is skipped.
+  const place = options.place !== false;
+  const plain = layoutPlainNodes(records.filter(record => record.kind !== "fleet"), aspect, place);
   const fleets = records.filter(record => record.kind === "fleet");
   // The fleet lights are placed after the rest and never move them: a dot sits where it sat before there were any lights.
-  return fleets.length === 0 ? plain : [...plain, ...placeFleetNodes(fleets, plain, aspect)];
+  return fleets.length === 0 ? plain : [...plain, ...placeFleetNodes(fleets, plain, aspect, place)];
 }
 
-function layoutPlainNodes(records: readonly ConstellationRecord[], aspect: number): ConstellationNode[] {
+/**
+ * Everything `layoutNodes` reads from the records, as one string. Two lists with the same signature lay out the same, whatever else
+ * their records carry (a summary, a timestamp) and whatever the identity of the list: the home page rebuilds its list on every poll.
+ */
+export function layoutSignature(records: readonly ConstellationRecord[]): string {
+  let out = "";
+  for (const record of records) {
+    const fleet = record.fleet;
+    out += `${record.agentId}|${record.displayName}|${record.handle ?? ""}|${record.protocols}|${record.evidenceTier}|${record.kind ?? ""}|${fleet ? JSON.stringify(fleet) : ""}
+`;
+  }
+  return out;
+}
+
+function layoutPlainNodes(records: readonly ConstellationRecord[], aspect: number, place: boolean): ConstellationNode[] {
   const chosen = [...records].sort((a, b) => (a.agentId < b.agentId ? -1 : a.agentId > b.agentId ? 1 : 0)).slice(0, MAX_NODES);
   const nodes: ConstellationNode[] = chosen.map(record => ({
     id: record.agentId,
@@ -248,7 +265,7 @@ function layoutPlainNodes(records: readonly ConstellationRecord[], aspect: numbe
     x: MARGIN_X + (1 - 2 * MARGIN_X) * (hash(record.agentId, 1) / 0xffffffff),
     y: MARGIN_Y + (1 - 2 * MARGIN_Y) * (hash(record.agentId, 2) / 0xffffffff),
   }));
-  if (nodes.length < 2) return nodes;
+  if (nodes.length < 2 || !place) return nodes;
   // The spacing that would spread this many dots evenly, a little under so they may still cluster.
   const minimum = 0.75 * Math.sqrt((1 - 2 * MARGIN_X) * (1 - 2 * MARGIN_Y) * aspect / nodes.length) / aspect;
   for (let round = 0; round < 40; round += 1) {
@@ -297,7 +314,7 @@ const LIGHT_MARGIN_Y = 0.15;
  */
 const LIGHT_ATTEMPTS = 24;
 
-function placeFleetNodes(records: readonly ConstellationRecord[], obstacles: readonly ConstellationNode[], aspect: number): ConstellationNode[] {
+function placeFleetNodes(records: readonly ConstellationRecord[], obstacles: readonly ConstellationNode[], aspect: number, place = true): ConstellationNode[] {
   const placed: ConstellationNode[] = [];
   // The BNB Chain lights are placed first, so they are exactly where they were before there were Solana lights, and the Solana lights next, so they are where they were before there were Robinhood Chain lights; those find room around them, and the Arc lights find room last.
   const lightOrder = (record: ConstellationRecord) => (record.fleet?.chain === "arc" ? 3 : record.fleet?.chain === "robinhood" ? 2 : record.fleet?.chain === "solana" ? 1 : 0);
@@ -318,6 +335,10 @@ function placeFleetNodes(records: readonly ConstellationRecord[], obstacles: rea
       x: LIGHT_MARGIN_X + (1 - 2 * LIGHT_MARGIN_X) * (hash(record.agentId, 1 + 2 * attempt) / 0xffffffff),
       y: LIGHT_MARGIN_Y + (1 - 2 * LIGHT_MARGIN_Y) * (hash(record.agentId, 2 + 2 * attempt) / 0xffffffff),
     });
+    if (!place) {
+      placed.push(nodeAt(0));
+      continue;
+    }
     const relax = (node: ConstellationNode) => {
       for (let round = 0; round < 80; round += 1) {
         let moved = false;
@@ -399,7 +420,7 @@ export function nearestNode(nodes: readonly ConstellationNode[], pointX: number,
 }
 
 /** The nodes bucketed into square cells, so a query looks at a handful of cells instead of every node. */
-export type NodeGrid = { cellPx: number; width: number; height: number; cells: Map<string, ConstellationNode[]> };
+type NodeGrid = { cellPx: number; width: number; height: number; cells: Map<string, ConstellationNode[]> };
 
 export function buildNodeGrid(nodes: readonly ConstellationNode[], width: number, height: number, cellPx: number): NodeGrid {
   const cells = new Map<string, ConstellationNode[]>();
@@ -480,7 +501,7 @@ export function pickFeaturedNode(nodes: readonly ConstellationNode[]): Constella
 }
 
 export type SelectionKind = "pinned" | "scanned" | "featured";
-export type Selection = { node: ConstellationNode; kind: SelectionKind } | { node: null; kind: null };
+type Selection = { node: ConstellationNode; kind: SelectionKind } | { node: null; kind: null };
 
 /** What the card shows: the pinned record, else the one being scanned, else the featured one. */
 export function currentSelection(nodes: readonly ConstellationNode[], pinnedId: string | null, scannedId: string | null): Selection {
@@ -500,6 +521,15 @@ export type EvidenceState =
   | { status: "ready"; publisher: string; provenance: string | null; observations: number; source: string | null };
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+/**
+ * The id a link's ?agent= pins on the map: its own, once the map has a node for it, and only until it has been used. After that the pin
+ * is the reader's to move or drop, so the same link is never applied to the map twice.
+ */
+export function linkedPinId(nodes: readonly ConstellationNode[], linkedId: string | null | undefined, used: boolean): string | null {
+  if (used || !linkedId) return null;
+  return nodes.some(candidate => candidate.id === linkedId) ? linkedId : null;
+}
 
 /** The two lines of the scanner's status display. `guide` says what moves the scan point, so the hint matches how the visitor is scanning. */
 export function statusLines(node: ConstellationNode | null, evidence: EvidenceState, guide: "owl" | "pointer", kind: SelectionKind = "scanned"): [string, string] {

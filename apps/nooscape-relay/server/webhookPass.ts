@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { agentIdOfKey, apiChainOfProtocol, servedChains, type ApiChain } from "./apiChains";
+import { describeFailure } from "./driverErrors";
 import { safeFetch } from "./safeFetch";
 import { dbEventSource, type EventSource, type WatchedEntry } from "./webhookEvents";
 import { LIVE_WATCH_LIMIT, dbWebhookStore, type DeliveryRow, type LiveWatch, type NewDelivery, type WebhookStore } from "./webhookStore";
@@ -43,7 +44,7 @@ export type PassDeps = {
   parallel: number;
 };
 
-export type PassReport = {
+type PassReport = {
   status: "off" | "busy" | "ran";
   reason?: string;
   /** Deliveries written this run. */
@@ -56,13 +57,15 @@ export type PassReport = {
   /** Webhooks that were turned off by this run. */
   disabled: number;
   purged: number;
+  /** Webhooks whose deliveries a database error stopped this run. The other webhooks and the tidy step went on; the cause is in the log. */
+  failed: number;
   /** A read that came back full: the run did not move that cursor, and the next one reads again. */
   fullReads: string[];
 };
 
 /** How far back a pass reads past its cursor, for rows that were written late, and the furthest back it will ever read. */
-export const OVERLAP_MS = 15 * 60_000;
-export const LOOKBACK_MS = 7 * 24 * 3_600_000;
+const OVERLAP_MS = 15 * 60_000;
+const LOOKBACK_MS = 7 * 24 * 3_600_000;
 const SEQ_OVERLAP = 100;
 const LEASE_MS = 120_000;
 const PURGE_EVERY_MS = 6 * 3_600_000;
@@ -163,7 +166,7 @@ let running = false;
 
 /** One run of the pass. Never throws for a webhook's own failure; a database that cannot be read throws and the run is simply not done. */
 export async function runWebhookPass(overrides: Partial<PassDeps> = {}): Promise<PassReport> {
-  const report: PassReport = { status: "ran", created: 0, sent: 0, retrying: 0, gaveUp: 0, disabled: 0, purged: 0, fullReads: [] };
+  const report: PassReport = { status: "ran", created: 0, sent: 0, retrying: 0, gaveUp: 0, disabled: 0, purged: 0, failed: 0, fullReads: [] };
   let signingKey: string | null;
   try {
     signingKey = "signingKey" in overrides ? (overrides.signingKey ?? null) : loadSigningKey();
@@ -240,7 +243,13 @@ async function sendDue(deps: PassDeps, started: Date, signingKey: string, report
   const work = async () => {
     for (let next = queue.shift(); next; next = queue.shift()) {
       if (Date.now() >= stopAt) return;
-      await sendForKey(deps, signingKey, next, stopAt, report);
+      try {
+        await sendForKey(deps, signingKey, next, stopAt, report);
+      } catch (error) {
+        // A database error ends this webhook's tries for the run and nothing else: the other webhooks, and the tidy step after them, go on.
+        report.failed += 1;
+        console.warn("[Webhooks] deliveries for one webhook failed:", describeFailure(error));
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(deps.parallel, queue.length) }, work));

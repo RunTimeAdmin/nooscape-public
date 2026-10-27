@@ -59,7 +59,7 @@ export const SAID_CHAIN_MAX_ACCOUNTS = 40_000;
  * identities, or the pass stops loudly: a provider-side cut-off listing must
  * never pass for a registry that shrank.
  */
-export const SAID_ENUMERATION_FLOOR_PERCENT = 98;
+const SAID_ENUMERATION_FLOOR_PERCENT = 98;
 /** The program's own metadata_uri bound (`validate_uri`: 10..=200 bytes). */
 const METADATA_URI_MAX_BYTES = 200;
 /** SAID launched in early 2026; a created_at before this is a misread layout, not a registration. */
@@ -94,7 +94,7 @@ export type SaidIdentity = {
   tailResidue: boolean;
 };
 
-export type SaidChainSnapshot = {
+type SaidChainSnapshot = {
   slot: number;
   requestCount: number;
   enumeratedCount: number;
@@ -331,7 +331,7 @@ export function buildSaidDirectoryDraft(identity: SaidIdentity): DirectoryEntryD
   };
 }
 
-export function assertApprovedSaidChainSource(source: IngestionSource) {
+function assertApprovedSaidChainSource(source: IngestionSource) {
   if (source.protocol !== "solana_said" || source.sourceKey !== SAID_CHAIN_SOURCE_KEY) {
     throw new SaidValidationError("Source is not the approved SAID Solana agent registry.");
   }

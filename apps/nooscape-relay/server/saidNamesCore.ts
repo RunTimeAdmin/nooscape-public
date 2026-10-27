@@ -23,10 +23,10 @@ export const SAID_PLACEHOLDER_PATTERN = "^SAID agent [1-9A-HJ-NP-Za-km-z]{8}$";
 export type SaidNameLink = { externalKey: string; uri: string; createdAtSeconds: number };
 
 /** A link to queue for reading. `rank` is its place in the newest-first order, 0 for the newest. */
-export type SaidQueueRow = { externalKey: string; uriHash: string; uriKind: RegistrationUriKind; uri: string; rank: number };
+type SaidQueueRow = { externalKey: string; uriHash: string; uriKind: RegistrationUriKind; uri: string; rank: number };
 
 /** MySQL's TIMESTAMP starts one second after the epoch. A link queued but not yet tried is dated from there. */
-export const NOT_TRIED_YET_MS = 1000;
+const NOT_TRIED_YET_MS = 1000;
 
 /**
  * When a queued link is dated, so that the newest identities are read first without a column for it: the step reads the links

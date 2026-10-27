@@ -7,11 +7,12 @@ import { defineConfig } from "vite";
 // The Manus template's runtime bridge and debug collector were removed (review 2026-10-16): development tooling
 // that copied a public file (client/public/__manus__/debug-collector.js) into every build. CI fails a build that
 // holds either again.
-export default defineConfig(() => ({
+export default defineConfig(({ command }) => ({
   plugins: [
     react(),
     tailwindcss(),
-    jsxLocPlugin(),
+    // Development tooling: it stamps every element with the file and line it came from, and a build has no use for that.
+    ...(command === "serve" ? [jsxLocPlugin()] : []),
   ],
   resolve: {
     alias: {

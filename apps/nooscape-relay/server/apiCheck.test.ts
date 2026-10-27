@@ -3,9 +3,10 @@ import type { Server } from "node:http";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { AGENT_ID_MAX_CHARS } from "./apiChains";
 import { ACKNOWLEDGED_STATEMENT, API_CHAINS, registerApiV1, type ApiV1Deps } from "./apiV1";
 import { checkFlags, CHECK_RESULT_LIMIT, CHECK_STATEMENT, FIRST_SEEN_WITHIN_DAYS, hostOfUrl, REGISTRY_EVENT_LIST_LIMIT, type CheckFlagsInput } from "./apiCheck";
-import { problems, schemaOf } from "./apiV1Check";
+import { problems, schemaOf } from "./apiV1Testing";
 import { API_TIERS, type ApiKeyRecord } from "./apiKeys";
 import { CHAIN_BLOCKS_PER_DAY } from "./db";
 import { resetRateLimits } from "./rateLimit";
@@ -75,6 +76,9 @@ function deps(overrides: Partial<ApiV1Deps> = {}): ApiV1Deps {
     claimOf: async () => null,
     claimHistory: async () => null,
     checkFacts: async () => ({ activityThroughBlock: null, solana: null }),
+    stats: async () => {
+      throw new Error("the directory stats are not under test here");
+    },
     keys,
     ...overrides,
   };
@@ -238,6 +242,9 @@ describe("POST /api/v1/check for an agent", () => {
     expect((await check({ agent: { chain: "robinhood", id: "8" } })).status).toBe(404);
     expect((await check({ agent: { chain: "nowhere", id: "7" } })).status).toBe(400);
     expect((await check({ agent: { chain: "robinhood", id: "abc" } })).status).toBe(400);
+    // The longest id the pattern allows (78 digits) is a question about an agent nothing lists; one past the cap shared with the batch and the watchlist is a malformed body.
+    expect((await check({ agent: { chain: "robinhood", id: "9".repeat(78) } })).status).toBe(404);
+    expect((await check({ agent: { chain: "robinhood", id: "9".repeat(AGENT_ID_MAX_CHARS + 1) } })).status).toBe(400);
     await start(deps({ getEntry: async () => null }));
     const hidden = await check(robinhood);
     expect(hidden.status).toBe(404);

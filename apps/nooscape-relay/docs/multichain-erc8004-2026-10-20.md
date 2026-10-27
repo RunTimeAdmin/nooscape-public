@@ -113,14 +113,14 @@ Arc reads the node through `X402_RPC`, the setting the payment code already hold
 Like 0036 to 0045 it is not run on boot (`MANUAL_MIGRATIONS`). Four `ALTER TABLE ... MODIFY COLUMN` statements append `erc8004_base`, `erc8004_eth` and `erc8004_arc` to the end of the protocol list, as 0033 did, which MySQL can apply without rebuilding the table. Each statement writes the whole list, so running the file again changes nothing.
 
 1. **Choose a quiet time.** Even a metadata change waits for queries still reading the table.
-2. **Paste `drizzle/0046_multichain_erc8004_protocols.sql`** into the host's SQL console. A paste-safe copy is at `D:\scratch\for-david\0046_multichain_erc8004_protocols.sql`.
-3. **Then record it** (`D:\scratch\for-david\0046_record.sql`):
+2. **Paste `drizzle/0046_multichain_erc8004_protocols.sql`** into the host's SQL console. A paste-safe copy is at `0046_multichain_erc8004_protocols.sql`.
+3. **Then record it** (`0046_record.sql`):
 
 ```sql
 INSERT INTO `nooscape_schema_migrations` (`version`, `name`) VALUES (46, '0046_multichain_erc8004_protocols.sql');
 ```
 
-4. **Check** (`D:\scratch\for-david\0046_check.sql`): each of the four rows ends with `'erc8004_bsc','erc8004_base','erc8004_eth','erc8004_arc')`.
+4. **Check** (`0046_check.sql`): each of the four rows ends with `'erc8004_bsc','erc8004_base','erc8004_eth','erc8004_arc')`.
 
 ```sql
 SELECT TABLE_NAME, COLUMN_TYPE FROM information_schema.COLUMNS
@@ -129,7 +129,7 @@ WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'protocol'
 ORDER BY TABLE_NAME;
 ```
 
-5. **Rollback** (`D:\scratch\for-david\0046_rollback.sql`): the first query counts the rows that hold a new value and every count must be 0, because MySQL cannot drop a value a row still holds. Then the same four statements with the earlier list, and the version is deleted.
+5. **Rollback** (`0046_rollback.sql`): the first query counts the rows that hold a new value and every count must be 0, because MySQL cannot drop a value a row still holds. Then the same four statements with the earlier list, and the version is deleted.
 
 ### Turning a chain on
 
@@ -210,10 +210,12 @@ Type check clean. The production build passes, and the built server boots agains
 
 ## Not in these stages
 
+(Update, 25 October 2026: the Arc identity pass has since been put on the scheduler, once a day, by migration 0050; see "Source-specific rules" in [worker-operations.md](./worker-operations.md).)
+
 The scheduled flip of any new source. Map lights, pages, share cards, the Owl's Catch and the "just arrived" lines for the new chains (stage 3 lists and counts them, nothing more). Fetching registration files for the new chains: facts only, as BNB Chain started. The ValidationRegistry, reputation and feedback for the new chains, scores, tiers and evidence levels, webhooks and the watchlist for the new chains. (Arc has since been given the map lights, page, share card, census, "just arrived" card, Owl's Catch round numbers, watchlist and webhook, and claims, as the note above says. Ethereum and Base have the last four that the code applies to every extra chain that is on: "just arrived", the Owl's Catch's round numbers, the watchlist and the webhook.)
 
 ## Files
 
-`server/ingestion/erc8004Chains.ts` (the list), `erc8004Chain.ts`, `erc8004Rpc.ts`, `runErc8004Chain.ts`, `chainPresets.ts`, `bscChain.ts`, `bscRpc.ts`, `runBsc.ts`, `evmIdentityChains.ts`, `worker.ts`, `types.ts`; `server/arcRpc.ts`, `server/x402.ts`, `server/_core/env.ts`, `server/routers/liveData.ts`, `server/dbMigrations.ts`; `shared/features.ts`; `drizzle/schema.ts`, `drizzle/0046_multichain_erc8004_protocols.sql`, its snapshot and journal entry; `client/src/pages/SourceOperations.tsx`; for stage 3, `shared/chains.ts`, `server/db.ts`, `server/agentRegistryRows.ts`, `server/apiChains.ts`, `apiV1.ts`, `apiV1Spec.ts`, `apiCheck.ts` (and `apiV1Check.ts`, the tests' document checker), `client/src/components/home/ChainTabs.tsx` and `chainTabsModel.ts`, `client/src/pages/Home.tsx`, `DirectoryAgent.tsx` and `DeveloperApi.tsx`, `client/src/lib/directoryProtocols.ts` and `evidenceExplain.ts`, `client/src/index.css`; the fixtures `erc8004ChainFixtures.ts` and `erc8004TestChain.ts` (a chain that is not in the list, for tests); and the test files named above.
+`server/ingestion/erc8004Chains.ts` (the list), `erc8004Chain.ts`, `erc8004Rpc.ts`, `runErc8004Chain.ts`, `chainPresets.ts`, `bscChain.ts`, `bscRpc.ts`, `runBsc.ts`, `evmIdentityChains.ts`, `worker.ts`, `types.ts`; `server/arcRpc.ts`, `server/x402.ts`, `server/_core/env.ts`, `server/routers/liveData.ts`, `server/dbMigrations.ts`; `shared/features.ts`; `drizzle/schema.ts`, `drizzle/0046_multichain_erc8004_protocols.sql`, its snapshot and journal entry; `client/src/pages/SourceOperations.tsx`; for stage 3, `shared/chains.ts`, `server/db.ts`, `server/agentRegistryRows.ts`, `server/apiChains.ts`, `apiV1.ts`, `apiV1Spec.ts`, `apiCheck.ts` (and `apiV1Testing.ts`, the tests' document checker), `client/src/components/home/ChainTabs.tsx` and `chainTabsModel.ts`, `client/src/pages/Home.tsx`, `DirectoryAgent.tsx` and `DeveloperApi.tsx`, `client/src/lib/directoryProtocols.ts` and `evidenceExplain.ts`, `client/src/index.css`; the fixtures `erc8004ChainFixtures.ts` and `erc8004TestChain.ts` (a chain that is not in the list, for tests); and the test files named above.
 
 One rename came from a guard that was doing its job: the client's wallet guard lets only `lib/wallet.ts` contain `.ethereum`, so the operator page's switch table calls Ethereum's `eth`.

@@ -142,7 +142,7 @@ export function newBuyer() {
 
 export const headerOf = (payment: PaymentPayload) => base64Json(payment);
 
-export type FacilitatorCall = {
+type FacilitatorCall = {
   url: string;
   authorization: string | undefined;
   body: {
@@ -158,7 +158,7 @@ export type FacilitatorCall = {
  * facilitator's side and then never answers, which is the case a payer cannot tell from a payment that did not happen. A call to
  * Coinbase's address is answered in Coinbase's shape, with the Bazaar's EXTENSION-RESPONSES header.
  */
-export function newFacilitator(cfg: X402Config, script: Array<(() => Response | Promise<Response>) | "lost"> = []) {
+export function newFacilitator(_cfg: X402Config, script: Array<(() => Response | Promise<Response>) | "lost"> = []) {
   const calls: FacilitatorCall[] = [];
   const settled = new Map<string, string>();
   const queue = [...script];
@@ -244,7 +244,7 @@ export function encodeRevert(text: string): Uint8Array {
   return concatBytes(hexToBytes("08c379a0"), wordOf(32), paddedOf(bytes));
 }
 
-export type ChainVerdict = "ok" | "invalid" | "balance" | "used" | "expired" | "silent" | "wrongChain" | "behind" | "down" | "garbage";
+type ChainVerdict = "ok" | "invalid" | "balance" | "used" | "expired" | "silent" | "wrongChain" | "behind" | "down" | "garbage";
 
 /**
  * A chain node that answers the contract-wallet check as scripted. `verdict` can be changed between calls; every call is recorded.

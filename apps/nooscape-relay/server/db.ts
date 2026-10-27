@@ -25,7 +25,6 @@ import {
   ingestionRuns,
   ingestionSources,
   ingestionWorkerConfig,
-  identityMergeReviews,
   InsertIngestionSource,
   IngestionSource,
   publisherBindings,
@@ -39,6 +38,7 @@ import {
 } from "../drizzle/schema";
 import { breakerStream, databaseBreaker, guardPool, POOL_ACQUIRE_TIMEOUT_CODE } from "./dbBreaker";
 import { fetchDomainControlProof } from "./domainVerification";
+import { isMissingTable, noteSectionFailure } from "./driverErrors";
 import { ROBINHOOD_HANDOUT_BLOCK_WINDOW } from "./ingestion/robinhood";
 import { evmIdentityChain } from "./ingestion/evmIdentityChains";
 import { erc8004ChainOfProtocol } from "./ingestion/erc8004Chains";
@@ -52,6 +52,7 @@ import { buildArrivals, ARRIVALS_NEWEST_PER_CHAIN, ARRIVALS_WINDOW_HOURS, type A
 import { balancedNewest } from "@shared/balancedNewest";
 import { buildChainStats, buildExtraChainStats, CHAINS, extraChainsOn, extraProtocolOf, listedChainOf, parseProtocolList, protocolsOf, protocolsOfChainsOff, type ChainStat, type ChainStatsInput, type ExtraChainKey, type ExtraChainStat, type RegistryProfile } from "@shared/chains";
 import { buildNoosphereSample, MAX_FLEETS, MAX_LIGHTS, NOOSPHERE_PROTOCOLS, sampleModulus, type NoosphereSample } from "@shared/noosphere";
+import { OperatorRuleError } from "./operatorRuleError";
 import { cachedDirectoryRead, cachedSearchRead, invalidateDirectoryReads, invalidateDirectoryReadsSoftly } from "./readCache";
 import type { AgentDirectoryEntryRatings } from "./ratingsSurface";
 import { computeRatingsSummary, parseReputationExternalKey, REPUTATION_KEY_PREFIX } from "./ratingsSurface";
@@ -370,22 +371,28 @@ export async function listLatestRunObservationsForReview(sourceId: string, limit
 }
 
 /**
+ * Wraps a write that can change what the cached directory aggregates count: they are invalidated on success or failure (a failure may
+ * have written part of it). `invalidate` is invalidateDirectoryReadsSoftly for ingestion writes, whose aggregates are served as they are
+ * and reloaded once the writes go quiet, and invalidateDirectoryReads for an operator's change, which must show on the very next read.
+ */
+function withInvalidation<Args extends unknown[], Result>(write: (...args: Args) => Promise<Result>, invalidate: () => void) {
+  return async (...args: Args): Promise<Result> => {
+    try {
+      return await write(...args);
+    } finally {
+      invalidate();
+    }
+  };
+}
+
+/**
  * Upserts master-directory acknowledgements for one source run. Entries are
  * locator-class facts keyed by the source's own external key; repeated
  * observations refresh the display fields and seen dates but never create
  * trust, tiers, or map placement. Directory state is fully outside the
  * reviewed-run gate that governs public records.
  */
-export async function upsertAgentDirectoryEntries(input: Parameters<typeof upsertAgentDirectoryEntriesImpl>[0]) {
-  // Any write that can change what the cached directory aggregates count
-  // marks them stale, on success or failure (a failure may have written part of
-  // it): they are served as they are and reloaded once the writes go quiet.
-  try {
-    return await upsertAgentDirectoryEntriesImpl(input);
-  } finally {
-    invalidateDirectoryReadsSoftly();
-  }
-}
+export const upsertAgentDirectoryEntries = withInvalidation(upsertAgentDirectoryEntriesImpl, invalidateDirectoryReadsSoftly);
 
 async function upsertAgentDirectoryEntriesImpl(input: {
   source: IngestionSource;
@@ -483,16 +490,7 @@ async function upsertAgentDirectoryEntriesImpl(input: {
  * rewrite, no owner clearing — and leaves every public read through the
  * visibility predicate. lastRunId records which run acknowledged the closure.
  */
-export async function markAgentDirectoryEntriesClosed(input: Parameters<typeof markAgentDirectoryEntriesClosedImpl>[0]) {
-  // Any write that can change what the cached directory aggregates count
-  // marks them stale, on success or failure (a failure may have written part of
-  // it): they are served as they are and reloaded once the writes go quiet.
-  try {
-    return await markAgentDirectoryEntriesClosedImpl(input);
-  } finally {
-    invalidateDirectoryReadsSoftly();
-  }
-}
+export const markAgentDirectoryEntriesClosed = withInvalidation(markAgentDirectoryEntriesClosedImpl, invalidateDirectoryReadsSoftly);
 
 async function markAgentDirectoryEntriesClosedImpl(input: {
   source: IngestionSource;
@@ -723,16 +721,7 @@ export async function listAgentDirectoryEntriesForSource(sourceId: string): Prom
  * source, so they stay a pure function of acknowledged events rather than of
  * run order.
  */
-export async function applyAgentDirectoryActivityWindow(input: Parameters<typeof applyAgentDirectoryActivityWindowImpl>[0]) {
-  // Any write that can change what the cached directory aggregates count
-  // marks them stale, on success or failure (a failure may have written part of
-  // it): they are served as they are and reloaded once the writes go quiet.
-  try {
-    return await applyAgentDirectoryActivityWindowImpl(input);
-  } finally {
-    invalidateDirectoryReadsSoftly();
-  }
-}
+export const applyAgentDirectoryActivityWindow = withInvalidation(applyAgentDirectoryActivityWindowImpl, invalidateDirectoryReadsSoftly);
 
 async function applyAgentDirectoryActivityWindowImpl(input: {
   source: IngestionSource;
@@ -794,16 +783,7 @@ async function applyAgentDirectoryActivityWindowImpl(input: {
  * Metaplex diff derives no rollup columns today; the ledger is the replayable
  * record.
  */
-export async function applySolanaActivityWindow(input: Parameters<typeof applySolanaActivityWindowImpl>[0]) {
-  // Any write that can change what the cached directory aggregates count
-  // marks them stale, on success or failure (a failure may have written part of
-  // it): they are served as they are and reloaded once the writes go quiet.
-  try {
-    return await applySolanaActivityWindowImpl(input);
-  } finally {
-    invalidateDirectoryReadsSoftly();
-  }
-}
+export const applySolanaActivityWindow = withInvalidation(applySolanaActivityWindowImpl, invalidateDirectoryReadsSoftly);
 
 async function applySolanaActivityWindowImpl(input: {
   source: IngestionSource;
@@ -835,7 +815,9 @@ async function applySolanaActivityWindowImpl(input: {
  * totals stay a pure function of the ledger. Raw values stay exact decimal
  * strings; dollars are derived at render, never stored.
  */
-export async function applyUsdgSettlementWindow(input: {
+export const applyUsdgSettlementWindow = withInvalidation(applyUsdgSettlementWindowImpl, invalidateDirectoryReadsSoftly);
+
+async function applyUsdgSettlementWindowImpl(input: {
   source: IngestionSource;
   settlements: UsdgSettlementEvent[];
 }) {
@@ -868,16 +850,7 @@ export async function applyUsdgSettlementWindow(input: {
  * completeness check column — recomputed chain-order rank vs the emitted
  * feedbackIndex (docs/reputation-ingest-2026-10-11.md §3).
  */
-export async function applyAgentDirectoryReputationWindow(input: Parameters<typeof applyAgentDirectoryReputationWindowImpl>[0]) {
-  // Any write that can change what the cached directory aggregates count
-  // marks them stale, on success or failure (a failure may have written part of
-  // it): they are served as they are and reloaded once the writes go quiet.
-  try {
-    return await applyAgentDirectoryReputationWindowImpl(input);
-  } finally {
-    invalidateDirectoryReadsSoftly();
-  }
-}
+export const applyAgentDirectoryReputationWindow = withInvalidation(applyAgentDirectoryReputationWindowImpl, invalidateDirectoryReadsSoftly);
 
 async function applyAgentDirectoryReputationWindowImpl(input: {
   source: IngestionSource;
@@ -1517,6 +1490,22 @@ export async function listVisibleDirectoryKeys(ids: readonly string[]): Promise<
 }
 
 /**
+ * The two facts a page head names for a visible directory entry: what it is called and which protocol it is on. One row by key, under the
+ * same visibility rule as the full read. The full read behind the page is up to thirteen queries; a crawler or a shared link asking for
+ * the page's head needs none of them.
+ */
+export async function readAgentDirectoryHeadFacts(id: string): Promise<{ displayName: string; protocol: string } | null> {
+  const db = requireDb(await getDb());
+  const [row] = await db
+    .select({ displayName: agentDirectoryEntries.displayName, protocol: agentDirectoryEntries.protocol })
+    .from(agentDirectoryEntries)
+    .innerJoin(ingestionSources, eq(agentDirectoryEntries.sourceId, ingestionSources.id))
+    .where(and(eq(agentDirectoryEntries.id, id), directoryVisibilityCondition()))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
  * One acknowledged directory entry by id, or null when the id is unknown or
  * the source is inactive. Entries from inactive sources are hidden.
  */
@@ -1613,8 +1602,9 @@ export async function getAgentDirectoryEntry(id: string) {
         })),
       };
     }
-  } catch {
-    // Migration 0013 is still pending on this database.
+  } catch (error) {
+    // A table or column that is not there (migration 0013 not run on this database) leaves the section unmeasured, quietly; any other failure is logged.
+    noteSectionFailure("Entry activity", error);
   }
   // Twin linkage arrives through gated migration 0028 and the metadata pass;
   // while either is pending this read fails fast and the section stays
@@ -1673,8 +1663,9 @@ export async function getAgentDirectoryEntry(id: string) {
         }
       }
     }
-  } catch {
-    // Migration 0028 is still pending on this database.
+  } catch (error) {
+    // As above, for migration 0028.
+    noteSectionFailure("Entry twin", error);
   }
   // Registry ratings read the reputation ledger directly (no migration to
   // await); while the source row, ledger, or key join is unreadable the
@@ -1718,8 +1709,9 @@ export async function getAgentDirectoryEntry(id: string) {
         ratings = computeRatingsSummary(events, await readAgentDirectoryReputationHighWater(source.id));
       }
     }
-  } catch {
-    // Reputation ledger unreadable on this database.
+  } catch (error) {
+    // A ledger that is not there leaves the ratings unmeasured, quietly; any other failure is logged.
+    noteSectionFailure("Entry ratings", error);
   }
   // A BNB entry's registration read (docs/approvals/2026-10-18-bnb-checked-unproven.md): "checked" when its evidence row records a
   // read of the link it carries now, with the date of the read, and "not checked" for every other listed BNB entry, so the line
@@ -1736,20 +1728,11 @@ export async function getAgentDirectoryEntry(id: string) {
         .limit(1);
       registrationRead = registrationReadOf(evidence, selected.profileUriHash);
     } catch (error) {
-      registrationRead = isMissingTableError(error) ? BSC_NOT_CHECKED : null;
+      if (isMissingTable(error)) registrationRead = BSC_NOT_CHECKED;
+      else noteSectionFailure("Entry registration read", error);
     }
   }
   return sanitizeDirectoryEntry({ ...row, related, activity, twin, ratings, ...(row.protocol === "erc8004_bsc" ? { registrationRead } : {}) });
-}
-
-/** True when the driver says a table is not there: its migration has not been run on this database. */
-function isMissingTableError(error: unknown): boolean {
-  let cause: unknown = error;
-  for (let depth = 0; cause instanceof Error && depth < 4; depth += 1) {
-    if ("code" in cause && cause.code === "ER_NO_SUCH_TABLE") return true;
-    cause = cause.cause;
-  }
-  return false;
 }
 
 /** Operator withdrawal notices carry reasons and never enter public surfaces. */
@@ -1842,7 +1825,7 @@ async function breakdownAgentDirectoryByProtocolUncached() {
  * Null when the reputation source or the identity source is not active, so
  * "not read" is never shown as zero.
  */
-export function countRobinhoodFeedbackEvents() {
+function countRobinhoodFeedbackEvents() {
   return cachedDirectoryRead("directory:robinhood-feedback", () => countRobinhoodFeedbackEventsUncached());
 }
 
@@ -2157,7 +2140,7 @@ export async function countRobinhoodListed(): Promise<number> {
 }
 
 /** How many of a chain's listed registrations the home map shows beside the reviewed records. */
-export const MAP_ACKNOWLEDGED_LIMIT = 30;
+const MAP_ACKNOWLEDGED_LIMIT = 30;
 
 /**
  * A fixed sample of the registrations the directory lists for one chain's protocol, for the home map, with how many it
@@ -2400,8 +2383,9 @@ export async function readAgentCheckFacts(entryId: string): Promise<{ activityTh
   if (evmIdentityChain(entry.protocol) !== null) {
     try {
       activityThroughBlock = await readAgentDirectoryActivityHighWater(entry.sourceId);
-    } catch {
-      // The activity ledger's migration is pending: not measured.
+    } catch (error) {
+      // The activity ledger is not there yet: not measured, quietly. Any other failure is logged.
+      noteSectionFailure("Check facts activity ledger", error);
     }
   }
   let solana: { transfers: number; latestRecordedAt: Date | null } | null = null;
@@ -2412,8 +2396,9 @@ export async function readAgentCheckFacts(entryId: string): Promise<{ activityTh
         .from(agentSolanaActivity)
         .where(and(eq(agentSolanaActivity.sourceId, entry.sourceId), eq(agentSolanaActivity.externalKey, entry.externalKey), eq(agentSolanaActivity.kind, "transfer")));
       solana = { transfers: Number(row?.transfers ?? 0), latestRecordedAt: row?.latest ?? null };
-    } catch {
-      // The Solana ledger is not there yet: not measured.
+    } catch (error) {
+      // The Solana ledger is not there yet: not measured, quietly. Any other failure is logged.
+      noteSectionFailure("Check facts Solana ledger", error);
     }
   }
   return { activityThroughBlock, solana };
@@ -2470,6 +2455,16 @@ function directoryMintAnchorSelection() {
 }
 
 /**
+ * The ids of one protocol's active sources: a handful of rows. The ledger reads below name them, because the ledger holds every chain's
+ * events (about 450,000 rows) and a read that names no source is planned from the sources table outward and walks all of them, then
+ * drops the other chains' rows at the entry join. Naming the source lets the (sourceId, externalKey) index bound the walk to one chain.
+ */
+async function activeSourceIdsOf(db: ReturnType<typeof drizzle>, protocol: IngestionSource["protocol"]): Promise<string[]> {
+  const rows = await db.select({ id: ingestionSources.id }).from(ingestionSources).where(and(eq(ingestionSources.protocol, protocol), eq(ingestionSources.state, "active")));
+  return rows.map(row => row.id);
+}
+
+/**
  * Mint anchors for explicit ledger keys only. Anchors are read as plain
  * grouped queries and joined in memory — never materialized as a derived
  * table inside a request query: joining a whole-ledger GROUP BY as a derived
@@ -2502,7 +2497,7 @@ async function readAllAgentDirectoryMintAnchors(db: ReturnType<typeof drizzle>):
     .groupBy(agentDirectoryChainActivity.sourceId, agentDirectoryChainActivity.externalKey);
 }
 
-export type DirectoryActivityFeedEvent = {
+type DirectoryActivityFeedEvent = {
   kind: "mint" | "secondary" | "uri_update";
   blockNumber: number;
   transactionHash: string;
@@ -2531,6 +2526,8 @@ export function readAgentDirectoryActivityFeed(limit = MAX_AGENT_DIRECTORY_FEED_
 async function readAgentDirectoryActivityFeedUncached(limit = MAX_AGENT_DIRECTORY_FEED_EVENTS) {
   const db = requireDb(await getDb());
   const boundedLimit = Math.max(1, Math.min(Math.floor(limit) || MAX_AGENT_DIRECTORY_FEED_EVENTS, MAX_AGENT_DIRECTORY_FEED_EVENTS));
+  const sourceIds = await activeSourceIdsOf(db, "erc8004");
+  if (sourceIds.length === 0) return [];
   const rows = await db
     .select({
       sourceId: agentDirectoryChainActivity.sourceId,
@@ -2550,7 +2547,7 @@ async function readAgentDirectoryActivityFeedUncached(limit = MAX_AGENT_DIRECTOR
       eq(agentDirectoryEntries.externalKey, agentDirectoryChainActivity.externalKey)
     ))
     .innerJoin(ingestionSources, eq(agentDirectoryEntries.sourceId, ingestionSources.id))
-    .where(and(directoryVisibilityCondition(), eq(agentDirectoryEntries.protocol, "erc8004")))
+    .where(and(inArray(agentDirectoryChainActivity.sourceId, sourceIds), directoryVisibilityCondition(), eq(agentDirectoryEntries.protocol, "erc8004")))
     .orderBy(desc(agentDirectoryChainActivity.blockNumber), desc(agentDirectoryChainActivity.logIndex))
     .limit(boundedLimit);
   const anchors = new Map(
@@ -2570,7 +2567,7 @@ async function readAgentDirectoryActivityFeedUncached(limit = MAX_AGENT_DIRECTOR
   }));
 }
 
-export type DirectoryActivityDayCounts = {
+type DirectoryActivityDayCounts = {
   /** Block-day index since genesis (blockNumber / 864,000); not a wall-clock date. */
   day: number;
   mints: number;
@@ -2593,6 +2590,8 @@ export function readAgentDirectoryActivityDaySeries() {
 /** The uncached scan behind {@link readAgentDirectoryActivityDaySeries}; only the cache wrapper calls it. */
 async function readAgentDirectoryActivityDaySeriesUncached() {
   const db = requireDb(await getDb());
+  const sourceIds = await activeSourceIdsOf(db, "erc8004");
+  if (sourceIds.length === 0) return [];
   const dayColumn = sql<number>`floor(${agentDirectoryChainActivity.blockNumber} / ${CHAIN_BLOCKS_PER_DAY})`;
   const rows = await db
     .select({
@@ -2607,7 +2606,7 @@ async function readAgentDirectoryActivityDaySeriesUncached() {
       eq(agentDirectoryEntries.externalKey, agentDirectoryChainActivity.externalKey)
     ))
     .innerJoin(ingestionSources, eq(agentDirectoryEntries.sourceId, ingestionSources.id))
-    .where(and(directoryVisibilityCondition(), eq(agentDirectoryEntries.protocol, "erc8004")))
+    .where(and(inArray(agentDirectoryChainActivity.sourceId, sourceIds), directoryVisibilityCondition(), eq(agentDirectoryEntries.protocol, "erc8004")))
     .groupBy(dayColumn)
     .orderBy(dayColumn);
   const secondaryRows = await db
@@ -2624,6 +2623,7 @@ async function readAgentDirectoryActivityDaySeriesUncached() {
     ))
     .innerJoin(ingestionSources, eq(agentDirectoryEntries.sourceId, ingestionSources.id))
     .where(and(
+      inArray(agentDirectoryChainActivity.sourceId, sourceIds),
       directoryVisibilityCondition(),
       eq(agentDirectoryEntries.protocol, "erc8004"),
       eq(agentDirectoryChainActivity.kind, "secondary")
@@ -2686,11 +2686,18 @@ export function readSolanaActivityFeed(limit = MAX_SOLANA_ACTIVITY_FEED_EVENTS) 
 /** How many of each Solana registry's newest events the feed keeps whatever else is newer (fewer when the limit is small). */
 export const SOLANA_FEED_FLOOR_PER_REGISTRY = 5;
 
+/**
+ * The Solana registries whose passes write the activity ledger, which are the registries the feed reads. The AgenC pass writes none (docs/
+ * agenc-solana-2026-10-26.md), so it has no events to show and takes no share of the floor: the floor is split across this list, not across
+ * every protocol that is on Solana. A registry that later gets a ledger is added here on purpose.
+ */
+const SOLANA_FEED_PROTOCOLS = ["solana_registry", "solana_8004", "solana_said"] as const;
+
 /** The uncached read behind {@link readSolanaActivityFeed}; only the cache wrapper calls it. */
 async function readSolanaActivityFeedUncached(limit: number) {
   const db = requireDb(await getDb());
   type SolanaProtocol = (typeof agentDirectoryEntries.protocol.enumValues)[number];
-  const protocols = protocolsOf("solana") as SolanaProtocol[];
+  const protocols: SolanaProtocol[] = [...SOLANA_FEED_PROTOCOLS];
   // Each registry's newest `limit` events. The newest `limit` overall are among them, and so are each registry's own newest few.
   const perRegistry = await Promise.all(
     protocols.map(protocol =>
@@ -2765,8 +2772,17 @@ async function readSolanaActivityTotalsUncached() {
  * census-integrity gate only rail facts ship. Returns null while no active
  * settlement source exists or nothing is measured — the caller renders the
  * gap, never a false zero.
+ *
+ * Cached like the other directory aggregates (the warm-up reads it too): the one writer,
+ * applyUsdgSettlementWindow, marks it stale, and an operator pausing or rejecting the source
+ * drops it with the rest.
  */
-export async function readUsdgSettlementTotals() {
+export function readUsdgSettlementTotals() {
+  return cachedDirectoryRead("directory:usdg-totals", () => readUsdgSettlementTotalsUncached());
+}
+
+/** The uncached read behind {@link readUsdgSettlementTotals}; only the cache wrapper calls it. */
+async function readUsdgSettlementTotalsUncached() {
   const db = requireDb(await getDb());
   const [source] = await db
     .select({ id: ingestionSources.id })
@@ -2863,21 +2879,13 @@ export async function countVisibleEntriesOfRegistrant(protocol: "erc8004" | "erc
  * locator hosts (e.g. agentrank.info) or other operator-identified issues.
  * Returns the updated entry state; throws if the entry doesn't exist.
  */
-export async function hideDirectoryEntry(entryId: Parameters<typeof hideDirectoryEntryImpl>[0]) {
-  // Any write that can change what the cached directory aggregates count
-  // drops them, on success or failure (a failure may have written part of it).
-  try {
-    return await hideDirectoryEntryImpl(entryId);
-  } finally {
-    invalidateDirectoryReads();
-  }
-}
+export const hideDirectoryEntry = withInvalidation(hideDirectoryEntryImpl, invalidateDirectoryReads);
 
 async function hideDirectoryEntryImpl(entryId: string) {
   const db = requireDb(await getDb());
   const existing = await getDirectoryEntryById(entryId);
-  if (!existing) throw new Error("Directory entry not found.");
-  if (existing.hidden) throw new Error("Directory entry is already hidden.");
+  if (!existing) throw new OperatorRuleError("Directory entry not found.");
+  if (existing.hidden) throw new OperatorRuleError("Directory entry is already hidden.");
   await db
     .update(agentDirectoryEntries)
     .set({ hidden: true })
@@ -2889,21 +2897,13 @@ async function hideDirectoryEntryImpl(entryId: string) {
  * Operator-controlled unhiding of a directory entry. Restores visibility
  * (subject to source state). Returns the updated entry state.
  */
-export async function unhideDirectoryEntry(entryId: Parameters<typeof unhideDirectoryEntryImpl>[0]) {
-  // Any write that can change what the cached directory aggregates count
-  // drops them, on success or failure (a failure may have written part of it).
-  try {
-    return await unhideDirectoryEntryImpl(entryId);
-  } finally {
-    invalidateDirectoryReads();
-  }
-}
+export const unhideDirectoryEntry = withInvalidation(unhideDirectoryEntryImpl, invalidateDirectoryReads);
 
 async function unhideDirectoryEntryImpl(entryId: string) {
   const db = requireDb(await getDb());
   const existing = await getDirectoryEntryById(entryId);
-  if (!existing) throw new Error("Directory entry not found.");
-  if (!existing.hidden) throw new Error("Directory entry is not hidden.");
+  if (!existing) throw new OperatorRuleError("Directory entry not found.");
+  if (!existing.hidden) throw new OperatorRuleError("Directory entry is not hidden.");
   await db
     .update(agentDirectoryEntries)
     .set({ hidden: false })
@@ -2929,15 +2929,7 @@ export async function listHiddenDirectoryEntries() {
     .limit(500);
 }
 
-export async function decideIngestionSource(input: Parameters<typeof decideIngestionSourceImpl>[0]) {
-  // Any write that can change what the cached directory aggregates count
-  // drops them, on success or failure (a failure may have written part of it).
-  try {
-    return await decideIngestionSourceImpl(input);
-  } finally {
-    invalidateDirectoryReads();
-  }
-}
+export const decideIngestionSource = withInvalidation(decideIngestionSourceImpl, invalidateDirectoryReads);
 
 async function decideIngestionSourceImpl(input: {
   sourceId: string;
@@ -2977,7 +2969,9 @@ async function decideIngestionSourceImpl(input: {
  * A `public` decision must name the reviewed completed run (`approvedRunId`)
  * that becomes the visible set; revocation clears the binding.
  */
-export async function decideSourceProjection(input: {
+export const decideSourceProjection = withInvalidation(decideSourceProjectionImpl, invalidateDirectoryReads);
+
+async function decideSourceProjectionImpl(input: {
   sourceId: string;
   state: "public" | "revoked";
   rationale: string;
@@ -3833,7 +3827,9 @@ export async function listNewestGatedSnapshotSummaries(agentIds: string[]) {
  * evidence remain untouched; the read path re-resolves visibility from the
  * newest ledger event, so a reinstate restores the record.
  */
-export async function decideRecordWithdrawal(input: {
+export const decideRecordWithdrawal = withInvalidation(decideRecordWithdrawalImpl, invalidateDirectoryReads);
+
+async function decideRecordWithdrawalImpl(input: {
   agentId: string;
   action: "withdraw" | "reinstate";
   reason: string;
@@ -3864,7 +3860,7 @@ export async function decideRecordWithdrawal(input: {
       .orderBy(desc(agentPublicSnapshots.observedAt))
       .limit(1);
     if (!newest) {
-      throw new Error("No reviewed-run observation exists for this record; withdrawal applies only to records under the served gate.");
+      throw new OperatorRuleError("No reviewed-run observation exists for this record; withdrawal applies only to records under the served gate.");
     }
     await tx.insert(agentRecordWithdrawals).values({
       agentId: input.agentId,
@@ -4004,20 +4000,6 @@ export async function listPersistedEvidenceEntries(agentId: string) {
     .orderBy(desc(evidenceEvents.observedAt));
 }
 
-export async function getPublisherPolicyForIdentity(identityId: string) {
-  const db = requireDb(await getDb());
-  return db
-    .select({
-      publisherKeyId: publisherKeys.id,
-      issuerName: publisherKeys.issuerName,
-      state: publisherKeys.state,
-      bindingId: publisherBindings.id,
-    })
-    .from(publisherBindings)
-    .innerJoin(publisherKeys, eq(publisherBindings.publisherKeyId, publisherKeys.id))
-    .where(eq(publisherBindings.agentIdentityId, identityId));
-}
-
 export async function createDomainVerificationChallenge(input: {
   id: string;
   agentId: string;
@@ -4046,7 +4028,7 @@ export async function createDomainVerificationChallenge(input: {
     })
     .filter((domain): domain is string => Boolean(domain));
   if (!knownDomains.includes(input.domain)) {
-    throw new Error("Domain verification can only target a domain already asserted by this agent.");
+    throw new OperatorRuleError("Domain verification can only target a domain already asserted by this agent.");
   }
 
   await db.insert(domainVerificationChallenges).values(input);
@@ -4118,9 +4100,9 @@ export async function completeDomainVerification(input: {
 }) {
   const db = requireDb(await getDb());
   const challenge = await getDomainVerificationChallenge(input.challengeId);
-  if (!challenge) throw new Error("Domain verification challenge not found.");
+  if (!challenge) throw new OperatorRuleError("Domain verification challenge not found.");
   if (challenge.state !== "pending" || challenge.expiresAt <= new Date()) {
-    throw new Error("Domain verification challenge is no longer pending.");
+    throw new OperatorRuleError("Domain verification challenge is no longer pending.");
   }
 
   const now = new Date();
@@ -4139,7 +4121,7 @@ export async function completeDomainVerification(input: {
       return false;
     }
   });
-  if (relevantIdentities.length === 0) throw new Error("No matching asserted identity exists for this domain.");
+  if (relevantIdentities.length === 0) throw new OperatorRuleError("No matching asserted identity exists for this domain.");
 
   const latestObservationId = relevantIdentities[0]!.sourceObservationId;
   const eventId = randomUUID();
@@ -4219,9 +4201,9 @@ export async function completeDomainVerification(input: {
 export async function recheckDomainVerification(input: { challengeId: string }) {
   const db = requireDb(await getDb());
   const challenge = await getDomainVerificationChallenge(input.challengeId);
-  if (!challenge) throw new Error("Domain verification challenge not found.");
+  if (!challenge) throw new OperatorRuleError("Domain verification challenge not found.");
   if (challenge.state !== "verified" || challenge.revokedAt) {
-    throw new Error("Only an active verified challenge can be rechecked.");
+    throw new OperatorRuleError("Only an active verified challenge can be rechecked.");
   }
 
   const identityRows = await db
@@ -4236,7 +4218,7 @@ export async function recheckDomainVerification(input: { challengeId: string }) 
     }
   });
   const latestObservationId = relevantIdentities[0]?.sourceObservationId ?? identityRows[0]?.sourceObservationId;
-  if (!latestObservationId) throw new Error("No asserted identity exists for this agent.");
+  if (!latestObservationId) throw new OperatorRuleError("No asserted identity exists for this agent.");
 
   let proofHash: string | null = null;
   let failureReason: string | null = null;
@@ -4358,7 +4340,6 @@ export async function getOrCreateIngestionWorkerConfig() {
 
 export async function configureIngestionWorker(input: {
   state: "paused" | "enabled";
-  tickSeconds: number;
   maxSourcesPerTick: number;
   minGlobalIntervalMinutes: number;
   updatedByUserId: number;
@@ -4420,7 +4401,7 @@ export async function finishIngestionWorkerTick(error?: unknown) {
 }
 
 
-export type PublisherKeyState = "pending" | "allowlisted" | "expired" | "revoked";
+type PublisherKeyState = "pending" | "allowlisted" | "expired" | "revoked";
 
 /**
  * An allowlisted key whose configured expiry has elapsed is expired, not
@@ -4469,18 +4450,18 @@ export async function stagePublisherKeyPolicy(input: {
     .from(agentIdentities)
     .where(eq(agentIdentities.id, input.identityId))
     .limit(1);
-  if (!identity) throw new Error("Agent identity was not found.");
+  if (!identity) throw new OperatorRuleError("Agent identity was not found.");
   if (identity.verificationState !== "verified") {
-    throw new Error("Publisher-key validation requires a domain-verified agent identity.");
+    throw new OperatorRuleError("Publisher-key validation requires a domain-verified agent identity.");
   }
   let assertedDomain: string;
   try {
     assertedDomain = new URL(identity.externalId).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
-    throw new Error("Publisher-key validation requires an HTTPS URL identity.");
+    throw new OperatorRuleError("Publisher-key validation requires an HTTPS URL identity.");
   }
   if (!input.proof.permittedDomains.includes(assertedDomain)) {
-    throw new Error("Publisher-key policy must permit the agent identity's verified domain.");
+    throw new OperatorRuleError("Publisher-key policy must permit the agent identity's verified domain.");
   }
 
   if (input.rotationOfKeyId) {
@@ -4489,15 +4470,15 @@ export async function stagePublisherKeyPolicy(input: {
       .from(publisherKeys)
       .where(eq(publisherKeys.id, input.rotationOfKeyId))
       .limit(1);
-    if (!previous || previous.state !== "allowlisted") throw new Error("Publisher key rotation requires an active prior key.");
-    if (previous.issuerName !== input.proof.issuerName) throw new Error("Publisher key rotation must retain the same issuer name.");
+    if (!previous || previous.state !== "allowlisted") throw new OperatorRuleError("Publisher key rotation requires an active prior key.");
+    if (previous.issuerName !== input.proof.issuerName) throw new OperatorRuleError("Publisher key rotation must retain the same issuer name.");
     const priorDomains = parseStringArray(previous.permittedDomains);
     const priorProtocols = parseStringArray(previous.permittedProtocols);
     if (!input.proof.permittedDomains.every(domain => priorDomains.includes(domain))) {
-      throw new Error("Publisher key rotation may not expand permitted domains.");
+      throw new OperatorRuleError("Publisher key rotation may not expand permitted domains.");
     }
     if (!input.proof.permittedProtocols.every(protocol => priorProtocols.includes(protocol))) {
-      throw new Error("Publisher key rotation may not expand permitted protocols.");
+      throw new OperatorRuleError("Publisher key rotation may not expand permitted protocols.");
     }
   }
 
@@ -4549,7 +4530,10 @@ export async function stagePublisherKeyPolicy(input: {
   return { keyId, reviewId, bindingId, agentId: identity.agentId, state: "pending" as const };
 }
 
-async function refreshAgentPublisherReadModel(db: ReturnType<typeof drizzle>, agentId: string) {
+/** What the read model refresh needs of the database: the pool, or the transaction a key's decision runs in. */
+type ReadModelDb = Pick<ReturnType<typeof drizzle>, "select" | "update">;
+
+async function refreshAgentPublisherReadModel(db: ReadModelDb, agentId: string) {
   const rows = await db
     .select({ state: publisherKeys.state, expiresAt: publisherKeys.expiresAt })
     .from(agentIdentities)
@@ -4568,7 +4552,7 @@ async function refreshAgentPublisherReadModel(db: ReturnType<typeof drizzle>, ag
   // Copy the expiry the allowlisted verdict rests on, so the public list path
   // can fail closed at read time before the next tick persists the transition.
   // Any allowlisted key without a configured expiry never lapses.
-  const allowlistedExpiries = rows.filter((row, index) => states[index] === "allowlisted").map(row => row.expiresAt);
+  const allowlistedExpiries = rows.filter((_, index) => states[index] === "allowlisted").map(row => row.expiresAt);
   let publisherExpiresAt: Date | null = null;
   for (const expiry of allowlistedExpiries) {
     if (expiry === null) {
@@ -4595,19 +4579,19 @@ async function refreshAgentPublisherReadModel(db: ReturnType<typeof drizzle>, ag
 export async function approvePublisherKeyPolicy(input: { keyId: string; decidedByUserId: number; rationale: string }) {
   const db = requireDb(await getDb());
   const [key] = await db.select().from(publisherKeys).where(eq(publisherKeys.id, input.keyId)).limit(1);
-  if (!key) throw new Error("Publisher key proposal was not found.");
-  if (key.state !== "pending") throw new Error("Only pending publisher key proposals can be approved.");
+  if (!key) throw new OperatorRuleError("Publisher key proposal was not found.");
+  if (key.state !== "pending") throw new OperatorRuleError("Only pending publisher key proposals can be approved.");
   if (key.createdByUserId === input.decidedByUserId) {
-    throw new Error("Publisher-key approval requires an operator other than the proposal creator.");
+    throw new OperatorRuleError("Publisher-key approval requires an operator other than the proposal creator.");
   }
-  if (key.expiresAt && key.expiresAt <= new Date()) throw new Error("Expired publisher key proposals cannot be approved.");
+  if (key.expiresAt && key.expiresAt <= new Date()) throw new OperatorRuleError("Expired publisher key proposals cannot be approved.");
 
   const bindings = await db
     .select({ agentId: agentIdentities.agentId, sourceObservationId: publisherBindings.sourceObservationId })
     .from(publisherBindings)
     .innerJoin(agentIdentities, eq(publisherBindings.agentIdentityId, agentIdentities.id))
     .where(eq(publisherBindings.publisherKeyId, key.id));
-  if (bindings.length === 0) throw new Error("Publisher key proposal had no identity binding.");
+  if (bindings.length === 0) throw new OperatorRuleError("Publisher key proposal had no identity binding.");
   const now = new Date();
   await db.transaction(async tx => {
     await tx
@@ -4649,15 +4633,17 @@ export async function approvePublisherKeyPolicy(input: { keyId: string; decidedB
         observedAt: now,
       });
     }
+    // The read model the public lists are served from changes with the key, in the same commit. A refresh that fails undoes the approval, so
+    // the two never disagree and the operator can try again; outside the transaction a failure left the key decided and the copy stale.
+    for (const binding of bindings) await refreshAgentPublisherReadModel(tx, binding.agentId);
   });
-  for (const binding of bindings) await refreshAgentPublisherReadModel(db, binding.agentId);
   return { keyId: key.id, state: "allowlisted" as const, agentIds: bindings.map(binding => binding.agentId) };
 }
 
 export async function revokePublisherKeyPolicy(input: { keyId: string; decidedByUserId: number; rationale: string }) {
   const db = requireDb(await getDb());
   const [key] = await db.select().from(publisherKeys).where(eq(publisherKeys.id, input.keyId)).limit(1);
-  if (!key) throw new Error("Publisher key was not found.");
+  if (!key) throw new OperatorRuleError("Publisher key was not found.");
   if (key.state === "revoked") return { keyId: key.id, state: "revoked" as const, agentIds: [] as string[] };
   const bindings = await db
     .select({ agentId: agentIdentities.agentId, sourceObservationId: publisherBindings.sourceObservationId })
@@ -4680,8 +4666,10 @@ export async function revokePublisherKeyPolicy(input: { keyId: string; decidedBy
         observedAt: now,
       });
     }
+    // In the same commit as the revocation: a refresh that failed after it left the copy showing the revoked key's tier, and a second
+    // revocation returns early, so nothing would have corrected it.
+    for (const binding of bindings) await refreshAgentPublisherReadModel(tx, binding.agentId);
   });
-  for (const binding of bindings) await refreshAgentPublisherReadModel(db, binding.agentId);
   return { keyId: key.id, state: "revoked" as const, agentIds: bindings.map(binding => binding.agentId) };
 }
 

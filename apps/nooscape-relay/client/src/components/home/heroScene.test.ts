@@ -237,9 +237,9 @@ describe("the canvas", () => {
     expect(backdrop).toContain('<canvas ref={canvasRef} className="hero-canvas" aria-hidden="true" />');
   });
 
-  it("runs one animation frame loop, and stops it when the hero is off screen, the tab is hidden, or motion is reduced", () => {
+  it("runs one animation frame loop, and stops it when the hero is off screen, the tab is hidden, motion is reduced or Deep Space covers the page", () => {
     expect(code.match(/const tick = /g)).toHaveLength(1);
-    expect(code).toContain("const shouldRun = onScreen && !document.hidden && !reduced;");
+    expect(code).toContain("const shouldRun = onScreen && !document.hidden && !reduced && !pageCovered();");
     expect(code).toContain("new IntersectionObserver(");
     expect(code).toContain('document.addEventListener("visibilitychange", sync)');
     expect(code).toContain('document.removeEventListener("visibilitychange", sync)');

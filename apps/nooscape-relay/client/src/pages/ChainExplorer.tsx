@@ -39,11 +39,11 @@ import {
   normalizeEvmEvents,
   normalizeSolanaEvents,
   registrationShare,
+  undrawnRegistryNote,
   worldEntityLabel,
   worldProtocolLabel,
   worldsOn,
   type AcknowledgedWorldRecord,
-  type ChainWorldEvent,
   type WorldKey,
 } from "@/lib/chainExplorerModel";
 import { groupSize } from "@/lib/chainWorldLayout";
@@ -62,7 +62,7 @@ const READ = {
 } as const;
 const EMPTY_GROUPS = [] as const;
 const NO_ENTRIES: readonly AcknowledgedWorldRecord[] = [];
-// Arc and Base have a page only while their switches are in the build (shared/features.ts); the server answers 404 for them otherwise (server/clientRoutes.ts).
+// Arc, Base and Ethereum have a page only while their switches are in the build (shared/features.ts); the server answers 404 for them otherwise (server/clientRoutes.ts).
 const FEATURES: string | undefined = import.meta.env.VITE_FEATURES;
 function Figure({
   value,
@@ -84,7 +84,7 @@ function Figure({
 }
 export default function ChainExplorer({ chain }: { chain: WorldKey }) {
   const world = CHAIN_WORLDS[chain];
-  // BNB Chain, Arc and Base have no global feed: an event is shown for the entry that is selected, from that entry's own activity.
+  // BNB Chain, Arc, Base and Ethereum have no global feed: an event is shown for the entry that is selected, from that entry's own activity.
   const entryEvents = ENTRY_EVENT_WORLDS.includes(chain);
   const entryProtocol = CHAIN_IDENTITY_PROTOCOLS[chain][0]!;
   const [query, setQuery] = useState("");
@@ -106,8 +106,8 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
     undefined,
     { ...READ, enabled: chain === "solana" }
   );
-  // Arc and Base read their groups from their own registries (registryFleets); the other three from the map's reads.
-  const registryWorld: "arc" | "base" | null = chain === "arc" || chain === "base" ? chain : null;
+  // Arc, Base and Ethereum read their groups from their own registries (registryFleets); the other three from the map's reads.
+  const registryWorld: "arc" | "base" | "ethereum" | null = chain === "arc" || chain === "base" || chain === "ethereum" ? chain : null;
   const fleetsQuery = trpc.liveData.mapFleets.useQuery(undefined, {
     ...READ,
     staleTime: 10 * 60_000,
@@ -121,6 +121,7 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
   );
   const stats: ChainStat | ExtraChainStat | undefined = statsQuery.data?.chains.find(row => row.chain === chain) ?? statsQuery.data?.extras?.find(row => row.chain === chain);
   const registry = stats && "registry" in stats ? stats.registry : null;
+  const undrawnNote = undrawnRegistryNote(chain, stats?.registries);
   const baseEvents = useMemo(
     () =>
       chain === "robinhood"
@@ -361,6 +362,7 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
             </h1>
             <p className="cw-description">
               {world.subtitle} {world.description}
+              {undrawnNote && ` ${undrawnNote}`}
             </p>
           </div>
           <div className="cw-header-stamp">
@@ -371,9 +373,9 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
                   ? "READING THE INDEX"
                   : "NO DATA INVENTED"}
             </strong>
-            {chain === "bnb" || chain === "base" ? "Formations are illustrations." : chain === "arc" ? "Characters and formations are illustrations." : "Characters are illustrations."}
+            {chain === "bnb" || chain === "base" || chain === "ethereum" ? "Formations are illustrations." : chain === "arc" ? "Characters and formations are illustrations." : "Characters are illustrations."}
             <br />
-            {chain === "bnb" || chain === "arc" || chain === "base" ? "Counts are Nooscape’s grouping of the registry." : "Activity comes from the ledgers."}
+            {chain === "bnb" || chain === "arc" || chain === "base" || chain === "ethereum" ? "Counts are Nooscape’s grouping of the registry." : "Activity comes from the ledgers."}
           </div>
         </div>
         <nav className="cw-navigation" aria-label="Chain worlds">

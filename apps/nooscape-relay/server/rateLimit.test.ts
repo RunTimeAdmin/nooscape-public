@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import express from "express";
 import { beforeEach, describe, expect, it } from "vitest";
-import { clientBucketKey, clientKeyFrom, consumeRateLimit, MAX_TRACKED_KEYS, rateLimitExpress, resetRateLimits, sweepExpiredRateLimits } from "./rateLimit";
+import { clientBucketKey, clientKeyFrom, consumeRateLimit, MAX_TRACKED_KEYS, peekRateLimit, rateLimitExpress, resetRateLimits, retryAfterSeconds, sweepExpiredRateLimits } from "./rateLimit";
 
 describe("fixed-window rate limiting", () => {
   beforeEach(() => {
@@ -35,6 +35,36 @@ describe("fixed-window rate limiting", () => {
   it("reports remaining budget", () => {
     expect(consumeRateLimit("a", 5, 1000, 0).remaining).toBe(4);
     expect(consumeRateLimit("a", 5, 1000, 1).remaining).toBe(3);
+  });
+
+  it("peeks at a window without taking a place in it, and answers as the next consume would", () => {
+    expect(peekRateLimit("a", 2, 1000, 0)).toEqual({ allowed: true, retryAfterMs: 0, remaining: 2 });
+    expect(consumeRateLimit("a", 2, 1000, 0).allowed).toBe(true);
+    // Any number of peeks leaves the count where it was.
+    for (let index = 0; index < 5; index += 1) expect(peekRateLimit("a", 2, 1000, 1).allowed).toBe(true);
+    expect(peekRateLimit("a", 2, 1000, 1).remaining).toBe(1);
+    expect(consumeRateLimit("a", 2, 1000, 2).allowed).toBe(true);
+    expect(peekRateLimit("a", 2, 1000, 3)).toEqual({ allowed: false, retryAfterMs: 997, remaining: 0 });
+    expect(consumeRateLimit("a", 2, 1000, 3).allowed).toBe(false);
+    // A window that has run out has room again, and a key nobody used has all of it.
+    expect(peekRateLimit("a", 2, 1000, 1000).allowed).toBe(true);
+    expect(peekRateLimit("b", 2, 1000, 3).remaining).toBe(2);
+  });
+
+  it("peeks where a full table would count a client it has no room for", () => {
+    for (let index = 0; index < MAX_TRACKED_KEYS; index += 1) consumeRateLimit(`filler-${index}`, 10, 60_000, 0);
+    // The table is full, so a new key shares one window with every other new key; once that window is used up the peek says so.
+    for (let index = 0; index < 3; index += 1) consumeRateLimit(`newcomer-${index}`, 3, 60_000, 1);
+    expect(peekRateLimit("newcomer-9", 3, 60_000, 2).allowed).toBe(false);
+    expect(consumeRateLimit("newcomer-9", 3, 60_000, 2).allowed).toBe(false);
+  });
+});
+
+describe("the wait a refused caller is told", () => {
+  it("is whole seconds, rounded up, and never less than one (a Retry-After of 0 invites an immediate retry)", () => {
+    for (const [milliseconds, seconds] of [[-5, 1], [0, 1], [1, 1], [1000, 1], [1001, 2], [59_001, 60]] as const) {
+      expect(retryAfterSeconds(milliseconds), String(milliseconds)).toBe(seconds);
+    }
   });
 });
 

@@ -9,7 +9,7 @@ describe("protocolsOf", () => {
       for (const protocol of protocolsOf(chain)) expect(chainOf(protocol)).toBe(chain);
     }
     expect(protocolsOf("bnb")).toEqual(["erc8004_bsc"]);
-    expect(protocolsOf("solana").sort()).toEqual(["solana_8004", "solana_registry", "solana_said"]);
+    expect(protocolsOf("solana").sort()).toEqual(["solana_8004", "solana_agenc", "solana_registry", "solana_said"]);
   });
 });
 

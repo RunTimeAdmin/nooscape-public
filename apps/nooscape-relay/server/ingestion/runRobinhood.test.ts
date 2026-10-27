@@ -113,6 +113,15 @@ describe("a click the position can honor runs normally", () => {
   });
 });
 
+describe("how long a throttled call is waited out", () => {
+  it("lets an operator's run wait out a throttle and an unattended run give up after a few seconds", async () => {
+    await runApprovedRobinhoodRegistrySource(source(FORWARD), "manual", "activity");
+    await runApprovedRobinhoodRegistrySource(source(FORWARD, "scheduled"), "scheduled", "activity");
+    const retries = mocks.fetchRobinhoodRegistry.mock.calls.map(call => (call[1] as { retry?: string }).retry);
+    expect(retries).toEqual(["patient", "short"]);
+  });
+});
+
 describe("real faults still record a failed run", () => {
   it("records a failed run, with the prior cursor, when the adapter fails after the mode fits", async () => {
     mocks.fetchRobinhoodRegistry.mockRejectedValue(new Error("rpc down"));

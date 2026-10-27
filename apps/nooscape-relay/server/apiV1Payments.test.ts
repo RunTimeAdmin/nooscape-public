@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { API_CHAINS, API_V1_RATE_LIMIT, registerApiV1, type ApiV1Deps, type KeyAccess } from "./apiV1";
 import { API_TIERS, type ApiKeyRecord } from "./apiKeys";
 import { API_V1_SPEC } from "./apiV1Spec";
-import { problems, schemaOf } from "./apiV1Check";
+import { problems, schemaOf } from "./apiV1Testing";
 import { resetRateLimits } from "./rateLimit";
 import { ARC_MAINNET, BASE_MAINNET } from "./x402";
 import { CDP_FACILITATOR_URL } from "./x402Cdp";
@@ -70,6 +70,9 @@ function world(options: { config?: ReturnType<typeof testConfig> | null; ready?:
     claimOf: async () => ({ available: true, claimable: true, claim: null }),
     claimHistory: async () => null,
     checkFacts: async () => ({ activityThroughBlock: null, solana: null }),
+    stats: async () => {
+      throw new Error("the directory stats are not under test here");
+    },
     keys: keys(),
     payments,
     ...options.overrides,

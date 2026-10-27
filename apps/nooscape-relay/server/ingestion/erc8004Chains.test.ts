@@ -124,7 +124,7 @@ describe("the Base entry", () => {
       feature: "chain_base",
     });
     expect(BASE_CHAIN.rpc).toEqual({ timeoutMs: 30_000, maxResponseBytes: 24 * MIB, retryStatuses: [429, 500, 502, 503, 504], backoffMs: [1_000, 3_000], readErrorBodies: true });
-    expect(BASE_CHAIN.budget).toEqual({ maxWindows: 200, concurrency: 2, maxElapsedMs: 30_000, maxEvents: 40_000 });
+    expect(BASE_CHAIN.budget).toEqual({ maxWindows: 200, concurrency: 2, maxElapsedMs: 20_000, maxEvents: 1_000_000 });
     expect(BASE_CHAIN.listingRules).toBe(BASE_LISTING_RULES);
   });
 
@@ -210,7 +210,9 @@ describe("what the measurements ask of the caps", () => {
     expect(BASE_CHAIN.maxWindowLogs).toBeGreaterThanOrEqual(3 * BASE_DENSEST_1000.events);
   });
 
-  it("keeps a window to the smallest the pass splits to on the chain in a surge", () => {
+  // A burst on 2026-10-22 passed both caps (windows of 38,578, 55,508 and 43,689 events, up to 35.9 MiB). The pass now splits such a
+  // window and applies the halves on their own (runErc8004Chain.test.ts), so the caps are per read and need not exceed a burst.
+  it("plans Base's windows at 1,000 blocks, the width its caps were measured against", () => {
     expect(BASE_CHAIN.maxLogRange).toBe(1_000);
   });
 });

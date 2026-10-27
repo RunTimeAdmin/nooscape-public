@@ -28,6 +28,12 @@ source with a recorded failure is a warning, not a failure, because those are op
 protocol is flipped to scheduled (for example SAID), add or adjust its entry. A scheduled protocol with no
 entry is not freshness-checked.
 
+## When the check fails and the site is up
+
+The check runs on a GitHub runner, and the site's CDN has turned the runner away for a few minutes at a time: a 403 or a 307 where the page should be, or `fetch failed` on every request, each in a few seconds. Five of the seven failures between 13 and 23 October were that (403 on 14 and 22 October, 307 on 22 October, a failed connection twice on 23 October). The site was up each time and the next run passed. A request that gets one of those answers, or whose connection fails, is now asked again after 10, 30, 60 and 120 seconds (`scripts/liveGet.mjs`) before it counts, and the report names the cause of a failed connection and what the edge said (server, location, cf-ray). Once one request has used up its tries the others get one try each, so a site that is really down fails the job in about twelve minutes at most.
+
+A failure whose lines all show the same edge answer is a turn-away. One that shows a 5xx, a missing header, a stale source or a payment left open is the site. The other two failures of the seven were not turn-aways: the Solana 8004 pass stuck on 16 October, which the check was written to catch, and the job that never started on 21 October because the Actions minutes had run out.
+
 ## Documentation-only changes
 
 A change that touches only Markdown files runs the secret scan and nothing else of the gate: the install, type check, tests, build and audit are skipped, which is about six minutes of Actions time. The job still runs and reports `gate`, so the `main` ruleset is satisfied. A workflow-level `paths-ignore` would not do that: it leaves `gate` unreported, and a pull request or a push to `main` with no `gate` result cannot merge.

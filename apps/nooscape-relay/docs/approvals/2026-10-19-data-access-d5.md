@@ -15,7 +15,7 @@
 
 ## What the operator must do to switch it on (nothing happens until he does)
 
-1. Paste migration 0045 and record it (`D:\scratch\for-david\0045_api_webhooks.sql` and `0045_record.sql`).
+1. Paste migration 0045 and record it (`0045_api_webhooks.sql` and `0045_record.sql`).
 2. Set `WEBHOOK_SIGNING_KEY` on the host (32 or more random characters) and restart.
 3. Create the third cron job (the command is in the D5 section).
 4. Give a key the Builder tier by hand (an operator action, as for every paid tier), and try it with a receiver he controls.

@@ -1,10 +1,10 @@
-export type PositionedAgent = {
+type PositionedAgent = {
   id: string;
   position: { x: number; y: number };
   capability: string;
 };
 
-export type TopologyCluster<T extends PositionedAgent> = {
+type TopologyCluster<T extends PositionedAgent> = {
   id: string;
   position: { x: number; y: number };
   count: number;
@@ -13,7 +13,7 @@ export type TopologyCluster<T extends PositionedAgent> = {
   members: readonly T[];
 };
 
-export type TopologyLayer<T extends PositionedAgent> = {
+type TopologyLayer<T extends PositionedAgent> = {
   mode: "direct" | "regional" | "overview";
   direct: readonly T[];
   clusters: readonly TopologyCluster<T>[];
@@ -28,7 +28,7 @@ const DIRECT_NODE_LIMIT = 160;
 // Full bot characters are the costliest animated DOM on the field. The rendered
 // surface is a bounded featured crew; every other record stays reachable through
 // search/spotlight and shows as cheap non-interactive dust.
-export const FEATURED_BOT_LIMIT = 22;
+const FEATURED_BOT_LIMIT = 22;
 export const DUST_PARTICLE_LIMIT = 140;
 
 /**
@@ -132,7 +132,7 @@ export function buildTopologyLayer<T extends PositionedAgent>(
   };
 }
 
-export type TopologyEntity = { id: string; position: { x: number; y: number } };
+type TopologyEntity = { id: string; position: { x: number; y: number } };
 
 export function connectionLinesForEntities<T extends TopologyEntity>(entities: readonly T[], selectedId: string) {
   const selected = entities.find(entity => entity.id === selectedId) ?? entities[0];

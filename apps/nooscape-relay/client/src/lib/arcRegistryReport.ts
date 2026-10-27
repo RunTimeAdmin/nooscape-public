@@ -54,7 +54,7 @@ export type Q8Row = readonly [
 /** Query 9: the activity ledger by kind of event. */
 export type Q9Row = readonly [kind: string, events: number, registrations: number, oldestBlock: number, newestBlock: number];
 /** Query 10: registrations in each chain-day since the first mint block measured. */
-export type Q10Row = readonly [day: number, registrations: number];
+type Q10Row = readonly [day: number, registrations: number];
 
 export const MEASURED = {
   date: "2026-10-20",

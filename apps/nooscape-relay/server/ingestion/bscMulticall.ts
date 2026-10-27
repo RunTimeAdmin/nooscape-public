@@ -39,7 +39,7 @@ export function encodeTokenUriMulticall(agentIds: string[], registry: string = B
   return `0x${AGGREGATE3_SELECTOR}${word(0x20)}${word(agentIds.length)}${offsets}${elements.join("")}`;
 }
 
-export type MulticallResult = { success: boolean; returnData: string };
+type MulticallResult = { success: boolean; returnData: string };
 
 const readWord = (hex: string, byteOffset: number): bigint | null => {
   const start = byteOffset * 2;

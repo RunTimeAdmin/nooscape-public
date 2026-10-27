@@ -13,7 +13,7 @@
 /** What the server answers for a BNB entry: a read with its date, or no read. */
 export type RegistrationRead = { checked: true; readAt: Date | string } | { checked: false; readAt: null };
 
-export type RegistrationReadLine = { title: string; body: string };
+type RegistrationReadLine = { title: string; body: string };
 
 /** What every line says about the entry's place, so a reader never takes a read for a review. */
 export const NOT_REVIEWED_SENTENCE = "This entry is not reviewed and has no tier.";

@@ -14,7 +14,7 @@ export const agentPath = (id: string) => `/agents/${encodeURIComponent(id)}`;
 /** How many of a fleet's identities the card links to. */
 export const LINKS_SHOWN = 5;
 
-export type Shareable = Pick<PublicCatch, "date" | "headline">;
+type Shareable = Pick<PublicCatch, "date" | "headline">;
 
 /** The post a share starts with: the day and the headline, which is all the catch says. The link carries the rest. */
 export const shareText = (view: Shareable) => `The Owl's Catch, ${dateLabel(view.date)}: ${view.headline}`;
@@ -25,7 +25,7 @@ export const shareHref = (view: Shareable) => `https://x.com/intent/post?text=${
 /** The identities a card links to: the first few, in the order the catch stored them. */
 export const linkedAgents = (view: Pick<PublicCatch, "agents">) => view.agents.slice(0, LINKS_SHOWN);
 
-export type QuietReason = "none" | "pending" | "unavailable";
+type QuietReason = "none" | "pending" | "unavailable";
 
 /** What the card says when there is no catch to show. Plain statements of what is true; nothing stands in for a catch. */
 export const QUIET_COPY: Record<QuietReason, { title: string; detail: string }> = {
@@ -41,7 +41,7 @@ export type TodaysCatchPayload = {
   latest: PublicCatch | null;
 };
 
-export type CardState =
+type CardState =
   | { kind: "loading" }
   | { kind: "catch"; view: PublicCatch }
   | { kind: "quiet"; reason: QuietReason; latest: PublicCatch | null };

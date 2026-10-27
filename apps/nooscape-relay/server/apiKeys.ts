@@ -3,6 +3,7 @@ import { and, count, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { API_TIER_NAMES, API_TIERS, KEY_PATTERN, KEY_PREFIX_LENGTH, type ApiTier } from "@shared/apiKey";
 import { apiKeys, apiUsage } from "../drizzle/schema";
 import { getDb, requireDb } from "./db";
+import { driverErrorHas } from "./driverErrors";
 import { consumeRateLimit } from "./rateLimit";
 
 /**
@@ -21,13 +22,15 @@ export { API_TIER_NAMES, API_TIERS, KEY_PATTERN, KEY_PREFIX_LENGTH, type ApiTier
 
 /** A key lives at most this many requests a minute from one address, whatever its tier: a stolen key or one shared behind one address. */
 export const KEY_ADDRESS_PER_MINUTE = 300;
+/** Keys one address may get wrong in a minute before it is refused (apiV1.ts). */
+export const BAD_KEY_PER_MINUTE = 20;
 /** Keys made from one address in a day, and live keys for one email. */
-export const SIGNUPS_PER_ADDRESS_PER_DAY = 3;
+const SIGNUPS_PER_ADDRESS_PER_DAY = 3;
 export const LIVE_KEYS_PER_EMAIL = 3;
 
 export type ApiKeyErrorCode = "UNAVAILABLE" | "BAD_EMAIL" | "TOO_MANY_SIGNUPS" | "TOO_MANY_KEYS" | "NOT_FOUND" | "BAD_TIER";
 
-export const API_KEY_MESSAGES: Record<ApiKeyErrorCode, string> = {
+const API_KEY_MESSAGES: Record<ApiKeyErrorCode, string> = {
   UNAVAILABLE: "API keys are not available right now.",
   BAD_EMAIL: "That is not an email address.",
   TOO_MANY_SIGNUPS: "Too many keys were made from this address today. Try again tomorrow.",
@@ -67,14 +70,6 @@ export const isApiTier = (value: string): value is ApiTier => (API_TIER_NAMES as
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
-function driverErrorHas(error: unknown, code: string): boolean {
-  for (let depth = 0, cause: unknown = error; cause && typeof cause === "object" && depth < 4; depth += 1) {
-    if ((cause as { code?: unknown }).code === code) return true;
-    cause = (cause as { cause?: unknown }).cause;
-  }
-  return false;
-}
-
 /** Runs a database step, answering "keys are not available" when the tables are missing and passing every other failure up. */
 async function withTables<T>(step: (db: Db) => Promise<T>): Promise<T> {
   try {
@@ -93,11 +88,18 @@ const KEY_CACHE_MAX = 10_000;
 const keyCache = new Map<string, KeyCacheEntry>();
 
 /** Forgets what was read about a key (a revoke or a change of tier takes effect at once in this process). */
-export function forgetKey(hash: string) {
+function forgetKey(hash: string) {
   keyCache.delete(hash);
 }
 export function clearKeyCache() {
   keyCache.clear();
+}
+
+/** Whether resolving this key would cost no database read: it was read in the last 30 seconds. */
+export function keyIsCached(rawKey: string, now: () => number = Date.now): boolean {
+  if (!KEY_PATTERN.test(rawKey)) return false;
+  const cached = keyCache.get(hashApiKey(rawKey));
+  return Boolean(cached && cached.until > now());
 }
 
 /**
@@ -147,7 +149,7 @@ export async function revokeApiKey(rawKey: string): Promise<{ prefix: string }> 
   });
 }
 
-export type OperatorKey = { id: string; prefix: string; ownerEmail: string; tier: string; createdAt: Date; revokedAt: Date | null; lastUsedAt: Date | null };
+type OperatorKey = { id: string; prefix: string; ownerEmail: string; tier: string; createdAt: Date; revokedAt: Date | null; lastUsedAt: Date | null };
 
 /** Keys for the operator's tool: those of one email, or the newest. At most 50. */
 export async function listKeysForOperator(email?: string): Promise<OperatorKey[]> {

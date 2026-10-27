@@ -24,7 +24,7 @@ export const SITEMAP_CACHE_MS = 10 * 60 * 1000;
 /** How long a list that could not be read is left alone before the next try. */
 export const SITEMAP_RETRY_MS = 60 * 1000;
 /** The most catch days listed: the archive's own limit (server/owlsCatch.ts). */
-export const SITEMAP_MAX_CATCH_DAYS = 100;
+const SITEMAP_MAX_CATCH_DAYS = 100;
 
 const escapeXml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 const unescapeXml = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
@@ -45,9 +45,10 @@ export function sitemapXml(urls: readonly string[]): string {
  * The pages behind a switch that the sitemap lists once the switch is on. The other pages behind a switch are scaffolds and stay out of it.
  * The list is read as the server runs, so the sitemap and the page agree.
  */
-export const SITEMAP_FLAGGED_ROUTES: Partial<Record<Feature, readonly string[]>> = {
+const SITEMAP_FLAGGED_ROUTES: Partial<Record<Feature, readonly string[]>> = {
   chain_arc: ["/chains/arc", "/field/arc-registry-2026-10-20"],
   chain_base: ["/chains/base", "/field/base-registry-2026-10-21"],
+  chain_ethereum: ["/chains/ethereum"],
 };
 
 export function flaggedSitemapUrls(features: string | undefined = process.env.VITE_FEATURES): string[] {

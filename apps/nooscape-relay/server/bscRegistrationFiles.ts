@@ -20,6 +20,7 @@ import { callBscRpc } from "./ingestion/bscRpc";
 import { classifyRegistrationUri, createRegistrationFileReader, ipfsLinkHasCid, type RegistrationFileResult, type RegistrationUriKind } from "./ingestion/registrationFetch";
 import { pickBalanced } from "./robinhoodNamesCore";
 import { stepIntervalGateMs } from "./stepInterval";
+import { isMissingTable } from "./driverErrors";
 
 /**
  * The BNB registration-file step of the worker (docs/approvals/2026-10-17-bnb-registration-files.md). The clustering step reads the
@@ -42,15 +43,15 @@ import { stepIntervalGateMs } from "./stepInterval";
  * it asks anyone, a failure is one log line, and with the clustering tables missing it does nothing and says nothing.
  */
 
-export const FILES_BUDGET_MS = 20_000;
+const FILES_BUDGET_MS = 20_000;
 export const FILES_MAX_PER_RUN = 16;
 export const FILES_MAX_PER_HOST = 6;
 /** A run at most every 30 minutes. The gate between two runs is a little under this (`stepIntervalGateMs`, server/stepInterval.ts), so a tick's step starting a minute early is not skipped. */
 export const FILES_INTERVAL_MS = 30 * 60 * 1000;
 /** Chain reads stop for this long after a failed `tokenURI` read. */
-export const FILES_CHAIN_BACKOFF_MS = 30 * 60 * 1000;
+const FILES_CHAIN_BACKOFF_MS = 30 * 60 * 1000;
 /** The worker does not start the step when its own tick has already run this long (it can take 20 seconds; see NAMES_TICK_LIMIT_MS for why it is not shorter). */
-export const FILES_TICK_LIMIT_MS = 100_000;
+const FILES_TICK_LIMIT_MS = 100_000;
 /** NodeReal's price of an eth_call (docs.nodereal.io/docs/compute-units-cus), taken from the clustering step's bucket. */
 const ETH_CALL_CU = 20;
 
@@ -67,7 +68,7 @@ export type BscRegistrationFilesDeps = {
   intervalMs: number;
 };
 
-export type BscRegistrationFilesResult =
+type BscRegistrationFilesResult =
   | { state: "busy" | "idle" | "unavailable" | "no_source" | "too_late" }
   | {
       state: "completed";
@@ -94,16 +95,6 @@ export function resetBscRegistrationFilesClock() {
 }
 
 const logFailure = (message: string) => console.error(JSON.stringify({ event: "nooscape_bsc_files_failed", message: message.replace(/[\r\n]+/g, " ").slice(0, 400) }));
-
-/** True when the driver says a table is not there: migration 0038 has not been run. Expected, and not worth a log line. */
-function isMissingTable(error: unknown): boolean {
-  let cause: unknown = error;
-  for (let depth = 0; cause instanceof Error && depth < 4; depth += 1) {
-    if ("code" in cause && cause.code === "ER_NO_SUCH_TABLE") return true;
-    cause = cause.cause;
-  }
-  return false;
-}
 
 /** Runs the registration-file step once. Never throws. */
 export async function runBscRegistrationFiles(overrides: Partial<BscRegistrationFilesDeps> & { tickStartedAt?: number } = {}): Promise<BscRegistrationFilesResult> {

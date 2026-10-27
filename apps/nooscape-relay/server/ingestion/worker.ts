@@ -2,6 +2,7 @@ import { claimDueIngestionSources, expireDuePublisherKeys, finishIngestionWorker
 import { runBscClustering } from "../bscClusteringRun";
 import { runBscRaters } from "../bscRatersRun";
 import { runBscRegistrationFiles } from "../bscRegistrationFiles";
+import { runChainNames } from "../chainNames";
 import { runChainRatings } from "../chainRatings";
 import { recheckClaims } from "../claims";
 import { runRobinhoodNames } from "../robinhoodNames";
@@ -13,6 +14,7 @@ import { runApprovedAgenstrySource } from "./runAgenstry";
 import { runApprovedAgentEconomySource } from "./runAgentEconomy";
 import { runApproved8004SolanaSource } from "./run8004Solana";
 import { runApprovedSaidSource } from "./runSaid";
+import { runApprovedAgencSource } from "./runAgenc";
 import { runApprovedMetaplexRegistrySource } from "./runMetaplex";
 import { runApprovedRobinhoodRegistrySource } from "./runRobinhood";
 import { runApprovedBscRegistrySource } from "./runBsc";
@@ -27,14 +29,28 @@ export type WorkerTickResult = {
   expiredPublisherKeys: number;
 };
 
+/** A failure for a log line: on a single line and at most 500 characters (a driver message can carry a statement and its parameters). */
+const forTheLog = (error: unknown, unknownMessage: string) => (error instanceof Error ? error.message : unknownMessage).replace(/[\r\n]+/g, " ").slice(0, 500);
+
+/**
+ * Runs one best-effort step after the ingestion work. A failure is logged as one JSON line under `failedEvent`, worded by `forTheLog`, and
+ * never reaches the tick.
+ */
+async function bestEffort(failedEvent: string, unknownMessage: string, step: () => Promise<unknown>): Promise<void> {
+  try {
+    await step();
+  } catch (error) {
+    console.error(JSON.stringify({ event: failedEvent, message: forTheLog(error, unknownMessage) }));
+  }
+}
+
 /** Best-effort maintenance: an expiry failure must not abort the ingestion tick. */
 async function runPublisherKeyExpiry() {
   try {
     const result = await expireDuePublisherKeys();
     return result.expiredCount;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown publisher-key expiry error";
-    console.error(JSON.stringify({ event: "nooscape_publisher_key_expiry_failed", message }));
+    console.error(JSON.stringify({ event: "nooscape_publisher_key_expiry_failed", message: forTheLog(error, "Unknown publisher-key expiry error") }));
     return 0;
   }
 }
@@ -44,15 +60,11 @@ async function runPublisherKeyExpiry() {
  * every later tick finds it and does nothing. It runs after the ingestion work so it never delays a source, and
  * a failure (the table not there yet, the database busy) is logged and never fails the tick.
  */
-async function runOwlsCatchSelection() {
-  try {
+const runOwlsCatchSelection = () =>
+  bestEffort("nooscape_owls_catch_failed", "Unknown Owl's Catch error", async () => {
     const result = await selectTodaysCatch();
     if (result.status !== "kept") console.log(JSON.stringify({ event: "nooscape_owls_catch", ...result }));
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : "Unknown Owl's Catch error").replace(/[\r\n]+/g, " ").slice(0, 500);
-    console.error(JSON.stringify({ event: "nooscape_owls_catch_failed", message }));
-  }
-}
+  });
 
 /**
  * Best-effort, after the ingestion work like the Owl's Catch: the BNB fleet and template clustering keeps its two tables in
@@ -60,28 +72,16 @@ async function runOwlsCatchSelection() {
  * sources: a paused control plane or a tick held back by the global interval fetches nothing, and so does this. It never
  * throws and a failure here never fails the tick, whatever it reports.
  */
-async function runBscClusteringStep(tickStartedAt: number) {
-  try {
-    await runBscClustering({ tickStartedAt });
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : "Unknown BNB clustering error").replace(/[\r\n]+/g, " ").slice(0, 500);
-    console.error(JSON.stringify({ event: "nooscape_bsc_clusters_failed", message }));
-  }
-}
+const runBscClusteringStep = (tickStartedAt: number) =>
+  bestEffort("nooscape_bsc_clusters_failed", "Unknown BNB clustering error", () => runBscClustering({ tickStartedAt }));
 
 /**
  * Best-effort, after the clustering for the same reasons: the BNB reputation read and the rater check keep their three tables in
  * step with the registry's feedback (docs/bsc-rater-credibility-2026-10-16.md). It reads the chain, so it runs only on a tick that
  * claimed sources, and it never throws; a failure here never fails the tick, whatever it reports. What it writes is internal.
  */
-async function runBscRatersStep(tickStartedAt: number) {
-  try {
-    await runBscRaters({ tickStartedAt });
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : "Unknown BNB rater error").replace(/[\r\n]+/g, " ").slice(0, 500);
-    console.error(JSON.stringify({ event: "nooscape_bsc_raters_failed", message }));
-  }
-}
+const runBscRatersStep = (tickStartedAt: number) =>
+  bestEffort("nooscape_bsc_raters_failed", "Unknown BNB rater error", () => runBscRaters({ tickStartedAt }));
 
 /**
  * Best-effort, after the BNB steps for the same reasons: the Robinhood name step reads the registration link of a reviewed
@@ -90,14 +90,8 @@ async function runBscRatersStep(tickStartedAt: number) {
  * paused control plane or a tick held back by the global interval asks nothing, and it never throws. A failure here never fails the
  * tick, whatever it reports.
  */
-async function runRobinhoodNamesStep(tickStartedAt: number) {
-  try {
-    await runRobinhoodNames({ tickStartedAt });
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : "Unknown Robinhood names error").replace(/[\r\n]+/g, " ").slice(0, 500);
-    console.error(JSON.stringify({ event: "nooscape_robinhood_names_failed", message }));
-  }
-}
+const runRobinhoodNamesStep = (tickStartedAt: number) =>
+  bestEffort("nooscape_robinhood_names_failed", "Unknown Robinhood names error", () => runRobinhoodNames({ tickStartedAt }));
 
 /**
  * Best-effort, after the Robinhood names for the same reasons: the BNB registration-file step reads the file behind the web or ipfs
@@ -105,14 +99,8 @@ async function runRobinhoodNamesStep(tickStartedAt: number) {
  * (docs/approvals/2026-10-17-bnb-registration-files.md). It asks other people's hosts, so it runs only on a tick that claimed
  * sources, and it never throws; a failure here never fails the tick, whatever it reports. What it writes is internal.
  */
-async function runBscRegistrationFilesStep(tickStartedAt: number) {
-  try {
-    await runBscRegistrationFiles({ tickStartedAt });
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : "Unknown BNB registration file error").replace(/[\r\n]+/g, " ").slice(0, 500);
-    console.error(JSON.stringify({ event: "nooscape_bsc_files_failed", message }));
-  }
-}
+const runBscRegistrationFilesStep = (tickStartedAt: number) =>
+  bestEffort("nooscape_bsc_files_failed", "Unknown BNB registration file error", () => runBscRegistrationFiles({ tickStartedAt }));
 
 /**
  * Best-effort, after the two steps above for the same reasons: the SAID name step reads the card that the metadata link of a SAID
@@ -120,14 +108,17 @@ async function runBscRegistrationFilesStep(tickStartedAt: number) {
  * prefix>" (docs/approvals/2026-10-18-said-names.md). It asks other people's hosts, so it runs only on a tick that claimed sources,
  * and it never throws; a failure here never fails the tick, whatever it reports.
  */
-async function runSaidNamesStep(tickStartedAt: number) {
-  try {
-    await runSaidNames({ tickStartedAt });
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : "Unknown SAID names error").replace(/[\r\n]+/g, " ").slice(0, 500);
-    console.error(JSON.stringify({ event: "nooscape_said_names_failed", message }));
-  }
-}
+const runSaidNamesStep = (tickStartedAt: number) =>
+  bestEffort("nooscape_said_names_failed", "Unknown SAID names error", () => runSaidNames({ tickStartedAt }));
+
+/**
+ * Best-effort, after the SAID names for the same reasons: the Base, Arc and Ethereum name step reads the registration link of a directory
+ * entry on any of the three chains that is still called "Agent #n", through the safe fetch, and lays the name it finds over the placeholder
+ * (docs/approvals/2026-10-26-base-arc-names.md). It reads the chain's own node and asks other people's hosts, so it runs only on a tick
+ * that claimed sources, it takes one chain a run in turn, and it never throws; a failure here never fails the tick, whatever it reports.
+ */
+const runChainNamesStep = (tickStartedAt: number) =>
+  bestEffort("nooscape_chain_names_failed", "Unknown chain names error", () => runChainNames({ tickStartedAt }));
 
 /**
  * Best-effort, after the SAID names for the same reasons: the ratings step counts the NewFeedback and FeedbackRevoked events of the reputation
@@ -135,14 +126,8 @@ async function runSaidNamesStep(tickStartedAt: number) {
  * measured" (docs/extra-chain-ratings-2026-10-21.md). It reads the chain, so it runs only on a tick that claimed sources, at most once in 30
  * minutes for a chain, and it never throws; with its table not there it does nothing and says nothing. A failure here never fails the tick.
  */
-async function runChainRatingsStep(tickStartedAt: number) {
-  try {
-    await runChainRatings({ tickStartedAt });
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : "Unknown ratings error").replace(/[\r\n]+/g, " ").slice(0, 500);
-    console.error(JSON.stringify({ event: "nooscape_chain_ratings_failed", message }));
-  }
-}
+const runChainRatingsStep = (tickStartedAt: number) =>
+  bestEffort("nooscape_chain_ratings_failed", "Unknown ratings error", () => runChainRatings({ tickStartedAt }));
 
 /**
  * Best-effort, last, for the same reasons: the daily check of claimed agents asks the registry who owns each claim's agent that has
@@ -150,15 +135,11 @@ async function runChainRatingsStep(tickStartedAt: number) {
  * reads the chain, so it runs only on a tick that claimed sources, it never throws, and with the claim tables missing it does nothing
  * and says nothing. A failure here never fails the tick.
  */
-async function runClaimRecheckStep() {
-  try {
+const runClaimRecheckStep = () =>
+  bestEffort("nooscape_claim_recheck_failed", "Unknown claim check error", async () => {
     const result = await recheckClaims();
     if (result.checked > 0 || result.unavailable > 0) console.log(JSON.stringify({ event: "nooscape_claim_recheck", ...result }));
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : "Unknown claim check error").replace(/[\r\n]+/g, " ").slice(0, 500);
-    console.error(JSON.stringify({ event: "nooscape_claim_recheck_failed", message }));
-  }
-}
+  });
 
 async function runApprovedSource(source: IngestionSource) {
   switch (source.protocol) {
@@ -227,6 +208,12 @@ async function runApprovedSource(source: IngestionSource) {
       // rejects a scheduled trigger unless the source holds the scheduled
       // policy, so an unflipped source can never run unattended.
       return runApprovedSaidSource(source, "scheduled");
+    case "solana_agenc":
+      // The AgenC registry pass is staged manual_only and may be flipped to the scheduler by a reviewed migration once an operator has run it
+      // and compared the count to the chain. It is the SAID posture: directory-only chain facts, one memcmp-filtered read, a strict fail-closed
+      // decode, a 98%-of-prior floor, and an upsert that adds no reviewed record. A failure leaves the cursor untouched. runApprovedAgencSource
+      // itself rejects a scheduled trigger unless the source holds the scheduled policy, so an unflipped source can never run unattended.
+      return runApprovedAgencSource(source, "scheduled");
     default:
       throw new Error(`No scheduled adapter is available for protocol ${source.protocol}.`);
   }
@@ -251,6 +238,7 @@ export async function runRateLimitedIngestionTick(): Promise<WorkerTickResult> {
     await runRobinhoodNamesStep(tickStartedAt);
     await runBscRegistrationFilesStep(tickStartedAt);
     await runSaidNamesStep(tickStartedAt);
+    await runChainNamesStep(tickStartedAt);
     await runChainRatingsStep(tickStartedAt);
     await runClaimRecheckStep();
   }

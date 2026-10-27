@@ -22,6 +22,7 @@ import { countRobinhoodListed, getDb, listRobinhoodRegistrantHoldings, listSolan
 import { isCircuitOpenError } from "./dbBreaker";
 import { sanitizePublicText } from "./publicText";
 import { cachedDirectoryRead } from "./readCache";
+import { isMissingTable } from "./driverErrors";
 
 /**
  * The fleets and templates behind the lights on the home map. The BNB Chain lights (docs/bsc-fleet-lights-2026-10-16.md)
@@ -106,16 +107,6 @@ export function shapeRobinhoodLights(rows: readonly RegistrantRow[], readAt: Dat
     wallets: null,
   }));
   return fleets.length === 0 ? EMPTY_ROBINHOOD_LIGHTS : { fleets, groups: eligible.length, asOf: readAt.toISOString(), listed: listed !== null && Number.isFinite(listed) && listed >= 0 ? listed : null };
-}
-
-/** True when the driver says the table is not there: migration 0038 has not been run yet. */
-function isMissingTable(error: unknown): boolean {
-  let cause: unknown = error;
-  for (let depth = 0; cause instanceof Error && depth < 4; depth += 1) {
-    if ("code" in cause && cause.code === "ER_NO_SUCH_TABLE") return true;
-    cause = cause.cause;
-  }
-  return false;
 }
 
 /** The Solana lights, read from the directory. A failed read is logged and answers no lights, so it never takes the BNB Chain lights with it. */

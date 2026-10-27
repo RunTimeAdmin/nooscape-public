@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CHECK_INTERVAL_MS, CHECKABLE_SOURCE_PROTOCOLS, PUBLIC_CHECKS_FAILING_AFTER } from "./agentChecks";
+import { NAME_CHAINS } from "./chainNamesCore";
 import { isClientRoutePath } from "./clientRoutes";
 import { REGISTRATION_FETCH_MAX_BYTES, RESOLUTION_FAILED_MAX_ATTEMPTS, RESOLUTION_NO_NAME_MAX_ATTEMPTS } from "./ingestion/registrationFetch";
 import { POLITE_DEFAULT_GAP_MS, POLITE_MAX_CONCURRENCY } from "./politeFetch";
@@ -120,7 +121,7 @@ describe("what it says about itself", () => {
     expect(page).not.toContain("does two things");
     expect(page).not.toContain("checks one thing");
     expect(page).toContain("the registration link of an agent in the 8004 registry or the SAID registry on Solana");
-    expect(page).toContain("one registration link that a registration in the 8004 registry or the SAID registry on Solana, or a registration in the ERC-8004 registry on Robinhood Chain, names");
+    expect(page).toContain("one registration link that a registration in the 8004 registry or the SAID registry on Solana, or a registration in the ERC-8004 registry on Robinhood Chain, Ethereum, Base or Arc, names");
     expect(page).toContain("A registration link on a site that keeps it out is not read");
   });
 
@@ -144,10 +145,10 @@ describe("what it says about itself", () => {
   });
 
   it("says it also reads the registration link of an agent on Robinhood Chain for its name, and the step does what the page says", () => {
-    expect(page).toContain("or of an agent in the ERC-8004 registry on Robinhood Chain, to find the agent&rsquo;s name");
-    expect(page).toContain("or a registration in the ERC-8004 registry on Robinhood Chain, names");
-    expect(page).toContain("For a registration on Robinhood Chain it first finds the link by reading the registry on the chain, which asks nothing of your site.");
-    expect(page).toContain("The 8004 and SAID registries on Solana and the ERC-8004 registry on Robinhood Chain are public too, and so is the ERC-8004 registry on BNB Chain.");
+    expect(page).toContain("or of an agent in the ERC-8004 registry on Robinhood Chain, Ethereum, Base or Arc, to find the agent&rsquo;s name");
+    expect(page).toContain("or a registration in the ERC-8004 registry on Robinhood Chain, Ethereum, Base or Arc, names");
+    expect(page).toContain("For a registration on Robinhood Chain, Ethereum, Base or Arc it first finds the link by reading the registry on the chain, which asks nothing of your site.");
+    expect(page).toContain("The 8004 and SAID registries on Solana and the ERC-8004 registries on Robinhood Chain, Ethereum, Base and Arc are public too, and so is the ERC-8004 registry on BNB Chain.");
     expect(page).toContain("Nooscape shows the name it read in place of the number on the agent&rsquo;s page, on the map and in the directory, says on the agent&rsquo;s page when it read it");
     // The agent's page does say when, and the explanation of what a record shows names the exception.
     expect(read("../client/src/pages/DirectoryAgent.tsx")).toContain("This name was read from the agent&rsquo;s registration link on {formatWhen(record.nameReadAt)}");
@@ -169,6 +170,31 @@ describe("what it says about itself", () => {
     // Only https and ipfs links, as the page says, and only the display name is laid over the placeholder.
     expect(read("./robinhoodNamesCore.ts")).toContain('if (kind === "web" && !uri.startsWith("https://")) return null;');
     expect(read("./db.ts")).toContain("Only the display name changes: the retained observation, the evidence packet");
+  });
+
+  it("says it also reads the registration link of an agent on Base, Arc or Ethereum for its name, and the step does what the page says", () => {
+    expect(page).toContain("For an agent on Base, Arc or Ethereum that is shown only as a number, Nooscape shows the name it read in place of the number on the agent&rsquo;s page and in the directory, and the note on the agent&rsquo;s page says when it read it.");
+    expect(page).toContain("Each of the three registration reads, the Robinhood names, the Base, Arc and Ethereum names and the BNB Chain files, reads at most");
+    expect(page).toContain("The Base, Arc and Ethereum names take the three chains in turn, one chain in each run.");
+    // The chains the page names are the chains the step takes.
+    expect(NAME_CHAINS.map(chain => chain.chainLabel)).toEqual(["Base", "Arc", "Ethereum"]);
+    // The pace the page promises is the pace the step keeps: it takes the Robinhood step's constants and has none of its own.
+    const step = read("./chainNames.ts");
+    expect(step).toContain('from "./robinhoodNames"');
+    for (const name of ["NAMES_MAX_PER_RUN", "NAMES_MAX_PER_HOST", "NAMES_INTERVAL_MS", "NAMES_TICK_LIMIT_MS"]) expect(step, name).toContain(name);
+    // The same reader and manners as the other name reads, with the same tries.
+    expect(step).toContain("createRegistrationNameResolver");
+    expect(step).toContain("RESOLUTION_FAILED_MAX_ATTEMPTS");
+    expect(step).toContain("RESOLUTION_NO_NAME_MAX_ATTEMPTS");
+    // The link of an entry is found on the chain's own node in one attempt, at the finalized block, and the entry's note says when its name was read.
+    expect(step).toContain("backoffMs: []");
+    expect(step).toContain('"finalized"');
+    expect(step).toContain("entryNameNote");
+    // Only https and ipfs links, as the page says, and only the name and the note of an entry change.
+    expect(step).toContain('link.kind === "web" || link.kind === "ipfs"');
+    expect(step).toContain(".set({ displayName: name, sourceSignalNote:");
+    // Nothing of a file is kept but its name.
+    expect(step).toContain('resolvedName: status === "resolved" ? name : null');
   });
 
   it("says it reads the card behind a SAID identity's link for its name, how many and how often, and the step does what the page says", () => {
@@ -245,7 +271,7 @@ describe("the rest of the site, on what Nooscape fetches", () => {
     expect(sources).not.toContain("<span>A2A</span>");
     expect(sources).toContain("{directoryProtocolLabel(source.protocol)}");
     expect(sources).toContain("For an A2A source it also allows a check once a day");
-    expect(sources).toContain("For the 8004 registries on Solana, Robinhood Chain and BNB Chain, and the SAID registry on Solana, it also allows reading the registration link of an entry, a few at a time, to find its name or to group look-alike entries (Nooscape-Checker).");
+    expect(sources).toContain("For the 8004 registries on Solana, Robinhood Chain, BNB Chain, Ethereum, Base and Arc, and the SAID registry on Solana, it also allows reading the registration link of an entry, a few at a time, to find its name or to group look-alike entries (Nooscape-Checker).");
   });
 
   it("does not say the Solana 8004 pass fetches nothing, which its name fetch makes untrue, or that an entry is reachable because it has a locator", () => {

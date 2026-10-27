@@ -181,6 +181,21 @@ describe.skipIf(!dbReachable)("two EVM identity chains in one ledger", () => {
     expect(series).toEqual([{ day: 0, mints: 2, handouts: 1, laterTransfers: 1, uriEdits: 1 }]);
   });
 
+  it("answers an empty feed and series, without reading the ledger, while no Robinhood source is active, and the same as before once one is", async () => {
+    const { invalidateDirectoryReads } = await import("./readCache");
+    await writer.update(schema.ingestionSources).set({ state: "paused" }).where(eq(schema.ingestionSources.id, "src-rh"));
+    invalidateDirectoryReads();
+    try {
+      expect(await db.readAgentDirectoryActivityFeed()).toEqual([]);
+      expect(await db.readAgentDirectoryActivityDaySeries()).toEqual([]);
+    } finally {
+      await writer.update(schema.ingestionSources).set({ state: "active" }).where(eq(schema.ingestionSources.id, "src-rh"));
+      invalidateDirectoryReads();
+    }
+    expect((await db.readAgentDirectoryActivityFeed()).map(event => event.blockNumber)).toEqual([50_000, 41_000, 31_000, 2_000, 1_000]);
+    expect(await db.readAgentDirectoryActivityDaySeries()).toEqual([{ day: 0, mints: 2, handouts: 1, laterTransfers: 1, uriEdits: 1 }]);
+  });
+
   it("stores each chain's hand-out count with that chain's own mint hour", async () => {
     const rh = await entryRow("e-rh-1");
     expect([rh.mintBlock, rh.secondaryTransferCount, rh.handoutCount, rh.uriUpdateCount]).toEqual([1_000, 2, 1, 1]);

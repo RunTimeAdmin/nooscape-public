@@ -28,12 +28,12 @@ import { getDb, listAgentDirectoryWallets, listVisibleDirectoryEntries, listVisi
  * closed to "no catch" when the table cannot be read, as every other public read of this server does.
  */
 
-export type CatchSelection = { date: string; status: "kept" | "selected" | "none" };
+type CatchSelection = { date: string; status: "kept" | "selected" | "none" };
 
-export type NewCatchRow = { date: string; rule: StoredRule; facts: string; sourceQuery: string; agentIds: string };
+type NewCatchRow = { date: string; rule: StoredRule; facts: string; sourceQuery: string; agentIds: string };
 
 /** The reads and the write the selection needs, so a test can stand in for any of them. */
-export type CatchDeps = {
+type CatchDeps = {
   getRow: (date: string) => Promise<CatchRow | null>;
   /** Every milestone ever featured, and the fleets featured since the date. */
   listPast: (fleetsSince: string) => Promise<CatchRow[]>;
@@ -121,7 +121,7 @@ export async function selectTodaysCatch(now: Date = new Date(), deps: CatchDeps 
 
 // ------------------------------------------------------------------------------------------------ reads
 
-export type TodaysCatch = {
+type TodaysCatch = {
   /** Today's UTC date. */
   date: string;
   /** "selected" once the day's catch is chosen, "none" for a day with nothing to report, "pending" before the day's first worker tick has chosen, "unavailable" when the table cannot be read. */

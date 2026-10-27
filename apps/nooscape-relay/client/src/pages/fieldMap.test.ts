@@ -9,7 +9,8 @@ import { DETAIL_CHAR_PX, LABEL_LINE_PX, LABEL_MAX_PX, LABEL_PAD_X, LABEL_PAD_Y, 
  */
 const read = (relative: string) => readFileSync(new URL(relative, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const css = read("../index.css");
-const home = read("./Home.tsx");
+const field = read("./home/FieldView.tsx");
+const parts = read("./home/atlasParts.tsx");
 
 /** The body of the first rule in index.css whose selector is exactly `selector`. */
 function rule(selector: string) {
@@ -48,8 +49,8 @@ describe("the names beside the agents", () => {
   it("are left out, not removed, where there is no room: not drawn until the node is pointed at or in focus", () => {
     expect(rule(".agent-label-quiet")).toContain("opacity: 0;");
     expect(css).toContain(".agent-node:hover .agent-label-quiet, .agent-node:focus-visible .agent-label-quiet, .agent-node-active .agent-label-quiet { opacity: 1; }");
-    expect(home).toContain('<span className={cn("agent-label", label?.side === "left" && "agent-label-left", !label && "agent-label-quiet")} style={label ? { maxWidth: label.width } : undefined}>');
-    expect(home).toContain("label={labelPlan.get(agent.id) ?? null}");
+    expect(field).toContain('<span className={cn("agent-label", label?.side === "left" && "agent-label-left", !label && "agent-label-quiet")} style={label ? { maxWidth: label.width } : undefined}>');
+    expect(field).toContain("label={labelPlan.get(agent.id) ?? null}");
   });
 
   it("are not drawn on a phone, as before, and leave nothing of their box behind", () => {
@@ -69,30 +70,30 @@ describe("the words in and around the map", () => {
   });
 
   it("are 12px or more in the map column of the page, from its title row to its figures", () => {
-    const start = home.indexOf('<div className="relative min-h-[535px] p-4 sm:p-6 xl:min-h-[760px]">');
-    const end = home.indexOf('<aside className="relative z-10 border-t border-white/[0.09]', start);
+    const start = field.indexOf('<div className="relative min-h-[535px] p-4 sm:p-6 xl:min-h-[760px]">');
+    const end = field.indexOf('<aside className="relative z-10 border-t border-white/[0.09]', start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    const column = home.slice(start, end);
+    const column = field.slice(start, end);
     const small = [...column.matchAll(/text-\[(\d*\.?\d+)px\]/g)].filter(match => Number(match[1]) < 12).map(match => match[0]);
     expect(small).toEqual([]);
   });
 
   it("have the two readouts under the map, where they can wrap, and not over it where they met on a phone", () => {
-    expect(home).not.toContain("absolute bottom-4 left-4 flex items-center gap-2 rounded bg-black/30");
-    expect(home).not.toContain("absolute bottom-4 right-4 flex items-center gap-1 font-mono");
-    expect(home).toContain('<div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 font-mono text-xs uppercase tracking-[0.1em]">');
+    expect(field).not.toContain("absolute bottom-4 left-4 flex items-center gap-2 rounded bg-black/30");
+    expect(field).not.toContain("absolute bottom-4 right-4 flex items-center gap-1 font-mono");
+    expect(field).toContain('<div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 font-mono text-xs uppercase tracking-[0.1em]">');
   });
 });
 
 describe("the map frame on a phone", () => {
   it("is as wide as the screen: its one column may shrink, so the nav row scrolls and does not stretch it", () => {
-    expect(home).toContain('<div className="relative grid min-h-[760px] grid-cols-[minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_320px]">');
+    expect(field).toContain('<div className="relative grid min-h-[760px] grid-cols-[minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_320px]">');
   });
 
   it("puts the arriving agent's label on the side of its node with more room, cut to fit", () => {
-    expect(home).toContain('flip && "ingress-node-flip"');
-    expect(home).toContain("sceneWidth={sceneSize.width}");
+    expect(parts).toContain('flip && "ingress-node-flip"');
+    expect(field).toContain("sceneWidth={sceneSize.width}");
     expect(css).toContain(".field-scene .ingress-node-flip .ingress-label { left: auto; right: 30px; text-align: right; }");
   });
 });

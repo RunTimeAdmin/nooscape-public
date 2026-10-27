@@ -2,11 +2,11 @@ import express, { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ApiTier } from "@shared/apiKey";
-import { API_CHAINS, agentIdOfKey, apiChainOfProtocol, servedChains } from "./apiChains";
+import { AGENT_ID_MAX_CHARS, API_CHAINS, agentIdOfKey, apiChainOfProtocol, servedChains } from "./apiChains";
 import { API_LICENSE } from "./apiLicense";
 import type { ApiKeyRecord } from "./apiKeys";
 import type { ApiErrorCode } from "./apiV1";
-import { consumeRateLimit } from "./rateLimit";
+import { consumeRateLimit, retryAfterSeconds } from "./rateLimit";
 import { dbEventSource, type EventSource } from "./webhookEvents";
 import { defaultSend, type Send } from "./webhookPass";
 import { dbWebhookStore, type WebhookRow, type WebhookStore } from "./webhookStore";
@@ -20,7 +20,7 @@ import { DISABLE_AFTER_FAILURES, EVENT_TYPES, WATCH_ADD_LIMIT, WATCH_LIMIT, deli
  */
 
 /** The lowest tier that may watch and have a webhook. */
-export const WEBHOOK_MIN_TIER: ApiTier = "builder";
+const WEBHOOK_MIN_TIER: ApiTier = "builder";
 /** Changes to the webhook (setting it, rotating its secret) a key may make a minute: each one that sets it calls the address once. */
 export const WEBHOOK_CHANGES_PER_MINUTE = 6;
 const RECENT_DELIVERIES = 20;
@@ -50,7 +50,7 @@ export function sharedWebhookService(): WebhookService | null {
 }
 
 /** What this file borrows from the router: how it refuses, who is asking, and how it finds a listing. */
-export type RouteHelpers = {
+type RouteHelpers = {
   fail: (res: Response, code: ApiErrorCode, message: string, extra?: Record<string, unknown>) => void;
   guarded: (res: Response, run: () => Promise<void>) => Promise<void>;
   requireKey: (res: Response) => ApiKeyRecord | null;
@@ -59,13 +59,13 @@ export type RouteHelpers = {
   describeFailure: (issues: z.core.$ZodIssue[]) => string;
 };
 
-const REGISTRY_OPTIONS = ["solana_8004", "solana_said", "solana_registry"] as const;
-const addSchema = z.object({ agents: z.array(z.object({ chain: z.string().max(16), id: z.string().max(80), registry: z.enum(REGISTRY_OPTIONS).optional() }).strict()).min(1).max(WATCH_ADD_LIMIT) }).strict();
+const REGISTRY_OPTIONS = ["solana_8004", "solana_said", "solana_registry", "solana_agenc"] as const;
+const addSchema = z.object({ agents: z.array(z.object({ chain: z.string().max(16), id: z.string().max(AGENT_ID_MAX_CHARS), registry: z.enum(REGISTRY_OPTIONS).optional() }).strict()).min(1).max(WATCH_ADD_LIMIT) }).strict();
 const setSchema = z.object({ url: z.unknown().optional() }).strict();
 const ENTRY_ID = /^[A-Za-z0-9-]{1,36}$/;
 const PING_MESSAGE = "A test from Nooscape. It is not about any agent.";
 
-export type WatchStatus = "added" | "already_watching" | "not_found" | "ambiguous" | "bad_request" | "limit_reached";
+type WatchStatus = "added" | "already_watching" | "not_found" | "ambiguous" | "bad_request" | "limit_reached";
 
 const iso = (value: Date | null | undefined) => (value ? value.toISOString() : null);
 
@@ -107,7 +107,7 @@ export function webhookRoutes(service: WebhookService | null, helpers: RouteHelp
   const tooOften = (res: Response, keyId: string) => {
     const verdict = consumeRateLimit(`webhook-change:${keyId}`, WEBHOOK_CHANGES_PER_MINUTE, 60_000);
     if (verdict.allowed) return false;
-    res.set("Retry-After", String(Math.max(Math.ceil(verdict.retryAfterMs / 1000), 1)));
+    res.set("Retry-After", String(retryAfterSeconds(verdict.retryAfterMs)));
     fail(res, "rate_limited", "The webhook was changed too often. Try again shortly.");
     return true;
   };

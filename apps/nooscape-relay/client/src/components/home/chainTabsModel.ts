@@ -6,7 +6,7 @@ import { CHAIN_STYLE, markerPath, type MarkerShape } from "./constellationModel"
  * wording around the three states (a chain with figures, one that is not indexed, and
  * one whose figures cannot be read) is tested without a browser.
  */
-export type TabState = "ready" | "not-indexed" | "unavailable";
+type TabState = "ready" | "not-indexed" | "unavailable";
 
 export function tabState(row: Pick<ChainStat, "indexed"> | undefined): TabState {
   if (!row) return "unavailable";
@@ -53,7 +53,7 @@ export function ratingsNote(chain: ListedChainKey): string {
  * The Solana registries by name. Robinhood Chain and BNB Chain each have one registry, which the chain's name already says,
  * so only Solana's carry a label here and the split is only ever worded for Solana.
  */
-const REGISTRY_LABEL = new Map([["solana_said", "SAID"], ["solana_8004", "8004"], ["solana_registry", "Metaplex"]]);
+const REGISTRY_LABEL = new Map([["solana_said", "SAID"], ["solana_8004", "8004"], ["solana_registry", "Metaplex"], ["solana_agenc", "AgenC"]]);
 
 /** "By registry: SAID 13,764 · Metaplex 1,596 · 8004 1,506." in the order given, or null when none of the registries is a named one. */
 export function registrySplitText(registries: ReadonlyArray<{ protocol: string; count: number }>): string | null {

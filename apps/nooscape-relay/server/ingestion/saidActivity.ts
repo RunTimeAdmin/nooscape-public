@@ -46,7 +46,7 @@ export const SAID_IDENTITY_TX_FETCH_CAP = 8;
 /** Transaction reads per pass before the remaining identities defer to the next pass. */
 export const SAID_PASS_TX_FETCH_BUDGET = 40;
 
-export type SaidEventKind = "register" | "transfer" | "profile_update";
+type SaidEventKind = "register" | "transfer" | "profile_update";
 
 export type SaidPriorEntry = {
   /** The authority the directory last acknowledged (the row's registrant); null if never chain-acknowledged. */
@@ -55,7 +55,7 @@ export type SaidPriorEntry = {
   profileUriHash: string | null;
 };
 
-export type SaidDiffEvent = {
+type SaidDiffEvent = {
   kind: SaidEventKind;
   fromOwner: string | null;
   toOwner: string;
@@ -176,7 +176,7 @@ export function successfulSaidSignatures(result: unknown): string[] {
   return signatures;
 }
 
-export type SaidAttribution = {
+type SaidAttribution = {
   /** Ledger events, each anchored to a matching transaction. */
   events: SolanaChainActivityEvent[];
   /** Identities to upsert: the plain ones' complements that were anchored or adopted unanchored. */

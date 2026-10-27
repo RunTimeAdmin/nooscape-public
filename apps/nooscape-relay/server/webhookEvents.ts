@@ -31,7 +31,7 @@ export type EventSource = {
 };
 
 /** Most rows one read returns. A read that comes back full says so, and the pass does not move its cursor past it. */
-export const READ_LIMIT = 5_000;
+const READ_LIMIT = 5_000;
 const CHUNK = 200;
 
 const chunks = <T>(items: T[], size = CHUNK): T[][] => Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));

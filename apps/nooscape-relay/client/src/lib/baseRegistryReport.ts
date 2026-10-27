@@ -34,11 +34,11 @@ export type Q2Row = readonly [bucket: string, wallets: number, registrations: nu
 /** Query 3: the 25 largest wallets that made the large-wallet threshold or more, by size and never by address. */
 export type Q3Row = readonly [walletRank: number, registrations: number, withHttpsHost: number, onItsLargestHost: number, hosts: number, links: number];
 /** Query 3b: all the wallets that made the large-wallet threshold or more, in one row. */
-export type Q3bRow = readonly [wallets: number, registrations: number, largest: number];
+type Q3bRow = readonly [wallets: number, registrations: number, largest: number];
 /** Query 4: the ten largest host names by size and never by name. */
 export type Q4Row = readonly [hostRank: number, registrations: number];
 /** Query 4b: all the host names that hold the large-host threshold or more registrations, in one row. */
-export type Q4bRow = readonly [hosts: number, registrations: number, largest: number];
+type Q4bRow = readonly [hosts: number, registrations: number, largest: number];
 /** Query 5: profile links by how many registrations use one. */
 export type Q5Row = readonly [bucket: string, links: number, registrations: number, largest: number, withHttpsHost: number];
 /** Query 6: names. */
@@ -60,9 +60,9 @@ export type Q8Row = readonly [
 /** Query 9: the activity ledger by kind of event. */
 export type Q9Row = readonly [kind: string, events: number, registrations: number, oldestBlock: number, newestBlock: number];
 /** Query 10a: registrations in each of the last 21 UTC days that has one. */
-export type Q10aRow = readonly [utcDay: string, registrations: number];
+type Q10aRow = readonly [utcDay: string, registrations: number];
 /** Query 10b: registrations in each UTC month. */
-export type Q10bRow = readonly [utcMonth: string, registrations: number];
+type Q10bRow = readonly [utcMonth: string, registrations: number];
 
 export const MEASURED = {
   date: "2026-10-21",

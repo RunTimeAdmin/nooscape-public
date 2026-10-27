@@ -22,7 +22,8 @@ describe("what the owl must not cover", () => {
     ["the chains", "../home/ChainTabs.tsx", 4],
     ["the field notes", "../home/FieldNotes.tsx", 8],
     ["the Owl's Catch card", "../home/OwlsCatch.tsx", 10],
-    ["Home's own sections", "../../pages/Home.tsx", 8],
+    ["Home's own disclosure and footer", "../../pages/Home.tsx", 2],
+    ["the full field's sections", "../../pages/home/FieldView.tsx", 8],
   ];
 
   it.each(AT_LEAST)("is marked in %s", (_name, file, least) => {
@@ -31,18 +32,18 @@ describe("what the owl must not cover", () => {
 
   it("marks each of Home's own sections, its closed disclosure and its footer", () => {
     const home = read("../../pages/Home.tsx");
+    const field = read("../../pages/home/FieldView.tsx");
+    for (const opening of ['<details data-owl-avoid="" className="how-we-count', '<footer data-owl-avoid="" className=']) expect(home, opening).toContain(opening);
     for (const opening of [
-      '<details data-owl-avoid="" className="how-we-count',
       '<section data-owl-avoid="" className="protocol-ribbon',
       '<section data-owl-avoid="" aria-label="What we can prove"',
       '<section data-owl-avoid="" className="observatory-frame',
       '<section data-owl-avoid="" className="mt-5" aria-label="What nobody can measure yet">',
       '<section data-owl-avoid="" className="mt-5 grid gap-5 lg:grid-cols-[1.25fr_.75fr]" aria-label="Money moving on Robinhood">',
       '<section data-owl-avoid="" className="mt-5 grid gap-5 lg:grid-cols-[.8fr_1.2fr]">',
-      '<footer data-owl-avoid="" className=',
       '<section data-owl-avoid="" aria-label="The field"',
     ]) {
-      expect(home, opening).toContain(opening);
+      expect(field, opening).toContain(opening);
     }
   });
 
@@ -104,7 +105,7 @@ describe("the radar eye", () => {
   });
 
   it("is on the search field of the Deep map", () => {
-    expect(read("../../pages/Home.tsx")).toMatch(/<input ref=\{searchRef\} data-owl-search=""/);
+    expect(read("../../pages/home/DeepSpace.tsx")).toMatch(/<input ref=\{searchRef\} data-owl-search=""/);
   });
 
   it("glows in the brand colour", () => {
@@ -133,11 +134,11 @@ describe("the owl's own loop", () => {
     expect(read("../../index.css")).toMatch(/\.owl-companion \{ animation: owl-in \.6s var\(--ns-ease\) backwards; transition: opacity \.12s linear; \}/);
   });
 
-  it("does not stop the rest of the page's loops: one loop, cancelled when the tab is hidden and when it is unmounted", () => {
+  it("does not stop the rest of the page's loops: one loop, cancelled when the tab is hidden, while Deep Space covers the page and when it is unmounted", () => {
     expect(count(rig, "requestAnimationFrame\\(step\\)")).toBe(2);
     expect(rig).toContain("cancelAnimationFrame(frame);");
-    expect(rig).toMatch(/if \(document\.hidden\) \{\s*cancelAnimationFrame\(frame\);\s*frame = 0;/);
-    expect(rig).toContain('document.addEventListener("visibilitychange", onVisibility);');
+    expect(rig).toMatch(/if \(document\.hidden \|\| pageCovered\(\)\) \{\s*cancelAnimationFrame\(frame\);\s*frame = 0;/);
+    expect(rig).toContain('document.addEventListener("visibilitychange", sync);');
     expect(rig).toContain("world.dispose();");
   });
 

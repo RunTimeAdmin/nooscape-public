@@ -138,6 +138,16 @@ jobs:
             exit 1
           fi
 
+      # jsxLocPlugin stamps every element with the file and line it came from. It is for `vite serve` only, and it once shipped in every
+      # build (4,178 attributes, 233 KB; code review of 22 October 2026).
+      - name: No dev-tool attributes in the build
+        if: steps.scope.outputs.docs_only != 'true'
+        run: |
+          if grep -rIlE 'data-loc' dist; then
+            echo 'The jsx-loc dev tooling is in the build output.' >&2
+            exit 1
+          fi
+
       # Advisory: a new upstream advisory should be seen, but must not block an
       # unrelated merge.
       - name: Dependency audit (advisory)

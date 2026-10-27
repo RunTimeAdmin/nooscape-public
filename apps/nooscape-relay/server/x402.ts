@@ -47,7 +47,6 @@ export const CIRCLE_FACILITATORS = {
 
 /** What can be bought: one agent's lookup (past the free limit) and the pre-flight check. */
 export type X402Endpoint = "agent" | "check";
-export const X402_ENDPOINTS: readonly X402Endpoint[] = ["agent", "check"];
 
 /**
  * What a route says about itself in a 402 and to the Bazaar, whose search reads it (the words of a query are matched against it). Three
@@ -70,13 +69,13 @@ export const SERVICE_NAME = "Nooscape";
 export const SERVICE_TAGS = ["agents", "erc-8004", "registry", "pre-flight", "due-diligence"];
 
 /** What we ask the caller's authorization to stay valid for, and how long a new one may run. */
-export const MAX_TIMEOUT_SECONDS = 120;
+const MAX_TIMEOUT_SECONDS = 120;
 const MIN_REMAINING_SECONDS = 15;
 const MAX_VALIDITY_SECONDS = 600;
 const MAX_HEADER_BYTES = 16_384;
 /** The most one call may cost: one USDC, in base units. A price above it is a mistake in a setting. */
 const MAX_PRICE = 1_000_000;
-export const DEFAULT_PRICES: Record<X402Endpoint, string> = { agent: "5000", check: "10000" };
+const DEFAULT_PRICES: Record<X402Endpoint, string> = { agent: "5000", check: "10000" };
 
 export type X402Config = {
   network: typeof ARC_MAINNET | typeof ARC_TESTNET;
@@ -227,7 +226,7 @@ export function ledgerNetworks(cfg: X402Config): string[] {
 
 // ---------------------------------------------------------------- the terms
 
-export type Requirements = {
+type Requirements = {
   scheme: "exact";
   network: string;
   amount: string;

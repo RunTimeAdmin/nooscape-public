@@ -47,6 +47,7 @@ vi.mock("../agentRegistryRows", () => ({
 }));
 
 import { BSC_CHAIN, type Erc8004Chain } from "./erc8004Chains";
+import { Erc8004RpcRangeError } from "./erc8004Rpc";
 import { DEMO_CHAIN, hexNum, mintAt, registrationAt, uriUpdateAt, word } from "./erc8004TestChain";
 import { runApprovedErc8004ChainSource } from "./runErc8004Chain";
 
@@ -207,6 +208,103 @@ describe("the walk on the chain", () => {
     expect(state.order).toEqual(["entries:6"]);
     expect(state.refreshAgentRegistryListing.mock.calls.at(-1)![1]).toEqual({ classify: true, publish: false });
     expect(console.warn).toHaveBeenCalledWith(`[DEMO] pass stopped early at block ${START + W} after 1 window(s): provider fault`);
+  });
+});
+
+describe("a window that cannot be parsed or applied", () => {
+  const logs = [registrationAt(DEMO_CHAIN, 6, START + 5), registrationAt(DEMO_CHAIN, 7, START + W + 5)];
+
+  it("keeps the windows before it, stops there and says so without the driver's parameters, when the database fails", async () => {
+    state.insertAgentRegistryRows.mockImplementationOnce(async input => {
+      state.order.push(`entries:${input.drafts.length}`);
+      return input.drafts.length;
+    });
+    state.insertAgentRegistryRows.mockRejectedValueOnce(new Error("Failed query: insert into agent_directory_registry_rows (externalKey) values (?)" + String.fromCharCode(10) + "params: private-owner-key"));
+    const { rpc } = fakeRpc({ finalized: START + 3 * W - 1, logs });
+    const result = await run(DEMO_CHAIN, source(), rpc, { budget: { concurrency: 1 } });
+    // The first window stands, the second is the next run's first, and the listing is not published while windows remain.
+    expect(result.nextCursor).toBe(`demo:${START + W}`);
+    expect(state.order).toEqual(["entries:1"]);
+    expect(state.refreshAgentRegistryListing.mock.calls.at(-1)![1]).toEqual({ classify: true, publish: false });
+    const warned = vi.mocked(console.warn).mock.calls.map(call => call.join(" ")).join(" ");
+    expect(warned).toContain(`[DEMO] pass stopped early at block ${START + W} after 1 window(s): Failed query: insert into agent_directory_registry_rows (externalKey) values (?)`);
+    expect(warned).not.toContain("private-owner-key");
+  });
+
+  it("keeps the windows before it when the node's answer for a later one is not one to trust", async () => {
+    const crowded = Array.from({ length: DEMO_CHAIN.maxWindowLogs + 1 }, (_, index) => mintAt(DEMO_CHAIN, 1_000 + index, START + W + 5, index));
+    const { rpc } = fakeRpc({ finalized: START + 3 * W - 1, logs: [registrationAt(DEMO_CHAIN, 6, START + 5), ...crowded] });
+    const result = await run(DEMO_CHAIN, source(), rpc, { budget: { concurrency: 1 } });
+    expect(result.nextCursor).toBe(`demo:${START + W}`);
+    expect(vi.mocked(console.warn).mock.calls.map(call => call.join(" ")).join(" ")).toContain(`pass stopped early at block ${START + W} after 1 window(s): Demo Chain identity log response exceeds the approved bound`);
+  });
+
+  it("fails the run, with the cursor where it was, when the first window is the one that cannot be applied", async () => {
+    state.insertAgentRegistryRows.mockRejectedValueOnce(new Error("lock wait timeout"));
+    const { rpc } = fakeRpc({ finalized: START + 3 * W - 1, logs });
+    await expect(run(DEMO_CHAIN, source(), rpc, { budget: { concurrency: 1 } })).rejects.toThrow("lock wait timeout");
+    expect(state.finishIngestionRun).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", nextCursor: `demo:${START}` }));
+  });
+});
+
+describe("a window the node refuses as too large", () => {
+  // What the pass sees when a window's answer would pass the response cap (erc8004Rpc.ts), or the provider's own limit.
+  const tooLarge = () => new Erc8004RpcRangeError("result_size", "Demo Chain eth_getLogs response exceeds the response limit.");
+  const splitWarnings = () => vi.mocked(console.warn).mock.calls.filter(([line]) => String(line).includes("were too large for one read"));
+
+  it("is read in halves, each applied on its own and in the chain's order, and the cursor ends past the whole window", async () => {
+    const logs = [
+      registrationAt(DEMO_CHAIN, 1, START + 10),
+      mintAt(DEMO_CHAIN, 1, START + 10),
+      registrationAt(DEMO_CHAIN, 2, START + 6_000),
+      uriUpdateAt(DEMO_CHAIN, 1, START + 7_000),
+    ];
+    // Nothing wider than 2,500 blocks is answered: the window of 10,000 splits to 5,000, then to four quarters.
+    const { rpc } = fakeRpc({ finalized: START + W - 1, logs, failAt: (from, to) => (to - from + 1 > 2_500 ? tooLarge() : null) });
+    const result = await run(DEMO_CHAIN, source(), rpc);
+    expect(result).toMatchObject({ acceptedCount: 4, rejectedCount: 0, nextCursor: `demo:${START + W}` });
+    expect(state.order).toEqual(["entries:1", "ledger:1", "entries:2", "ledger:1", "uri:1"]);
+    expect(splitWarnings()).toHaveLength(3);
+    expect(console.warn).toHaveBeenCalledWith(`[DEMO] blocks ${START} to ${START + W - 1} were too large for one read and are read in halves.`);
+    expect(state.refreshAgentRegistryListing.mock.calls.at(-1)![1]).toEqual({ classify: true, publish: true });
+  });
+
+  it("is held to the log bound half by half, so a window over the bound goes through when each half is under it", async () => {
+    // 600 registrations, 313 in the first half of the window and 287 in the second; the chain's bound is 500 events.
+    const dense = Array.from({ length: 600 }, (_, index) => registrationAt(DEMO_CHAIN, index + 1, START + 5 + index * 16));
+    await expect(run(DEMO_CHAIN, source(), fakeRpc({ finalized: START + W - 1, logs: dense }).rpc)).rejects.toThrow("Demo Chain identity log response exceeds the approved bound of 500 events.");
+    expect(state.insertAgentRegistryRows).not.toHaveBeenCalled();
+
+    const halved = fakeRpc({ finalized: START + W - 1, logs: dense, failAt: (from, to) => (to - from + 1 > 5_000 ? tooLarge() : null) });
+    const result = await run(DEMO_CHAIN, source(), halved.rpc);
+    expect(result).toMatchObject({ acceptedCount: 600, nextCursor: `demo:${START + W}` });
+    expect(state.insertAgentRegistryRows.mock.calls.map(([input]) => input.drafts.length)).toEqual([313, 287]);
+  });
+
+  it("fails the run, with the cursor where it was, when even the narrowest window is refused", async () => {
+    const { rpc, logCalls } = fakeRpc({ finalized: START + W - 1, failAt: () => tooLarge() });
+    await expect(run(DEMO_CHAIN, source(), rpc)).rejects.toThrow("Demo Chain eth_getLogs response exceeds the response limit.");
+    expect(state.finishIngestionRun).toHaveBeenLastCalledWith(expect.objectContaining({ status: "failed", nextCursor: `demo:${START}` }));
+    expect(state.insertAgentRegistryRows).not.toHaveBeenCalled();
+    // It halved to the floor and stopped there: a handful of levels, not an endless descent.
+    expect(logCalls().length).toBeLessThan(40);
+  });
+
+  it("keeps the halves it applied when a later half is refused beyond the narrowest split, and stops there", async () => {
+    const logs = [registrationAt(DEMO_CHAIN, 1, START + 10), registrationAt(DEMO_CHAIN, 2, START + 7_000)];
+    // The second half of the window is refused whatever its width.
+    const { rpc } = fakeRpc({ finalized: START + W - 1, logs, failAt: (from, to) => (to - from + 1 > 5_000 || from >= START + 5_000 ? tooLarge() : null) });
+    const result = await run(DEMO_CHAIN, source(), rpc);
+    expect(result.nextCursor).toBe(`demo:${START + 5_000}`);
+    expect(state.order).toEqual(["entries:1"]);
+    expect(console.warn).toHaveBeenCalledWith(`[DEMO] pass stopped early at block ${START + 5_000} after 1 window(s): Demo Chain eth_getLogs response exceeds the response limit.`);
+    expect(state.refreshAgentRegistryListing.mock.calls.at(-1)![1]).toEqual({ classify: true, publish: false });
+  });
+
+  it("is not split when the refusal is of the block range, which is a planner fault", async () => {
+    const { rpc } = fakeRpc({ finalized: START + W - 1, failAt: () => new Erc8004RpcRangeError("block_range", "Demo Chain eth_getLogs was rejected as exceeding the provider's block range.") });
+    await expect(run(DEMO_CHAIN, source(), rpc)).rejects.toThrow("Demo Chain eth_getLogs was rejected as exceeding the provider's block range.");
+    expect(splitWarnings()).toHaveLength(0);
   });
 });
 

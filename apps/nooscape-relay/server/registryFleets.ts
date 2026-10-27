@@ -7,7 +7,7 @@ import { sanitizePublicText } from "./publicText";
 import { cachedDirectoryRead } from "./readCache";
 
 /**
- * The groups behind the formations on an extra chain's own page (docs/chain-worlds-2026-10-20.md, "The Arc world", and docs/base-world-2026-10-21.md): the registering
+ * The groups behind the formations on an extra chain's own page (docs/chain-worlds-2026-10-20.md, "The Arc world", docs/base-world-2026-10-21.md and docs/ethereum-world-2026-10-27.md): the registering
  * wallets, hosts and profile links that {@link FLEET_MIN} or more of the chain's registrations share. They come straight from the
  * registry rows the chain pass stores, so there is no table to migrate and no step to run, and the figures are the ones the
  * listing rules count (docs/multichain-erc8004-2026-10-20.md). Nothing about any one registration is returned: a shared fact, its
@@ -18,7 +18,7 @@ import { cachedDirectoryRead } from "./readCache";
  */
 
 /** The chain a group is on, for the chains that have a page of their own. */
-type WorldExtraChain = Extract<ExtraChainKey, "arc" | "base">;
+type WorldExtraChain = Extract<ExtraChainKey, "arc" | "base" | "ethereum">;
 
 const cleaned = (value: string | null): string | null => sanitizePublicText(value, 80);
 

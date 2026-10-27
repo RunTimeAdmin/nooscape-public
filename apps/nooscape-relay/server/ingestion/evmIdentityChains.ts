@@ -11,9 +11,9 @@ import { ROBINHOOD_HANDOUT_BLOCK_WINDOW } from "./robinhood";
  * (36,000 blocks). The chains read by the one chain pass (erc8004Chains.ts) each carry their own measured window, and this
  * map takes them from there, so a chain added to that list is known here with no further line.
  */
-export type EvmIdentityChain = { chainId: number; label: string; handoutBlockWindow: number };
+type EvmIdentityChain = { chainId: number; label: string; handoutBlockWindow: number };
 
-export const EVM_IDENTITY_CHAINS: Readonly<Record<string, EvmIdentityChain>> = {
+const EVM_IDENTITY_CHAINS: Readonly<Record<string, EvmIdentityChain>> = {
   erc8004: { chainId: 4663, label: "Robinhood Chain", handoutBlockWindow: ROBINHOOD_HANDOUT_BLOCK_WINDOW },
   ...Object.fromEntries(ERC8004_CHAINS.map(chain => [chain.protocol, { chainId: chain.chainId, label: chain.label, handoutBlockWindow: chain.handoutBlockWindow }])),
 };

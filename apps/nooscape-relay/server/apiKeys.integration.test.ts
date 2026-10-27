@@ -6,7 +6,7 @@ import { createConnection, createPool } from "mysql2/promise";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import * as schema from "../drizzle/schema";
-import { problems, schemaOf } from "./apiV1Check";
+import { problems, schemaOf } from "./apiV1Testing";
 
 /**
  * API keys against a real database (docs/data-access-2026-10-19.md, stage D2): the tables are a manual migration, so the API first
@@ -137,6 +137,12 @@ describe.skipIf(!dbReachable)("API keys against a real database", { timeout: 120
     expect(await keys.resolveApiKey(made.key)).toEqual({ id: made.id, tier: "free", prefix: made.key.slice(0, 10) });
     expect(await keys.resolveApiKey(`nsk_${"q".repeat(40)}`)).toBeNull();
     expect(await keys.resolveApiKey("not a key")).toBeNull();
+    // What was just read is held, an unknown key too, for 30 seconds. A key nobody read, and text that is not a key, is not.
+    expect(keys.keyIsCached(made.key)).toBe(true);
+    expect(keys.keyIsCached(`nsk_${"q".repeat(40)}`)).toBe(true);
+    expect(keys.keyIsCached(`nsk_${"r".repeat(40)}`)).toBe(false);
+    expect(keys.keyIsCached("not a key")).toBe(false);
+    expect(keys.keyIsCached(made.key, () => Date.now() + 31_000)).toBe(false);
 
     const usage = await get("/api/v1/usage", made.key);
     expect(usage.status).toBe(200);

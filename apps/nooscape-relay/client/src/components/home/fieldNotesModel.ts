@@ -53,7 +53,7 @@ export function registryFloor(chain: ReportChain): number {
 }
 
 /** One line of the Field Reports, whichever chain it came from. */
-export type ReportNote = {
+type ReportNote = {
   key: string;
   /** The registry the event is from (its protocol), which is what the newest-first rule keeps one of each of. */
   group: string;

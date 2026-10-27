@@ -61,7 +61,7 @@ These are mine, so the operator can say no.
 
 ## Files
 
-`server/apiV1.ts`, `server/apiV1Spec.ts`, `server/apiV1Check.ts` (the schema checker, tests only), `server/db.ts` (`findVisibleDirectoryEntriesByKey`, `listVisibleDirectoryKeys`, and a `protocols` option on the search that the page's own search does not use), `server/_core/index.ts` (mounted once), `client/src/pages/DeveloperApi.tsx`, and the tests `server/apiV1.test.ts` and `server/apiV1.integration.test.ts`.
+`server/apiV1.ts`, `server/apiV1Spec.ts`, `server/apiV1Testing.ts` (the schema checker, tests only), `server/db.ts` (`findVisibleDirectoryEntriesByKey`, `listVisibleDirectoryKeys`, and a `protocols` option on the search that the page's own search does not use), `server/_core/index.ts` (mounted once), `client/src/pages/DeveloperApi.tsx`, and the tests `server/apiV1.test.ts` and `server/apiV1.integration.test.ts`.
 
 # D2: keys, metering and the usage page
 
@@ -92,7 +92,7 @@ Making and ending a key go through the site's tRPC (`apiKeys.create`, `apiKeys.r
 
 - The free numbers are the plan's. **The Builder and Pro per-minute numbers are mine and are placeholders**, as the prices are. The plan gives those tiers a daily limit only.
 - A key also counts against a ceiling of **300 requests a minute from one address**, whatever its tier, so a key that is stolen, or several held behind one address, do not multiply an allowance.
-- A key that is wrong is refused with **401** and does not fall back to the public limit, so a typo is not mistaken for a slow API. Guessing is counted against the address (20 a minute), so a run of guesses stops.
+- A key that is wrong is refused with **401** and does not fall back to the public limit, so a typo is not mistaken for a slow API. Guessing is counted against the address (20 a minute), so a run of guesses stops. From an address that has used its 20, a key the server has not read in the last 30 seconds is refused with **429** before the database is read (a real key that is not held gets the same refusal until the minute is out), so a flood of made-up keys stops costing reads; a key in use is held in memory and is served.
 - The day is a UTC day. `429 quota_exceeded` carries `Retry-After` in seconds until 00:00 UTC. `429 rate_limited` is the minute.
 - Responses with a key carry `X-Api-Tier`, `X-Quota-Limit`, `X-Quota-Remaining` and `X-Quota-Reset`, and, like every answer about an agent, are cached privately (`Cache-Control: private, max-age=60`). Every answer varies on `Authorization`.
 
@@ -315,15 +315,15 @@ One table, from migration 0044: `api_payments`, one row for each authorization: 
 Like 0042 and 0043 it is not run on boot. One table, `CREATE TABLE IF NOT EXISTS`, no foreign key, no change to a live table.
 
 1. **Choose the time.** Nothing writes to the table until the settings below are also set, so the table can exist for as long as you like.
-2. **Paste `drizzle/0044_api_payments.sql`** into the host's SQL console on the production database and run it. A paste-safe copy is at `D:\scratch\for-david\0044_api_payments.sql`.
-3. **Then record it**, so the bookkeeping matches (`D:\scratch\for-david\0044_record.sql`):
+2. **Paste `drizzle/0044_api_payments.sql`** into the host's SQL console on the production database and run it. A paste-safe copy is at `0044_api_payments.sql`.
+3. **Then record it**, so the bookkeeping matches (`0044_record.sql`):
 
 ```sql
 INSERT INTO `nooscape_schema_migrations` (`version`, `name`) VALUES (44, '0044_api_payments.sql');
 ```
 
 4. **Check:** `SHOW TABLES LIKE 'api_payments';` lists one table.
-5. **Rollback** (`D:\scratch\for-david\0044_rollback.sql`), only after the payments in it are accounted for, since it holds the only record of who paid:
+5. **Rollback** (`0044_rollback.sql`), only after the payments in it are accounted for, since it holds the only record of who paid:
 
 ```sql
 DROP TABLE IF EXISTS `api_payments`;
@@ -516,15 +516,15 @@ Four tables from migration 0045: `api_watches` (the key, the listing and whether
 Like 0042 to 0044 it is not run on boot. Four `CREATE TABLE IF NOT EXISTS`, every index inside, no foreign key, no change to a live table.
 
 1. **Choose the time.** Nothing writes to the tables until the setting and the cron job below are also in place.
-2. **Paste `drizzle/0045_api_webhooks.sql`** into the host's SQL console on the production database and run it. A paste-safe copy is at `D:\scratch\for-david\0045_api_webhooks.sql`.
-3. **Then record it** (`D:\scratch\for-david\0045_record.sql`):
+2. **Paste `drizzle/0045_api_webhooks.sql`** into the host's SQL console on the production database and run it. A paste-safe copy is at `0045_api_webhooks.sql`.
+3. **Then record it** (`0045_record.sql`):
 
 ```sql
 INSERT INTO `nooscape_schema_migrations` (`version`, `name`) VALUES (45, '0045_api_webhooks.sql');
 ```
 
 4. **Check:** `SHOW TABLES LIKE 'api_%';` lists `api_watches`, `api_webhooks`, `api_deliveries` and `api_event_cursors` (with the earlier `api_` tables).
-5. **Rollback** (`D:\scratch\for-david\0045_rollback.sql`): drops the four tables and deletes version 45. Webhooks and watchlists stop; nothing else is touched.
+5. **Rollback** (`0045_rollback.sql`): drops the four tables and deletes version 45. Webhooks and watchlists stop; nothing else is touched.
 
 ## Switching it on
 
@@ -533,7 +533,7 @@ INSERT INTO `nooscape_schema_migrations` (`version`, `name`) VALUES (45, '0045_a
 | `WEBHOOK_SIGNING_KEY` | The host's environment: at least 32 random characters, never in code or a log. Unset or too short, webhooks stay off and the log says why. Changing it changes every key's secret. A restart is needed. |
 | The third cron job | `*/5 * * * *  curl -fsS --max-time 90 -X POST -H 'x-nooscape-operator-token: <the operator token>' -H 'content-type: application/json' -d '{}' https://nooscape.si/api/trpc/liveData.admin.runWebhooks` (copy the token from the working tick job). The delay between a change and its event is at most this interval plus the run. |
 
-`runWebhooks` answers with counts only: `status` (`ran`, `off` with the reason, `busy` or `error`), `created`, `sent`, `retrying`, `gaveUp`, `disabled`, `purged` and `fullReads`.
+`runWebhooks` answers with counts only: `status` (`ran`, `off` with the reason, `busy` or `error`), `created`, `sent`, `retrying`, `gaveUp`, `disabled`, `purged`, `failed` and `fullReads`.
 
 ## What D5 changes in earlier text
 

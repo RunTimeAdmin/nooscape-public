@@ -1,0 +1,23 @@
+-- Arc identity registry scheduled flip (migration 0050). The same reviewed flip the BNB Chain pass received from 0035: the source moves
+-- from operator-paced to the scheduler, so the Arc registry refreshes by itself and no one has to press "Run chain pass". Once a day.
+--
+-- Preconditions, all encoded in the WHERE so a fresh or unhealthy deployment never wakes up to an unattended pass: the row is the approved
+-- Arc identity source (by its key), it is active, it is still manual_only (so running this file again is a no-op and an operator's later
+-- cadence change is never overwritten), it holds an `arc:` cursor (an operator staged and approved it and ran it, the last pass on
+-- 2026-10-24), it has a recorded success, and it has no recorded failure. The protocol is not named, unlike 0035: this runs at every boot,
+-- including on a database that has not had the by-hand migration 0046 that adds the extra chains' protocol values, and
+-- dbMigrations.test.ts keeps those values out of every boot. The key is unique and the `arc:` cursor is written only by the Arc pass.
+--
+-- What the unattended pass is: the reviewed chain-facts-only posture of server/ingestion/erc8004Chains.ts. It reads windows of at most
+-- 100,000 finalized blocks through the Arc node (X402_RPC), one request at a time, applies them in chain order and stops at a budget of
+-- 10 windows, 20 seconds and 1,000 events. It writes registry rows, ledger rows and URI updates, fetches no registration URI and adds no
+-- agent, snapshot or evidence event, so no run can add a reviewed record. A failed pass leaves the cursor untouched. Arc finalizes
+-- instantly (the finalized block is the head), so a run that reaches the head publishes the listing in the same run. The pass does not
+-- start while the `chain_arc` switch is off, and a scheduled run then records a failure.
+--
+-- Cadence 1440 minutes. finishIngestionRun sets nextRunAt to the finish time plus the cadence, whatever the outcome, and the cron fires on
+-- fixed 15-minute marks, so the pass runs about once every 24 hours and a run that fails is tried again a day later. A day of Arc is about
+-- 170,000 blocks (0.508 seconds a block), two windows, and the chain has recorded 2,705 registrations in all, so one run a day has room.
+-- Were Arc ever to register more than 1,000 agents a day, a daily run would fall behind and the cadence would have to shorten.
+-- nextRunAt uses NOW(), not UTC_TIMESTAMP(), for the reason migration 0031 records. The worker's maxSourcesPerTick and interval are not touched.
+UPDATE `ingestion_sources` SET `executionPolicy` = 'scheduled', `scheduleMinutes` = 1440, `nextRunAt` = NOW() WHERE `sourceKey` = 'arc-erc8004-identity-registry' AND `state` = 'active' AND `executionPolicy` = 'manual_only' AND `cursor` LIKE 'arc:%' AND `lastSuccessfulAt` IS NOT NULL AND `failureCount` = 0;

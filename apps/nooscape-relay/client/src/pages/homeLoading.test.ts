@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
  * test runner, so these guard the parts that hold that.
  */
 const home = readFileSync(new URL("./Home.tsx", import.meta.url), "utf8");
+const field = readFileSync(new URL("./home/FieldView.tsx", import.meta.url), "utf8");
 const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
 
 describe("Home while the field's records load", () => {
@@ -20,26 +21,33 @@ describe("Home while the field's records load", () => {
 
   it("holds the field's place with a placeholder that says whether it is loading or unavailable", () => {
     expect(home).toContain("const atlasReady = Boolean(selected);");
-    expect(home).toContain('<AtlasPlaceholder state={liveRecordsQuery.isLoading ? "loading" : "unavailable"} />');
+    expect(field).toContain('<AtlasPlaceholder state={liveRecordsQuery.isLoading ? "loading" : "unavailable"} />');
   });
 
   it("opens the Deep map only once there is a record to draw, so the page is never hidden behind a map that cannot draw", () => {
     expect(home).toContain("const deepSpaceOpen = deepSpace && atlasReady;");
     expect(home).toContain('deepSpaceOpen && "shell-deep-open"');
-    expect(home).toContain("{deepSpaceOpen && <DeepSpaceMap ");
+    expect(home).toContain("{deepSpaceOpen && (");
+    expect(home).toContain("<Suspense fallback={<DeepSpaceOpening />}>");
+    expect(home.indexOf("{deepSpaceOpen && (")).toBeLessThan(home.indexOf("<DeepSpaceMap "));
     expect(home).not.toMatch(/\{deepSpace && <DeepSpaceMap/);
   });
 
   it("draws the hero, the scan map and the funnel outside the atlas gate", () => {
-    const start = home.indexOf("{atlasReady ? <>");
-    const end = home.indexOf("</> : <AtlasPlaceholder");
+    const start = field.indexOf("{atlasReady ? <>");
+    const end = field.indexOf("</> : <AtlasPlaceholder");
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    const gated = home.slice(start, end);
+    const gated = field.slice(start, end);
     expect(gated).toContain("observatory-frame");
-    for (const outside of ["<LandingHero", "<LandingEvidence", 'aria-label="What nobody can measure yet"', "protocol-ribbon"]) {
+    // The hero and the funnel are on the home page, the unknowns and the ribbon on the full field; none of them waits for the atlas.
+    for (const outside of ["<LandingHero", "<LandingEvidence"]) {
       expect(gated, outside).not.toContain(outside);
       expect(home, outside).toContain(outside);
+    }
+    for (const outside of ['aria-label="What nobody can measure yet"', "protocol-ribbon"]) {
+      expect(gated, outside).not.toContain(outside);
+      expect(field, outside).toContain(outside);
     }
   });
 });

@@ -25,7 +25,7 @@ describe("isClientRoutePath", () => {
     for (const path of ["/chains", "/chains/", "/chains/ethereum", "/chains/BNB", "/chains/bnb/", "/chains/bnb/a"]) expect(isClientRoutePath(path), path).toBe(false);
   });
 
-  it("serves Arc's page only while its switch is on, and none for Ethereum even when its switch is on", () => {
+  it("serves Arc's page only while its switch is on", () => {
     expect(isClientRoutePath("/chains/arc", undefined)).toBe(false);
     expect(isClientRoutePath("/chains/arc", "chain_base,chain_ethereum")).toBe(false);
     expect(isClientRoutePath("/chains/arc", "chain_arc")).toBe(true);
@@ -35,7 +35,19 @@ describe("isClientRoutePath", () => {
     expect(isClientRoutePath("/field/arc-registry-2026-10-20/", "chain_arc")).toBe(false);
     expect(isClientRoutePath("/chains/arc/", "chain_arc")).toBe(false);
     expect(isClientRoutePath("/chains/Arc", "chain_arc")).toBe(false);
-    expect(isClientRoutePath("/chains/ethereum", "chain_base,chain_ethereum,chain_arc")).toBe(false);
+  });
+
+  it("serves Ethereum's page only while its own switch is on, and it has no census report to serve", () => {
+    expect(isClientRoutePath("/chains/ethereum", undefined)).toBe(false);
+    expect(isClientRoutePath("/chains/ethereum", "chain_arc,chain_base")).toBe(false);
+    expect(isClientRoutePath("/chains/ethereum", "chain_ethereum")).toBe(true);
+    expect(isClientRoutePath("/chains/ethereum", "chain_base,chain_ethereum,chain_arc")).toBe(true);
+    expect(isClientRoutePath("/chains/ethereum/", "chain_ethereum")).toBe(false);
+    expect(isClientRoutePath("/chains/Ethereum", "chain_ethereum")).toBe(false);
+    // Its switch opens no other chain's page, and no other chain's switch opens its.
+    expect(isClientRoutePath("/chains/arc", "chain_ethereum")).toBe(false);
+    expect(isClientRoutePath("/chains/base", "chain_ethereum")).toBe(false);
+    expect(isClientRoutePath("/field/ethereum-registry-2026-10-27", "chain_ethereum")).toBe(false);
   });
 
   it("serves Base's page and its census report only while its switch is on", () => {

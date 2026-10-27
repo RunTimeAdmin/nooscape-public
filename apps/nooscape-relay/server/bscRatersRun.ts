@@ -18,6 +18,7 @@ import {
 } from "./ingestion/bscReputation";
 import { BscRpcRangeError, callBscRpc } from "./ingestion/bscRpc";
 import { OWNER_FLEET_MIN } from "./bscRaters";
+import { isMissingTable } from "./driverErrors";
 
 /**
  * The rater step of the worker (docs/bsc-rater-credibility-2026-10-16.md; check F). After the sources, the Owl's Catch and the
@@ -47,11 +48,11 @@ export type RatersDeps = {
   reevaluateMs: number;
 };
 
-export const RATERS_BUDGET_MS = 25_000;
-export const RATERS_MAX_WINDOWS = 40;
-export const RATERS_REEVALUATE_MS = 24 * 60 * 60 * 1000;
+const RATERS_BUDGET_MS = 25_000;
+const RATERS_MAX_WINDOWS = 40;
+const RATERS_REEVALUATE_MS = 24 * 60 * 60 * 1000;
 /** The worker does not start the step when its own tick has already run this long. */
-export const RATERS_TICK_LIMIT_MS = 90_000;
+const RATERS_TICK_LIMIT_MS = 90_000;
 
 const defaultDeps = (): RatersDeps => ({
   rpc: async (method, params) => {
@@ -64,7 +65,7 @@ const defaultDeps = (): RatersDeps => ({
   reevaluateMs: RATERS_REEVALUATE_MS,
 });
 
-export type RatersResult =
+type RatersResult =
   | { state: "busy" | "unavailable" | "no_source" | "too_late" }
   | {
       state: "completed";
@@ -81,15 +82,6 @@ type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 const chunks = <T>(items: T[], size: number): T[][] => Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
 const hex = (value: number) => `0x${value.toString(16)}`;
-
-function isMissingTable(error: unknown): boolean {
-  let cause: unknown = error;
-  for (let depth = 0; cause instanceof Error && depth < 4; depth += 1) {
-    if ("code" in cause && cause.code === "ER_NO_SUCH_TABLE") return true;
-    cause = cause.cause;
-  }
-  return false;
-}
 
 const logFailure = (message: string) => console.error(JSON.stringify({ event: "nooscape_bsc_raters_failed", message: message.replace(/[\r\n]+/g, " ").slice(0, 400) }));
 

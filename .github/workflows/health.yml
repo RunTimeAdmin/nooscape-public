@@ -9,6 +9,11 @@
 # anyone having to look. Deploys serve transient 404s for 15-20 minutes
 # (see the handoff's deploy-window note), so this does not run on every push;
 # the next scheduled run verifies a deploy.
+#
+# The site's CDN sometimes turns a GitHub runner away for a few minutes (a 403 or a
+# 307 where the page should be, or a connection that fails at once) while the site
+# is up. The check asks such a request again for about four minutes before it
+# counts, and says what the edge answered (scripts/liveGet.mjs).
 name: Live health
 
 on:
@@ -23,7 +28,7 @@ permissions:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

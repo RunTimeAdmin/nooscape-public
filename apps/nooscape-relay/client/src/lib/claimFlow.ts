@@ -16,7 +16,7 @@ export type ClaimStateView = {
   claim: { status: "active" | "frozen"; wallet: string; claimedAt: Date | string; lastOwnerCheckAt: Date | string; profile: ClaimProfile } | null;
 };
 
-export type ClaimPanelView = "loading" | "hidden" | "open" | "claimed" | "yours" | "held";
+type ClaimPanelView = "loading" | "hidden" | "open" | "claimed" | "yours" | "held";
 
 /**
  * The chain name for an entry that can be claimed, or null for any other protocol. The server holds the same (`CLAIM_CHAINS`) and decides.
@@ -65,7 +65,7 @@ export const linesOf = (text: string): string[] => text.split(/\r?\n/).map(line 
 /** Said when the form matches what is already saved: not an error in a field, so the panel shows it beside the button. */
 export const NO_CHANGE_LINE = "Change at least one field first.";
 
-export type FormResult ={ ok: true; edit: ClaimEdit } | { ok: false; field: ClaimField; message: string };
+type FormResult ={ ok: true; edit: ClaimEdit } | { ok: false; field: ClaimField; message: string };
 
 /**
  * The form as an edit: only the fields that differ from what the owner has written, each cleaned and checked by the same rules the
@@ -194,7 +194,7 @@ export function readableValue(field: ClaimField | null, value: string): string {
 
 export const historySummary = (count: number) => `${count} ${count === 1 ? "entry" : "entries"}`;
 
-export type HistoryLine = { title: string; change: string | null; signed: string | null };
+type HistoryLine = { title: string; change: string | null; signed: string | null };
 
 const signedBy = (item: ClaimHistoryView) =>
   item.wallet ? `Signed by ${shortWallet(item.wallet)}${item.signatureDigest ? `, signature digest ${item.signatureDigest.slice(0, 12)}…` : ""}.` : null;

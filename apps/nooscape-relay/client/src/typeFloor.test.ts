@@ -13,7 +13,8 @@ import { describe, expect, it } from "vitest";
  */
 const BELOW_FLOOR: Record<string, number> = {
   "index.css": 235,
-  "pages/Home.tsx": 22,
+  "pages/home/DeepSpace.tsx": 6,
+  "pages/home/FieldView.tsx": 15,
   "pages/WhatNooscapeIs.tsx": 18,
 };
 

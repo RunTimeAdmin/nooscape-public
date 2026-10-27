@@ -59,7 +59,7 @@ describe("the hero's words", () => {
   it("are the headline, the subcopy and the two calls to action, word for word (the naming record is docs/naming-2026-10-18.md)", () => {
     expect(HERO_COPY.headline.join(" ")).toBe("The Owl watches the Noosphere. Look up any agent. See what the evidence shows.");
     expect(HERO_COPY.subcopy).toBe(
-      "Nooscape watches the public agent registries on Solana, Robinhood Chain, BNB Chain, Base and Arc, groups the copycat fleets, and keeps the evidence it can read, labeled by how much has been checked. Most records are listed only. A few are reviewed. No scores for sale. No rankings for hire.",
+      "Nooscape watches the public agent registries on Solana, Robinhood Chain, BNB Chain, Ethereum, Base and Arc, groups the copycat fleets, and keeps the evidence it can read, labeled by how much has been checked. Most records are listed only. A few are reviewed. No scores for sale. No rankings for hire.",
     );
     expect(HERO_COPY.primaryCta).toBe("Ask the Owl");
     expect(HERO_COPY.secondaryCta).toBe("Explore the Noosphere");

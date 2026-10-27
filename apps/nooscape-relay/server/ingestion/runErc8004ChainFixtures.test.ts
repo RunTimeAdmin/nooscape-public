@@ -48,6 +48,7 @@ vi.mock("../agentRegistryRows", () => ({
 
 import { Erc8004ChainOffError } from "./erc8004Chain";
 import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, type Erc8004Chain } from "./erc8004Chains";
+import { Erc8004RpcRangeError } from "./erc8004Rpc";
 import { ARC_FIXTURES, BASE_FIXTURES, ETHEREUM_FIXTURES, type ChainFixtureLog, type ChainFixtures } from "./erc8004ChainFixtures";
 import { runApprovedErc8004ChainSource } from "./runErc8004Chain";
 
@@ -82,7 +83,7 @@ function sourceFor(chain: Erc8004Chain, cursor: string | null): IngestionSource 
   } as unknown as IngestionSource;
 }
 
-function fakeNode(chain: Erc8004Chain, fixtures: ChainFixtures, finalized: number, failAt: (from: number) => Error | null = () => null) {
+function fakeNode(chain: Erc8004Chain, fixtures: ChainFixtures, finalized: number, failAt: (from: number, to: number) => Error | null = () => null) {
   const logs = allLogs(fixtures);
   const asked: Array<[number, number]> = [];
   const rpc = async (method: string, params: unknown[]): Promise<unknown> => {
@@ -93,7 +94,7 @@ function fakeNode(chain: Erc8004Chain, fixtures: ChainFixtures, finalized: numbe
       expect(filter.address).toBe(chain.identityRegistry);
       const from = Number.parseInt(filter.fromBlock, 16);
       const to = Number.parseInt(filter.toBlock, 16);
-      const failure = failAt(from);
+      const failure = failAt(from, to);
       if (failure) throw failure;
       asked.push([from, to]);
       return logs.filter(log => blockOf(log) >= from && blockOf(log) <= to);
@@ -213,6 +214,28 @@ describe.each(CASES)("the %s pass on its recording", (_name, chain, fixtures) =>
     await expect(runApprovedErc8004ChainSource(chain, sourceFor(chain, cursor(start)), "manual", "activity", { rpc: node.rpc, budget: { ...WALK_ALL, concurrency: 1 } })).rejects.toThrow("provider fault");
     expect(state.finishIngestionRun).toHaveBeenLastCalledWith(expect.objectContaining({ status: "failed", nextCursor: cursor(start) }));
     expect(state.insertAgentRegistryRows).not.toHaveBeenCalled();
+  });
+
+  it("reads a window the node refuses as too large in halves, and writes what an unsplit walk writes", async () => {
+    const unsplit = await runApprovedErc8004ChainSource(chain, sourceFor(chain, cursor(start)), "manual", "activity", { rpc: fakeNode(chain, fixtures, finalized).rpc, budget: WALK_ALL });
+    const unsplitWrites = [...state.order];
+    vi.clearAllMocks();
+    state.order.length = 0;
+    // Nothing wider than half the chain's range is answered, as when a dense stretch passes the response cap.
+    const half = Math.floor(chain.maxLogRange / 2);
+    const tooLarge = (from: number, to: number) => (to - from + 1 > half ? new Erc8004RpcRangeError("result_size", `${chain.chainLabel} eth_getLogs response exceeds the response limit.`) : null);
+    const node = fakeNode(chain, fixtures, finalized, tooLarge);
+    const split = await runApprovedErc8004ChainSource(chain, sourceFor(chain, cursor(start)), "manual", "activity", { rpc: node.rpc, budget: WALK_ALL });
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("were too large for one read and are read in halves."));
+    expect(split).toMatchObject({ nextCursor: unsplit.nextCursor, discoveredCount: unsplit.discoveredCount, acceptedCount: unsplit.acceptedCount, rejectedCount: 0 });
+    expect([...state.order].sort()).toEqual([...unsplitWrites].sort());
+    for (const [from, to] of node.asked) expect(to - from + 1).toBeLessThanOrEqual(half);
+    // A registration is still applied before the URI update that follows it.
+    for (const update of fixtures.uriUpdates) {
+      const registered = state.order.indexOf(`entries:${update.agentId}`);
+      if (registered === -1) continue;
+      expect(registered, `agent ${update.agentId}`).toBeLessThan(state.order.indexOf(`uri:${update.agentId}`));
+    }
   });
 
   it("fails closed on a cursor that is another chain's, malformed, or from before this chain's registry existed", async () => {

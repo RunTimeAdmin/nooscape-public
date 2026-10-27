@@ -69,7 +69,7 @@ function validateMetaplexOrigin(url: URL, label: string) {
 }
 
 /** Parses public index metadata only; it does not dereference the A2A endpoint. */
-export function normalizeMetaplexAgent(record: unknown): SolanaRegistryCandidate | null {
+function normalizeMetaplexAgent(record: unknown): SolanaRegistryCandidate | null {
   if (!record || typeof record !== "object" || Array.isArray(record)) return null;
   const agent = record as MetaplexAgent;
   if (agent.network !== "solana-mainnet" || agent.isActive !== true) return null;
@@ -197,7 +197,7 @@ export function metaplexPageUrl(rootUrl: string, page: number) {
  * mint-adjacent fields). An entry only asserts "this registration is out
  * there" — never a reviewed record, map placement, or trust tier.
  */
-export function metaplexDirectoryDrafts(agents: unknown[]): DirectoryEntryDraft[] {
+function metaplexDirectoryDrafts(agents: unknown[]): DirectoryEntryDraft[] {
   const drafts: DirectoryEntryDraft[] = [];
   for (const record of agents) {
     if (!record || typeof record !== "object" || Array.isArray(record)) continue;

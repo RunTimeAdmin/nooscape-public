@@ -48,7 +48,7 @@
  * The cache is per process. A second instance (for example during a deploy
  * overlap, or the standalone `pnpm worker:tick`) is at worst `ttlMs` stale.
  */
-export type ReadCacheOptions = {
+type ReadCacheOptions = {
   /** How long a loaded value is served. 0 disables caching but keeps coalescing. */
   ttlMs?: number;
   /** Age at which a served value starts being reloaded in the background. Default 30 s before expiry (half the TTL for short TTLs); 0 turns it off. */

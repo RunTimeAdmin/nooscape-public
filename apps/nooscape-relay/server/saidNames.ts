@@ -50,7 +50,7 @@ export type SaidNamesDeps = {
   intervalMs: number;
 };
 
-export type SaidNamesResult =
+type SaidNamesResult =
   | { state: "busy" | "idle" | "unavailable" | "no_source" | "too_late" }
   | { state: "completed"; considered: number; read: number; resolved: number; noName: number; failed: number; entriesNamed: number; stoppedBy: string | null; ms: number };
 

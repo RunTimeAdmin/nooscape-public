@@ -54,6 +54,12 @@ describe("splitDirectoryTotals", () => {
     expect(splitDirectoryTotals([{ protocol: "erc8004", count: 10 }], 4)).toEqual({ onChain: 10, bnbChain: 0, locator: 0 });
   });
 
+  it("counts the AgenC registry as an on-chain identity beside the other Solana registries, never as a locator listing", () => {
+    const withAgenc = [...live, { protocol: "solana_agenc", count: 256 }];
+    expect(splitDirectoryTotals(withAgenc, total(withAgenc))).toEqual({ onChain: 25_156 + 256, bnbChain: 0, locator: 214_975 });
+    expect(ON_CHAIN_REGISTRY_PROTOCOLS).toContain("solana_agenc");
+  });
+
   it("does not put BNB Chain in the registry list", () => {
     expect(ON_CHAIN_REGISTRY_PROTOCOLS).not.toContain(BNB_CHAIN_PROTOCOL);
   });

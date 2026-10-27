@@ -1,11 +1,11 @@
 import type { Server } from "node:http";
 import express from "express";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { servedChains } from "./apiChains";
+import { AGENT_ID_MAX_CHARS, servedChains } from "./apiChains";
 import { API_CHAINS, registerApiV1, type ApiV1Deps, type KeyAccess } from "./apiV1";
 import { API_TIERS, type ApiKeyRecord } from "./apiKeys";
 import { WEBHOOK_CHANGES_PER_MINUTE, type WebhookService } from "./apiWebhooks";
-import { problems, schemaOf } from "./apiV1Check";
+import { problems, schemaOf } from "./apiV1Testing";
 import { apiV1SpecFor } from "./apiV1Spec";
 import { resetRateLimits } from "./rateLimit";
 import { type SendResult } from "./webhookPass";
@@ -87,6 +87,9 @@ function rig(options: { available?: boolean; ping?: SendResult } = {}) {
     claimOf: async () => null,
     claimHistory: async () => null,
     checkFacts: async () => ({ activityThroughBlock: null, solana: null }),
+    stats: async () => {
+      throw new Error("the directory stats are not under test here");
+    },
     keys,
     webhooks: options.available === false ? null : service,
   };
@@ -261,6 +264,9 @@ describe("the watchlist", () => {
       expect((await json(response)).error.code).toBe("bad_request");
     }
     expect((await call("POST", "/watches", KEY_BUILDER, { agents: [{ chain: "robinhood", id: "42" }], more: true })).status).toBe(400);
+    // The same cap as the batch lookup and the check: 78 digits pass, one past it does not.
+    expect((await add([{ chain: "robinhood", id: "9".repeat(AGENT_ID_MAX_CHARS + 1) }])).status).toBe(400);
+    expect((await add([{ chain: "robinhood", id: "9".repeat(78) }])).status).toBe(200);
     const broken = await call("POST", "/watches", KEY_BUILDER, "{ not json");
     expect(broken.status).toBe(400);
     expect((await json(broken)).error.message).toBe("The body is not valid JSON.");

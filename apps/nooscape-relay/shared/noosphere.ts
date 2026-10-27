@@ -28,7 +28,7 @@ export const MAX_FLEETS = 12;
 
 /** The chain a light is on, as a small number: 0 is none, then Robinhood, Solana, BNB. */
 export const LIGHT_CHAIN_ORDER = [null, "robinhood", "solana", "bnb"] as const;
-export type LightChain = 0 | 1 | 2 | 3;
+type LightChain = 0 | 1 | 2 | 3;
 
 /** [placement hash, chain, 1 if Nooscape holds reviewed evidence for it, fleet number from 1 or 0 for none]. */
 export type Light = readonly [hash: number, chain: LightChain, steady: 0 | 1, fleet: number];

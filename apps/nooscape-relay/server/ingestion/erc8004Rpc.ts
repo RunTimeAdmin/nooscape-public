@@ -181,6 +181,36 @@ async function explainRefusal(chain: Erc8004Chain, method: string, response: Res
   }
 }
 
+/**
+ * The body as text, read a chunk at a time and abandoned the moment it passes `limit` bytes (null then). `response.text()` takes the whole
+ * body before anything can be checked, and holds the chunks, one joined buffer and the string together, about three times the body: on
+ * 22 October 2026 a Base answer of 36 MiB against a 24 MiB cap was downloaded and held in full, then thrown away and read again in halves.
+ * Decoding as the chunks arrive leaves the string and its parts, about twice the body, and a body over the cap is cancelled at the cap.
+ */
+export async function readBodyCapped(response: Response, limit: number): Promise<string | null> {
+  const body = response.body;
+  if (!body) {
+    const text = await response.text();
+    return text.length > limit ? null : text;
+  }
+  const reader = body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  const parts: string[] = [];
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(decoder.decode(value, { stream: true }));
+  }
+  parts.push(decoder.decode());
+  return parts.join("");
+}
+
 async function callOnce(chain: Erc8004Chain, url: string, method: string, params: unknown[]): Promise<unknown> {
   const label = chain.chainLabel;
   const limit = chain.rpc.maxResponseBytes;
@@ -207,8 +237,8 @@ async function callOnce(chain: Erc8004Chain, url: string, method: string, params
       if (Number.isFinite(contentLength) && contentLength > limit) {
         throw rangeError(chain, "result_size", `${label} ${method} response exceeds the response limit.`);
       }
-      const text = await response.text();
-      if (text.length > limit) {
+      const text = await readBodyCapped(response, limit);
+      if (text === null) {
         throw rangeError(chain, "result_size", `${label} ${method} response exceeds the response limit.`);
       }
       let parsed: unknown;
@@ -231,7 +261,7 @@ async function callOnce(chain: Erc8004Chain, url: string, method: string, params
  * Keeps a gap between the calls of one run: no call starts sooner than `minGapMs` after the one before it ended. A chain on a node
  * shared with something else uses it so the pass leaves room for the other's requests. `now` and `sleep` are injectable for tests.
  */
-export type Pacer = { wait: () => Promise<void>; done: () => void };
+type Pacer = { wait: () => Promise<void>; done: () => void };
 
 export function createPacer(minGapMs: number, deps: { now?: () => number; sleep?: (ms: number) => Promise<void> } = {}): Pacer {
   const now = deps.now ?? Date.now;

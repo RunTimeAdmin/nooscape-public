@@ -10,7 +10,7 @@ import { isForbiddenIp } from "./netGuard";
  * can tell which it is, so the operator console shows this for the operator's
  * own request.
  */
-export type ClientAddressCheck = {
+type ClientAddressCheck = {
   /** The address the per-address limits key on (Express's req.ip). */
   address: string;
   /** Proxy hops the app trusts (`trust proxy`), or null when the setting is not a hop count. */

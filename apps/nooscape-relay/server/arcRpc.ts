@@ -12,7 +12,7 @@
  * identity pass works while payments are paused or not configured.
  */
 
-export type ArcRpcSetting = { state: "unset" } | { state: "invalid" } | { state: "set"; url: string };
+type ArcRpcSetting = { state: "unset" } | { state: "invalid" } | { state: "set"; url: string };
 
 /** What `X402_RPC` holds. */
 export function readArcRpc(env: NodeJS.ProcessEnv = process.env): ArcRpcSetting {

@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, isNotNull, like, max } from "drizzle-orm";
 import { agentChecks, agentEndpoints, ingestionSources, sourceObservationRuns, sourceObservations, sourceProjectionDecisions } from "../drizzle/schema";
 import { getDb, listLiveAtlasRecords, requireDb } from "./db";
 import { isCircuitOpenError } from "./dbBreaker";
+import { isMissingTable } from "./driverErrors";
 import { createPoliteFetcher } from "./politeFetch";
 import type { SafeFetchReason, SafeFetchResult } from "./safeFetch";
 
@@ -57,11 +58,11 @@ const CONCURRENCY = 5;
 const REQUESTS_PER_ADDRESS = 3;
 
 export type CheckOutcome = "answered" | "no_answer" | "skipped";
-export type CheckFacts = { outcome: CheckOutcome; reason: SafeFetchReason | null; statusCode: number | null; latencyMs: number | null; bodySha256: string | null };
+type CheckFacts = { outcome: CheckOutcome; reason: SafeFetchReason | null; statusCode: number | null; latencyMs: number | null; bodySha256: string | null };
 export type CheckRow = CheckFacts & { id: string; agentId: string; endpointId: string; kind: string; checkedAt: Date };
 export type CheckableEndpoint = { endpointId: string; agentId: string; url: string; lastCheckedAt: Date | null };
 /** One address and the endpoint rows that declare it. `lastCheckedAt` is the latest check of any of them. */
-export type AddressGroup = { url: string; host: string; endpoints: CheckableEndpoint[]; lastCheckedAt: Date | null };
+type AddressGroup = { url: string; host: string; endpoints: CheckableEndpoint[]; lastCheckedAt: Date | null };
 
 /**
  * What an agent's page shows of one check: the host and not the address, with no reason and no fingerprint. `failing` is true
@@ -139,7 +140,7 @@ export function dueAddresses(endpoints: CheckableEndpoint[], now: Date, limit: n
   return { run, totalDue: due.length, heldBack: dueByDatabase.length - due.length };
 }
 
-export type ChecksRunResult =
+type ChecksRunResult =
   | { state: "unavailable" }
   | { state: "busy" }
   | {
@@ -377,16 +378,6 @@ export async function runLivenessChecks(overrides: Partial<ChecksDeps> = {}): Pr
   } finally {
     running = false;
   }
-}
-
-/** True when the driver says the table is not there: migration 0037 has not been run yet. Expected, and not worth a log line. */
-function isMissingTable(error: unknown): boolean {
-  let cause: unknown = error;
-  for (let depth = 0; cause instanceof Error && depth < 4; depth += 1) {
-    if ("code" in cause && cause.code === "ER_NO_SUCH_TABLE") return true;
-    cause = cause.cause;
-  }
-  return false;
 }
 
 /** The host of an address as the page shows it: lower case, without the trailing dot that the fetch also strips. */

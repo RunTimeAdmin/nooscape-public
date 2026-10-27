@@ -10,7 +10,7 @@ import { EXTRA_CHAINS, EXTRA_CHAIN_LABEL, extraProtocolOf } from "@shared/chains
  * endpoint. Ethereum, Base and Arc are read the way BNB Chain is, and are counted
  * the same way: on their own, while their switch is on, and never as locator listings.
  */
-export const ON_CHAIN_REGISTRY_PROTOCOLS = ["erc8004", "solana_registry", "solana_8004", "solana_said"] as const;
+export const ON_CHAIN_REGISTRY_PROTOCOLS = ["erc8004", "solana_registry", "solana_8004", "solana_said", "solana_agenc"] as const;
 export const BNB_CHAIN_PROTOCOL = "erc8004_bsc";
 
 type ProtocolCount = { protocol: string; count: number };
@@ -81,7 +81,7 @@ export function reviewedProtocolCounts(protocolLists: string[][]): Record<string
 }
 
 /** One protocol in the population list: everything acknowledged under it, and how many of its records are reviewed. */
-export type ProtocolPopulationRow = {
+type ProtocolPopulationRow = {
   protocol: string;
   label: string;
   /** Null for a protocol the directory does not acknowledge (A2A cards are reviewed records only). */

@@ -31,19 +31,14 @@ vi.mock("@aws-sdk/client-s3", () => {
 });
 vi.mock("@aws-sdk/s3-request-presigner", () => ({ getSignedUrl: vi.fn(async () => "https://objects.example/signed") }));
 
-const original = Object.fromEntries(["NOOSCAPE_S3_ENDPOINT", "NOOSCAPE_S3_BUCKET", "NOOSCAPE_S3_ACCESS_KEY", "NOOSCAPE_S3_SECRET_KEY", "BUILT_IN_FORGE_API_URL", "BUILT_IN_FORGE_API_KEY"].map(name => [name, process.env[name]]));
+const original = Object.fromEntries(["NOOSCAPE_S3_ENDPOINT", "NOOSCAPE_S3_BUCKET", "NOOSCAPE_S3_ACCESS_KEY", "NOOSCAPE_S3_SECRET_KEY"].map(name => [name, process.env[name]]));
 
-function configure(production: boolean) {
+function configure() {
   for (const name of Object.keys(original)) delete process.env[name];
-  if (production) {
-    process.env.NOOSCAPE_S3_ENDPOINT = "https://objects.example";
-    process.env.NOOSCAPE_S3_BUCKET = "evidence";
-    process.env.NOOSCAPE_S3_ACCESS_KEY = "key";
-    process.env.NOOSCAPE_S3_SECRET_KEY = "secret";
-  } else {
-    process.env.BUILT_IN_FORGE_API_URL = "https://forge.example";
-    process.env.BUILT_IN_FORGE_API_KEY = "forge-key";
-  }
+  process.env.NOOSCAPE_S3_ENDPOINT = "https://objects.example";
+  process.env.NOOSCAPE_S3_BUCKET = "evidence";
+  process.env.NOOSCAPE_S3_ACCESS_KEY = "key";
+  process.env.NOOSCAPE_S3_SECRET_KEY = "secret";
 }
 
 beforeEach(() => vi.resetModules());
@@ -77,14 +72,14 @@ const KIB = 1024;
 
 describe("storageReadText, in production", () => {
   it("reads a small object as text", async () => {
-    configure(true);
+    configure();
     mocked.send = async () => ({ Body: body([Buffer.from("hello "), Buffer.from("world")]).stream, ContentLength: 11 });
     const { storageReadText } = await import("./storage");
     expect(await storageReadText("a/b.json")).toBe("hello world");
   });
 
   it("does not read an object whose declared length is over the cap, and ends its stream", async () => {
-    configure(true);
+    configure();
     const { stream, state } = body([Buffer.alloc(KIB)]);
     mocked.send = async () => ({ Body: stream, ContentLength: 10 * 1024 * KIB });
     const { storageReadText } = await import("./storage");
@@ -94,7 +89,7 @@ describe("storageReadText, in production", () => {
   });
 
   it("stops an object that said nothing, or said less than it sent, at the cap, without reading the rest", async () => {
-    configure(true);
+    configure();
     const chunks = Array.from({ length: 50 }, () => Buffer.alloc(100 * KIB, 97));
     for (const declared of [undefined, 10]) {
       const { stream, state } = body(chunks);
@@ -109,7 +104,7 @@ describe("storageReadText, in production", () => {
   });
 
   it("takes the cap as an argument, and an object exactly at it is read", async () => {
-    configure(true);
+    configure();
     mocked.send = async () => ({ Body: body([Buffer.from("12345")]).stream, ContentLength: 5 });
     const { storageReadText } = await import("./storage");
     expect(await storageReadText("a/b.json", 5)).toBe("12345");
@@ -118,7 +113,7 @@ describe("storageReadText, in production", () => {
   });
 
   it("says an object with no body has none", async () => {
-    configure(true);
+    configure();
     mocked.send = async () => ({ ContentLength: 0 });
     const { storageReadText } = await import("./storage");
     await expect(storageReadText("a/b.json")).rejects.toThrow("Stored evidence object had no body.");
@@ -130,7 +125,7 @@ describe("verifyStoredObject, in production", () => {
   const route = (object: unknown) => async (command: { kind: string }) => (command.kind === "retention" ? retention : object);
 
   it("hashes the object as it streams, counts its bytes, and reports its retention", async () => {
-    configure(true);
+    configure();
     const parts = [Buffer.from("alpha "), Buffer.from("beta "), Buffer.from("gamma")];
     const expected = createHash("sha256").update(Buffer.concat(parts)).digest("hex");
     mocked.send = route({ Body: body(parts).stream, ContentLength: 16 });
@@ -141,7 +136,7 @@ describe("verifyStoredObject, in production", () => {
   });
 
   it("says the hash does not match, rather than throwing, when the bytes are not the ones expected", async () => {
-    configure(true);
+    configure();
     mocked.send = route({ Body: body([Buffer.from("changed")]).stream });
     const { verifyStoredObject } = await import("./storage");
     const result = await verifyStoredObject("a/b.json", "0".repeat(64));
@@ -150,7 +145,7 @@ describe("verifyStoredObject, in production", () => {
   });
 
   it("does not read an object that declares more than the ceiling, and stops one that streams past it", async () => {
-    configure(true);
+    configure();
     const declared = body([Buffer.alloc(KIB)]);
     mocked.send = route({ Body: declared.stream, ContentLength: 3 * KIB });
     const { verifyStoredObject, MAX_VERIFIED_OBJECT_BYTES } = await import("./storage");
@@ -166,52 +161,17 @@ describe("verifyStoredObject, in production", () => {
   });
 });
 
-describe("the reads against the preview storage", () => {
-  function forgeFetch(object: { body: ReadableStream<Uint8Array> | null; headers?: Record<string, string> }) {
-    const calls: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL) => {
-        calls.push(String(input));
-        if (String(input).includes("/v1/storage/presign/get")) return new Response(JSON.stringify({ url: "https://s3.example/object" }), { status: 200 });
-        return new Response(object.body, { status: 200, headers: object.headers });
-      })
-    );
-    return calls;
-  }
-  const web = (chunks: Buffer[]) =>
-    new ReadableStream<Uint8Array>({
-      pull(controller) {
-        const next = chunks.shift();
-        if (next) controller.enqueue(new Uint8Array(next));
-        else controller.close();
-      },
-    });
-
-  it("reads a small object, rejects a declared length over the cap, and stops one that streams past it", async () => {
-    configure(false);
-    forgeFetch({ body: web([Buffer.from("preview text")]), headers: { "content-length": "12" } });
-    const { storageReadText, verifyStoredObject } = await import("./storage");
-    expect(await storageReadText("a/b.json")).toBe("preview text");
-
-    forgeFetch({ body: web([Buffer.alloc(KIB)]), headers: { "content-length": String(10 * 1024 * KIB) } });
-    await expect(storageReadText("a/b.json")).rejects.toThrow("summary read limit");
-
-    forgeFetch({ body: web(Array.from({ length: 10 }, () => Buffer.alloc(100 * KIB))) });
-    await expect(storageReadText("a/b.json")).rejects.toThrow("summary read limit");
-
-    const parts = [Buffer.from("one "), Buffer.from("two")];
-    forgeFetch({ body: web([...parts]) });
-    const expected = createHash("sha256").update(Buffer.concat(parts)).digest("hex");
-    expect(await verifyStoredObject("a/b.json", expected)).toMatchObject({ byteLength: 7, hashMatches: true, retentionMode: null });
-  });
-
-  it("reads an object with no body as empty", async () => {
-    configure(false);
-    forgeFetch({ body: null });
-    const { storageReadText, verifyStoredObject } = await import("./storage");
-    expect(await storageReadText("a/b.json")).toBe("");
-    forgeFetch({ body: null });
-    expect(await verifyStoredObject("a/b.json", createHash("sha256").update("").digest("hex"))).toMatchObject({ byteLength: 0, hashMatches: true });
+describe("storage that is not configured", () => {
+  // There is no other place evidence can go: without the NOOSCAPE_S3_* variables a write and both reads fail, in any environment.
+  it("fails a write and both reads, and does not reach for a network", async () => {
+    for (const name of Object.keys(original)) delete process.env[name];
+    const fetched = vi.fn();
+    vi.stubGlobal("fetch", fetched);
+    const { storagePut, storageReadText, storageGetSignedUrl, verifyStoredObject } = await import("./storage");
+    await expect(storagePut("a/b.json", "text")).rejects.toThrow("Evidence storage is not configured");
+    await expect(storageReadText("a/b.json")).rejects.toThrow("Evidence storage is not configured");
+    await expect(storageGetSignedUrl("a/b.json")).rejects.toThrow("Evidence storage is not configured");
+    await expect(verifyStoredObject("a/b.json", "0".repeat(64))).rejects.toThrow("Evidence storage is not configured");
+    expect(fetched).not.toHaveBeenCalled();
   });
 });

@@ -8,6 +8,7 @@ import { callChain, callChainForWorker, ChainUnavailableError, claimableChains, 
 import { isContractSignature, isCounterfactualSignature, isEvmAddress, parseEvmSignature, personalMessageHash, recoverEvmAddress, toChecksumAddress } from "./claimsCrypto";
 import { countVisibleEntriesOfRegistrant, getDb, getDirectoryEntryForClaim, requireDb } from "./db";
 import { sanitizePublicText } from "./publicText";
+import { driverErrorHas, isMissingTable } from "./driverErrors";
 import { consumeRateLimit } from "./rateLimit";
 
 /**
@@ -93,17 +94,17 @@ const SPENDS_THE_NONCE: ReadonlySet<ClaimErrorCode> = new Set<ClaimErrorCode>(["
 // ---------------------------------------------------------------- limits
 
 /** Messages for one wallet from one client, and requests from one client, in a window of ten minutes. */
-export const NONCES_PER_WALLET = 5;
-export const REQUESTS_PER_CLIENT = 20;
-export const CLAIM_WINDOW_MS = CLAIM_NONCE_TTL_MS;
+const NONCES_PER_WALLET = 5;
+const REQUESTS_PER_CLIENT = 20;
+const CLAIM_WINDOW_MS = CLAIM_NONCE_TTL_MS;
 /** Edits an agent may take in a day, counted from the nonces that made one, before any chain is asked. */
-export const EDITS_PER_AGENT_PER_DAY = 20;
+const EDITS_PER_AGENT_PER_DAY = 20;
 /** Claims in force for one wallet: at this many it is a fleet, like the Noosphere's wallets. */
-export const CLAIMS_PER_WALLET = FLEET_MIN;
+const CLAIMS_PER_WALLET = FLEET_MIN;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** The daily check of owners: a claim is asked again when it was last asked this long ago, at most this many claims a run. */
-export const RECHECK_AFTER_MS = 23 * 60 * 60 * 1000;
-export const RECHECK_MAX_PER_RUN = 25;
+const RECHECK_AFTER_MS = 23 * 60 * 60 * 1000;
+const RECHECK_MAX_PER_RUN = 25;
 /** A nonce row is kept this long after it expires, for the day's edit count, then swept by the daily step. */
 export const NONCE_KEPT_MS = 2 * DAY_MS;
 
@@ -114,7 +115,7 @@ export function limitClient(clientKey: string, now = Date.now()): void {
 
 // ---------------------------------------------------------------- dependencies
 
-export type ClaimDeps = {
+type ClaimDeps = {
   /** One read-only call on a chain. A request's is held to a per-minute budget; tests replace it. */
   call: EvmCall;
   now: () => Date;
@@ -122,14 +123,14 @@ export type ClaimDeps = {
   newNonce: () => string;
 };
 
-export const defaultClaimDeps: ClaimDeps = {
+const defaultClaimDeps: ClaimDeps = {
   call: callChain,
   now: () => new Date(),
   newNonce: () => randomBytes(16).toString("hex"),
 };
 
 /** The daily check reads with the worker's own call, which a visitor's requests cannot use up. */
-export const workerClaimDeps: ClaimDeps = { ...defaultClaimDeps, call: callChainForWorker };
+const workerClaimDeps: ClaimDeps = { ...defaultClaimDeps, call: callChainForWorker };
 
 /** Unix seconds, and back: the nonce table keeps its times this way. */
 const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
@@ -141,7 +142,7 @@ const sha256 = (text: string) => createHash("sha256").update(text, "utf8").diges
 
 // ---------------------------------------------------------------- the entry a claim is about
 
-export type ClaimTarget = { entryId: string; chain: ClaimChain; tokenId: string };
+type ClaimTarget = { entryId: string; chain: ClaimChain; tokenId: string };
 
 /** The chain and token an entry's key names, when it names exactly the registry of its own chain. */
 export function claimTargetOf(entry: { id: string; protocol: string; externalKey: string }): ClaimTarget | null {
@@ -152,16 +153,6 @@ export function claimTargetOf(entry: { id: string; protocol: string; externalKey
   return { entryId: entry.id, chain, tokenId: match[3]! };
 }
 
-function driverErrorHas(error: unknown, code: string): boolean {
-  let cause: unknown = error;
-  for (let depth = 0; cause instanceof Error && depth < 4; depth += 1) {
-    if ("code" in cause && cause.code === code) return true;
-    cause = cause.cause;
-  }
-  return false;
-}
-/** A table is not there: migration 0042 has not been run. */
-const isMissingTable = (error: unknown) => driverErrorHas(error, "ER_NO_SUCH_TABLE");
 const isDuplicate = (error: unknown) => driverErrorHas(error, "ER_DUP_ENTRY");
 
 /** Runs a database step, answering "claims are not available" when the tables are missing and passing every other failure up. */
@@ -211,7 +202,7 @@ const profileOf = (row: ClaimRow): ClaimProfile => ({
 
 // ---------------------------------------------------------------- 1. the nonce, and the message to sign
 
-export type IssuedClaimRequest = { nonce: string; message: string; expiresAt: Date };
+type IssuedClaimRequest = { nonce: string; message: string; expiresAt: Date };
 
 /**
  * Issues the message for a wallet to sign: to claim an agent, or to make one edit to what a claim shows. Nothing is asked of a chain
@@ -345,7 +336,7 @@ async function ownerBeforeRevoking(deps: ClaimDeps, target: ClaimTarget, claiman
 
 // ---------------------------------------------------------------- 3. making the claim
 
-export type ClaimResult = { claimId: string; status: "active"; wallet: string };
+type ClaimResult = { claimId: string; status: "active"; wallet: string };
 
 /** Makes the claim a signed message asks for, after every check above. The nonce is used only when the claim is written, or when the caller's own mistake spends it. */
 export async function verifyAndClaim(input: { nonce: string; message: string; signature: string }, deps: ClaimDeps = defaultClaimDeps): Promise<ClaimResult> {
@@ -404,7 +395,7 @@ async function revokeInTransaction(tx: Tx, claim: ClaimRow, reason: "owner_chang
 
 // ---------------------------------------------------------------- 4. an edit
 
-export type EditResult = { claimId: string; changed: number };
+type EditResult = { claimId: string; changed: number };
 
 /**
  * Applies one signed edit to what a claim shows. The message showed exactly this edit. The registry is asked who owns the agent before
@@ -462,7 +453,7 @@ export async function verifyAndEdit(input: { nonce: string; message: string; sig
 // ---------------------------------------------------------------- 5. the daily check of owners
 
 /** `unavailable` is how many chains could not be read in the run, and `stoppedBy` is "chain" when there was one (the others were still asked about). */
-export type RecheckResult = { checked: number; revoked: number; unavailable: number; stoppedBy: "done" | "chain" };
+type RecheckResult = { checked: number; revoked: number; unavailable: number; stoppedBy: "done" | "chain" };
 
 /** Driver errors carry their parameters after the statement; a log line keeps the statement and not the values. */
 const withoutParameters = (message: string) => message.split("\nparams:")[0]!;
@@ -535,7 +526,7 @@ export async function recheckClaims(deps: ClaimDeps = workerClaimDeps, limit = R
 
 // ---------------------------------------------------------------- 5b. what the page asks first
 
-export type ClaimState = {
+type ClaimState = {
   /** False while the claim tables are missing: the page shows nothing for claims. */
   available: boolean;
   /** True for an entry on the Robinhood Chain, BNB Smart Chain or (while its claims are on) Arc registry that the public can see. */
@@ -573,9 +564,9 @@ export async function readClaimState(entryId: string): Promise<ClaimState> {
 
 // ---------------------------------------------------------------- 5c. the public history
 
-export type ClaimHistoryKind = "claim" | "edit" | "freeze" | "unfreeze" | "revoke" | "redact";
+type ClaimHistoryKind = "claim" | "edit" | "freeze" | "unfreeze" | "revoke" | "redact";
 
-export type ClaimHistoryItem = {
+type ClaimHistoryItem = {
   seq: number;
   kind: ClaimHistoryKind;
   /** The field an edit changed, or the field whose text was removed. */
@@ -711,7 +702,7 @@ export async function removeClaimText(claimId: string, fields: readonly ClaimFie
   });
 }
 
-export type OperatorClaim = { id: string; status: string; wallet: string; claimedAt: Date; statusChangedAt: Date; profile: ClaimProfile };
+type OperatorClaim = { id: string; status: string; wallet: string; claimedAt: Date; statusChangedAt: Date; profile: ClaimProfile };
 
 /** The claims ever made for an entry, newest first, with the ids and the text the operator needs to hold one or remove its text. Operator only. */
 export async function listClaimsForOperator(entryId: string): Promise<OperatorClaim[]> {

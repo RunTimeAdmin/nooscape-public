@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CHAIN_KEYS, type ApiChain } from "./apiChains";
+import { AGENT_ID_MAX_CHARS, CHAIN_KEYS, type ApiChain } from "./apiChains";
 import { CHAIN_BLOCKS_PER_DAY } from "./db";
 
 /**
@@ -19,7 +19,7 @@ export const CHECK_RESULT_LIMIT = 10;
 /** The registry events the entry read keeps for one agent (server/db.ts). When it holds this many, it may not hold the latest. */
 export const REGISTRY_EVENT_LIST_LIMIT = 24;
 
-const REGISTRY_OPTIONS = ["solana_8004", "solana_said", "solana_registry"] as const;
+const REGISTRY_OPTIONS = ["solana_8004", "solana_said", "solana_registry", "solana_agenc"] as const;
 
 const walletText = z
   .string()
@@ -33,7 +33,7 @@ const walletText = z
 export const checkRequestSchemaFor = (chains: readonly ApiChain[]) =>
   z
     .object({
-      agent: z.object({ chain: z.string().max(16), id: z.string().max(64), registry: z.enum(REGISTRY_OPTIONS).optional() }).strict().optional(),
+      agent: z.object({ chain: z.string().max(16), id: z.string().max(AGENT_ID_MAX_CHARS), registry: z.enum(REGISTRY_OPTIONS).optional() }).strict().optional(),
       wallet: walletText.optional(),
       url: z.string().trim().min(8).max(2048).optional(),
       chain: z.enum(chains as [ApiChain, ...ApiChain[]]).optional(),
@@ -43,7 +43,7 @@ export const checkRequestSchemaFor = (chains: readonly ApiChain[]) =>
     .refine(value => value.chain === undefined || value.agent === undefined, { message: "chain narrows a wallet or a url, and an agent already names its chain" });
 
 /** The request as it reads with every extra chain off: the three chains the API has always served. */
-export const checkRequestSchema = checkRequestSchemaFor(CHAIN_KEYS);
+const checkRequestSchema = checkRequestSchemaFor(CHAIN_KEYS);
 
 export type CheckRequest = z.infer<typeof checkRequestSchema>;
 

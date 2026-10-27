@@ -10,6 +10,7 @@ import { directoryFunnelStepCopy } from "@/lib/glossary";
  */
 const read = (relative: string) => readFileSync(new URL(relative, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const home = read("./Home.tsx");
+const model = read("./home/atlasModel.ts");
 const evidence = read("./home/LandingEvidence.tsx");
 const hero = read("./home/LandingHero.tsx");
 const app = read("../App.tsx");
@@ -27,7 +28,7 @@ const ascending = (indexes: number[]) => indexes.every((index, i) => index > -1 
 const sentences = (jsx: string) => (jsx.replace(/<[^>]+>/g, "").replace(/[{}]/g, "").match(/[.!?](\s|$)/g) ?? []).length;
 
 const homeBranch = home.slice(home.indexOf('{view === "home" ? ('), home.indexOf(") : ("));
-const fieldBranch = home.slice(home.indexOf(") : ("), home.indexOf("      </main>"));
+const fieldBranch = read("./home/FieldView.tsx");
 
 describe("the order of the home page", () => {
   it("is the hero, the scan map, then the evidence, and nothing else in between", () => {
@@ -62,10 +63,10 @@ describe("the full field", () => {
     expect(fieldBranch).toContain('<p className="eyebrow text-[#BFFF76]">What we can prove</p>');
     expect(fieldBranch).toContain("Filter agents by the evidence on record.");
     const names = ["All agents", "Owner-verified", "Website-verified", "No proof yet"];
-    expect([...home.matchAll(/label: "([^"]+)", Icon:/g)].map(match => match[1])).toEqual(names);
+    expect([...fieldBranch.matchAll(/label: "([^"]+)", Icon:/g)].map(match => match[1])).toEqual(names);
     for (const old of ["Evidence boundary", "Publisher verified", "Domain verified", "Unverified Tier 2", "All records"]) expect(fieldBranch, old).not.toContain(old);
     // The counts come from one pass that puts each agent in one group, so the three add up to the total.
-    expect(home).toContain("const trustPopulation = useMemo(() => countByEvidenceGroup(agents), [agents]);");
+    expect(fieldBranch).toContain("const trustPopulation = useMemo(() => countByEvidenceGroup(agents), [agents]);");
     expect(home).toContain('const matchesTrust = trustFilter === "all" || evidenceGroup(agent) === trustFilter;');
     const panel = fieldBranch.slice(fieldBranch.indexOf('aria-label="What we can prove"'), fieldBranch.indexOf("</section>", fieldBranch.indexOf('aria-label="What we can prove"')));
     expect(panel).toContain("font-mono text-xs uppercase");
@@ -198,5 +199,23 @@ describe("a look of its own for each section", () => {
     const art = read("../components/home/OwlLineArt.tsx");
     expect(art).toContain('aria-hidden="true"');
     expect(art).not.toMatch(/<text|<title|aria-label/);
+  });
+});
+
+describe("what the home page asks the server for", () => {
+  it("reads the selected record's evidence when it opens and then every minute, only on the field view or with Deep Space open", () => {
+    // The answer feeds the field aside and Deep Space and nothing on the home view; on the home view the call was half of the page's requests.
+    const call = home.slice(home.indexOf("trpc.atlas.evidence.useQuery({ agentId: selected?.id"), home.indexOf("const activeEvidence"));
+    expect(call).toContain('enabled: Boolean(selected) && (view === "field" || deepSpace)');
+    expect(call).toContain("...EVIDENCE_POLL");
+    expect(model).toContain("export const EVIDENCE_POLL = { refetchInterval: 60_000, refetchOnWindowFocus: true } as const;");
+    expect(home).not.toContain("refetchInterval: 8_000");
+  });
+
+  it("formats no time for a record it does not show", () => {
+    const mapRecord = model.slice(model.indexOf("export function mapLiveRecord"), model.indexOf("export function isDomainVerifiedAgent"));
+    // The slice is the function, not an empty string left by a name that moved.
+    expect(mapRecord).toContain("toPublisherState(record.publisherState)");
+    expect(mapRecord).not.toContain("toLocaleTimeString");
   });
 });

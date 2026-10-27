@@ -25,9 +25,11 @@ import {
   type ClaimStateRead,
   type KeyAccess,
 } from "./apiV1";
-import { API_TIERS, ApiKeyError, KEY_ADDRESS_PER_MINUTE, type ApiKeyRecord, type UsageReport } from "./apiKeys";
+import { API_TIERS, ApiKeyError, BAD_KEY_PER_MINUTE, KEY_ADDRESS_PER_MINUTE, type ApiKeyRecord, type UsageReport } from "./apiKeys";
+import { AGENT_ID_MAX_CHARS } from "./apiChains";
+import { STATS_STATEMENT, type StatsRead } from "./apiStats";
 import { API_V1_SPEC } from "./apiV1Spec";
-import { problems, schemaOf } from "./apiV1Check";
+import { problems, schemaOf } from "./apiV1Testing";
 import { resetRateLimits } from "./rateLimit";
 
 /**
@@ -72,6 +74,40 @@ const owner = (status: "active" | "frozen", profile: Partial<NonNullable<ClaimSt
 
 const NOW = new Date("2026-10-19T03:00:00Z");
 
+/** What the site's chain tabs read at 02:58 UTC: three chains, each with the figures its tab shows, and one that measures no ratings. */
+const STATS_READ: StatsRead = {
+  readAt: "2026-10-19T02:58:00.000Z",
+  chains: [
+    { chain: "robinhood", indexed: true, acknowledged: 19883, reviewed: 18, feedbackEvents: 641, registries: [{ protocol: "erc8004", count: 19883 }], asOf: "2026-10-19T02:30:00.000Z" },
+    {
+      chain: "solana",
+      indexed: true,
+      acknowledged: 17576,
+      reviewed: 7,
+      feedbackEvents: 17546,
+      registries: [
+        { protocol: "solana_said", count: 14214 },
+        { protocol: "solana_registry", count: 1591 },
+        { protocol: "solana_8004", count: 1515 },
+        { protocol: "solana_agenc", count: 256 },
+      ],
+      asOf: "2026-10-19T02:30:00.000Z",
+    },
+    { chain: "bnb", indexed: true, acknowledged: 6924, reviewed: 0, feedbackEvents: null, registries: [{ protocol: "erc8004_bsc", count: 6924 }], asOf: "2026-10-19T02:45:00.000Z" },
+  ],
+  extras: [],
+  arrivals: {
+    windowHours: 24,
+    computedAt: "2026-10-19T02:47:00.000Z",
+    chains: [
+      { chain: "robinhood", indexed: true, added: 88, newest: [], registries: [] },
+      { chain: "solana", indexed: true, added: 309, newest: [], registries: [] },
+      { chain: "bnb", indexed: true, added: 88, newest: [], registries: [] },
+    ],
+  },
+  bnbRegistrations: 392502,
+};
+
 const MIDNIGHT = new Date("2026-10-20T00:00:00Z");
 const keyText = (letter: string) => `nsk_${letter.repeat(40)}`;
 const KEY_FREE = keyText("a");
@@ -81,8 +117,14 @@ const KEY_PRO = keyText("b");
 function fakeKeys(known: Record<string, ApiKeyRecord> = { [KEY_FREE]: { id: "key-free", tier: "free", prefix: "nsk_aaaaaa" }, [KEY_PRO]: { id: "key-pro", tier: "pro", prefix: "nsk_bbbbbb" } }) {
   const used = new Map<string, number>();
   const consumed: Array<{ keyId: string; endpoint: string }> = [];
+  // Every key the server read from the database, once each: the real cache holds what it read (an unknown key too) for the next request.
+  const reads: string[] = [];
   const access: KeyAccess = {
-    resolve: async raw => known[raw] ?? null,
+    resolve: async raw => {
+      if (!reads.includes(raw)) reads.push(raw);
+      return known[raw] ?? null;
+    },
+    isCached: raw => reads.includes(raw),
     consume: async (keyId, perDay, endpoint) => {
       const before = used.get(keyId) ?? 0;
       if (before >= perDay) return { allowed: false, limit: perDay, used: before, remaining: 0, resetsAt: MIDNIGHT };
@@ -102,7 +144,7 @@ function fakeKeys(known: Record<string, ApiKeyRecord> = { [KEY_FREE]: { id: "key
       };
     },
   };
-  return { access, used, consumed };
+  return { access, used, consumed, reads };
 }
 
 const historyItem = (overrides: Partial<ClaimHistoryRead["items"][number]> = {}): ClaimHistoryRead["items"][number] => ({
@@ -130,9 +172,11 @@ function deps(overrides: Partial<ApiV1Deps> = {}): ApiV1Deps {
     getEntry: async () => entry(),
     search: async () => ({ entries: [], matchedTotal: 0, matchedTotalCapped: false }) as never,
     keysOf: async () => new Map(),
-    claimOf: async () => null,
+    // The claim read worked and found no claim. A read that failed answers null, and a test says so.
+    claimOf: async () => claimState(null),
     claimHistory: async () => null,
     checkFacts: async () => ({ activityThroughBlock: null, solana: null }),
+    stats: async () => STATS_READ,
     keys: fakeKeys().access,
     ...overrides,
   };
@@ -187,6 +231,16 @@ describe("the document the API serves", () => {
     // The batch lookup and the check read from a body and write nothing. The watchlist and the webhook write the key's own, and nothing else does.
     const notReads = Object.keys(found).filter(path => found[path]!.some(method => method !== "get"));
     expect(notReads.sort()).toEqual(["/api/v1/agents/batch", "/api/v1/check", "/api/v1/watches", "/api/v1/watches/{nooscape_id}", "/api/v1/webhook", "/api/v1/webhook/rotate-secret"]);
+  });
+
+  it("lists in the index only routes the document describes, each with a method the document gives it, and lists the stats among them", async () => {
+    const index = await body(await get("/api/v1"));
+    const paths = API_V1_SPEC.paths as Record<string, Record<string, unknown>>;
+    for (const endpoint of index.endpoints as Array<{ method: string; path: string }>) {
+      expect(paths[endpoint.path], endpoint.path).toBeDefined();
+      expect(Object.keys(paths[endpoint.path]!), endpoint.path).toContain(endpoint.method.toLowerCase());
+    }
+    expect((index.endpoints as Array<{ method: string; path: string }>).map(endpoint => `${endpoint.method} ${endpoint.path}`)).toContain("GET /api/v1/stats");
   });
 
   it("is served at /api/v1/openapi.json, as OpenAPI 3.1, and is what the test checks against", async () => {
@@ -285,9 +339,14 @@ describe("GET /api/v1/agents/{chain}/{id}", () => {
     expect(answer.data.claim).toMatchObject({ status: "on_hold", owner_text: null });
     expect(JSON.stringify(answer)).not.toContain("Alice's name");
 
-    // A claim that cannot be read does not take the record down with it.
+    // A claim that cannot be read does not take the record down with it, and the answer is not kept for the minute a whole one is.
+    await start(deps());
+    expect((await get("/api/v1/agents/robinhood/7")).headers.get("cache-control")).toBe("private, max-age=60");
     await start(deps({ claimOf: async () => null }));
-    expect((await get("/api/v1/agents/robinhood/7")).status).toBe(200);
+    const withoutClaim = await get("/api/v1/agents/robinhood/7");
+    expect(withoutClaim.status).toBe(200);
+    expect(withoutClaim.headers.get("cache-control")).toBe("no-store");
+    expect((await body(withoutClaim)).data.claim).toBeNull();
   });
 
   it("answers 404 for an id nothing lists, and for an entry the data layer does not give, the same words either way", async () => {
@@ -346,6 +405,29 @@ describe("GET /api/v1/agents/{chain}/{id}", () => {
     expect(one.source).toMatchObject({ chain_id: null, registry_address: null });
     expect(seen[1]).toEqual(["solana_said"]);
   });
+
+  it("looks up an AgenC agent by its own account on the Solana chain, names the registry, and takes registry= to narrow to it", async () => {
+    const AGENC_KEY = "AgEnCpda".padEnd(44, "x");
+    const seen: string[][] = [];
+    await start(
+      deps({
+        findEntries: async (protocols, key) => {
+          seen.push([...protocols]);
+          return key === AGENC_KEY && protocols.includes("solana_agenc") ? [{ id: "55555555-5555-4555-8555-555555555555", protocol: "solana_agenc", externalKey: AGENC_KEY }] : [];
+        },
+        getEntry: async id => entry({ id, protocol: "solana_agenc", registrant: null, locatorHost: null, ratings: null, activity: null }),
+      })
+    );
+    const found = await get(`/api/v1/agents/solana/${AGENC_KEY}`);
+    expect(found.status).toBe(200);
+    const one = await body(found);
+    expect(problems(schemaOf("AgentResponse"), one)).toEqual([]);
+    expect(one.data).toMatchObject({ chain: "solana", agent_id: AGENC_KEY, registry: "solana_agenc" });
+    expect(seen[0]).toEqual(["solana_8004", "solana_said", "solana_registry", "solana_agenc"]);
+    const narrowed = await get(`/api/v1/agents/solana/${AGENC_KEY}?registry=solana_agenc`);
+    expect(narrowed.status).toBe(200);
+    expect(seen[1]).toEqual(["solana_agenc"]);
+  });
 });
 
 // ---------------------------------------------------------------- search
@@ -381,12 +463,12 @@ describe("GET /api/v1/agents/search", () => {
     const answer = await body(response);
     expect(problems(schemaOf("SearchResponse"), answer)).toEqual([]);
     expect(answer.as_of).toBe(NOW.toISOString());
-    expect(answer.source).toEqual({ kind: "directory_search", chains: ["robinhood", "bnb", "solana"], registries: ["erc8004", "erc8004_bsc", "solana_8004", "solana_said", "solana_registry"] });
+    expect(answer.source).toEqual({ kind: "directory_search", chains: ["robinhood", "bnb", "solana"], registries: ["erc8004", "erc8004_bsc", "solana_8004", "solana_said", "solana_registry", "solana_agenc"] });
     expect(answer.data.matched_total).toBe(2);
     expect(answer.data.results.map((result: { agent_id: string }) => result.agent_id)).toEqual(["7", SOLANA_KEY]);
     expect(answer.data.results[0].links).toEqual({ agent: "/api/v1/agents/robinhood/7", page: "https://nooscape.si/agents/a" });
     expect(answer.data.query).toEqual({ q: "alice", owner: null, host: null, chain: null, limit: 10 });
-    expect(calls).toEqual([{ query: "alice", limit: 10, protocols: ["erc8004", "erc8004_bsc", "solana_8004", "solana_said", "solana_registry"] }]);
+    expect(calls).toEqual([{ query: "alice", limit: 10, protocols: ["erc8004", "erc8004_bsc", "solana_8004", "solana_said", "solana_registry", "solana_agenc"] }]);
   });
 
   it("limits a search to a chain's registries and takes owner and host as exact filters over the page", async () => {
@@ -459,6 +541,153 @@ describe("GET /api/v1/agents/search", () => {
 });
 
 // ---------------------------------------------------------------- the rules of the surface
+
+describe("GET /api/v1/stats", () => {
+  type Row = { chain: string; registries: Array<{ registry: string; address: string | null; acknowledged: number }>; [field: string]: unknown };
+  const rowsOf = (answer: Record<string, any>) => Object.fromEntries((answer.data.chains as Row[]).map(row => [row.chain, row])) as Record<string, Row>;
+
+  it("answers what the directory holds on each chain, in the shape the document describes, dated by when the figures were read", async () => {
+    await start(deps());
+    const response = await get("/api/v1/stats");
+    expect(response.status).toBe(200);
+    const answer = await body(response);
+    expect(problems(schemaOf("StatsResponse"), answer)).toEqual([]);
+    expect(answer.as_of).toBe(STATS_READ.readAt);
+    expect(answer.source).toEqual({ kind: "directory_stats", chains: ["robinhood", "bnb", "solana"] });
+    expect(answer.license).toEqual(API_LICENSE);
+    expect(answer.data.statement).toBe(STATS_STATEMENT);
+    // The chains come in the order the index gives them, and the total adds up the entries listed on them.
+    expect((answer.data.chains as Row[]).map(row => row.chain)).toEqual(["robinhood", "bnb", "solana"]);
+    expect(answer.data.totals).toEqual({ acknowledged: 19883 + 6924 + 17576 });
+  });
+
+  it("gives each chain the figures its tab on the site gives it, and null where a figure is not measured and never zero", async () => {
+    await start(deps());
+    const rows = rowsOf(await body(await get("/api/v1/stats")));
+    expect(rows.robinhood).toEqual({
+      chain: "robinhood",
+      label: "Robinhood Chain",
+      chain_id: 4663,
+      indexed: true,
+      acknowledged: 19883,
+      ratings_recorded: 641,
+      registrations_on_chain: null,
+      new_in_24h: 88,
+      registries: [{ registry: "erc8004", address: API_CHAINS.robinhood.registry, acknowledged: 19883 }],
+      last_read_at: "2026-10-19T02:30:00.000Z",
+    });
+    // BNB Chain counts the registrations its registry holds apart from the entries it lists, and counts no ratings.
+    expect(rows.bnb).toMatchObject({ chain_id: 56, acknowledged: 6924, ratings_recorded: null, registrations_on_chain: 392502, new_in_24h: 88 });
+    // Solana has no chain id, no one registry contract and four registries, largest first.
+    expect(rows.solana).toMatchObject({ chain_id: null, acknowledged: 17576, ratings_recorded: 17546, registrations_on_chain: null, new_in_24h: 309 });
+    expect(rows.solana!.registries).toEqual([
+      { registry: "solana_said", address: null, acknowledged: 14214 },
+      { registry: "solana_registry", address: null, acknowledged: 1591 },
+      { registry: "solana_8004", address: null, acknowledged: 1515 },
+      { registry: "solana_agenc", address: null, acknowledged: 256 },
+    ]);
+  });
+
+  it("leaves a figure that could not be read null, and does not turn it into a zero", async () => {
+    await start(deps({ stats: async () => ({ ...STATS_READ, arrivals: null, bnbRegistrations: null }) }));
+    const answer = await body(await get("/api/v1/stats"));
+    expect(problems(schemaOf("StatsResponse"), answer)).toEqual([]);
+    for (const row of Object.values(rowsOf(answer))) expect(row.new_in_24h, row.chain).toBeNull();
+    expect(rowsOf(answer).bnb!.registrations_on_chain).toBeNull();
+    // What was read is unaffected.
+    expect(answer.data.totals.acknowledged).toBe(19883 + 6924 + 17576);
+  });
+
+  it("reports a chain that is not read as not indexed, with no counts, and adds nothing to the total", async () => {
+    const gone = (row: (typeof STATS_READ.chains)[number]) => (row.chain === "bnb" ? { ...row, indexed: false, acknowledged: null, feedbackEvents: null, registries: [], asOf: null } : row);
+    await start(
+      deps({
+        stats: async () => ({
+          ...STATS_READ,
+          chains: STATS_READ.chains.map(gone),
+          arrivals: { ...STATS_READ.arrivals!, chains: STATS_READ.arrivals!.chains.map(row => (row.chain === "bnb" ? { ...row, indexed: false, added: null } : row)) },
+        }),
+      })
+    );
+    const answer = await body(await get("/api/v1/stats"));
+    expect(problems(schemaOf("StatsResponse"), answer)).toEqual([]);
+    expect(rowsOf(answer).bnb).toMatchObject({ indexed: false, acknowledged: null, ratings_recorded: null, new_in_24h: null, registries: [], last_read_at: null });
+    expect(answer.data.totals.acknowledged).toBe(19883 + 17576);
+  });
+
+  it("takes no option: a query string is refused before the figures are read, so it cannot be used to ask for them again", async () => {
+    let reads = 0;
+    await start(
+      deps({
+        stats: async () => {
+          reads += 1;
+          return STATS_READ;
+        },
+      })
+    );
+    const refused = await get("/api/v1/stats?refresh=1");
+    expect(refused.status).toBe(400);
+    expect((await body(refused)).error.code).toBe("bad_request");
+    expect(refused.headers.get("cache-control")).toBe("no-store");
+    expect(reads).toBe(0);
+    expect((await get("/api/v1/stats")).status).toBe(200);
+    expect(reads).toBe(1);
+  });
+
+  it("needs no key, answers the same to a free key and a pro key, counts a keyed request under its own name, and is private to the caller for a minute", async () => {
+    const keys = fakeKeys();
+    await start(deps({ keys: keys.access }));
+    const anonymous = await get("/api/v1/stats");
+    expect(anonymous.headers.get("cache-control")).toBe("private, max-age=60");
+    expect(anonymous.headers.get("vary")).toContain("Authorization");
+    const expected = await body(anonymous);
+    const free = await get("/api/v1/stats", { headers: bearer(KEY_FREE) });
+    expect(free.headers.get("cache-control")).toBe("private, max-age=60");
+    expect(await body(free)).toEqual(expected);
+    expect(await body(await get("/api/v1/stats", { headers: bearer(KEY_PRO) }))).toEqual(expected);
+    expect(keys.consumed.map(item => item.endpoint)).toEqual(["stats", "stats"]);
+  });
+
+  it("says only that the figures could not be read when they cannot, keeps the cause out of the answer, and tells the caller when to try again", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await start(
+        deps({
+          stats: async () => {
+            throw new Error("select `acknowledged` from `agent_directory_entries` where `protocol` = ?\nparams: erc8004_secret");
+          },
+        })
+      );
+      const response = await get("/api/v1/stats");
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("30");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(JSON.stringify(await response.json())).not.toMatch(/select|agent_directory_entries|params|secret/i);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![1])).not.toContain("secret");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("states what the counts are and are not, and has no verdict, score or ranking in any word or field name", async () => {
+    await start(deps());
+    const answer = await body(await get("/api/v1/stats"));
+    const names = (value: unknown): string[] => (Array.isArray(value) ? value.flatMap(names) : value && typeof value === "object" ? Object.entries(value).flatMap(([key, inner]) => [key, ...names(inner)]) : []);
+    for (const word of ["tier", "score", "verdict", "rank", "ranking"]) expect(names(answer), word).not.toContain(word);
+    expect(JSON.stringify(answer).replace(STATS_STATEMENT, "")).not.toMatch(/\b(safe|unsafe|trusted|trustworthy|certified|endorsed|secure|score|rank|ranking|verdict)\b/i);
+    expect(STATS_STATEMENT).toContain("not a count of the agents that exist or work");
+    expect(STATS_STATEMENT).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("requires every field the document declares for the stats, so a caller can rely on all of them", () => {
+    const { StatsChain, StatsResponse } = API_V1_SPEC.components.schemas;
+    for (const schema of [StatsChain, StatsResponse, StatsResponse.properties.data, StatsResponse.properties.data.properties.totals, StatsResponse.properties.source, StatsChain.properties.registries.items]) {
+      expect([...schema.required].sort()).toEqual(Object.keys(schema.properties).sort());
+      expect(schema.additionalProperties).toBe(false);
+    }
+  });
+});
 
 describe("the surface", () => {
   it("is read only: another method is refused with 405 and what is allowed, and a path it does not have is a JSON 404", async () => {
@@ -544,7 +773,7 @@ describe("the chains", () => {
   it("maps each registry to one chain, and an id back from the key it is stored under", () => {
     expect(apiChainOfProtocol("erc8004")).toBe("robinhood");
     expect(apiChainOfProtocol("erc8004_bsc")).toBe("bnb");
-    for (const protocol of ["solana_8004", "solana_said", "solana_registry"]) expect(apiChainOfProtocol(protocol)).toBe("solana");
+    for (const protocol of ["solana_8004", "solana_said", "solana_registry", "solana_agenc"]) expect(apiChainOfProtocol(protocol)).toBe("solana");
     for (const protocol of ["a2a", "catalog", "census", "erc8004_reputation", "usdg_settlement"]) expect(apiChainOfProtocol(protocol), protocol).toBeNull();
     expect(agentIdOfKey("robinhood", ROBINHOOD_KEY)).toBe("7");
     expect(agentIdOfKey("bnb", BNB_KEY)).toBe("9");
@@ -591,7 +820,7 @@ describe("what the API is held to at the source", () => {
     expect(index.indexOf("registerApiV1(app);")).toBeGreaterThan(index.indexOf("registerApiCachePolicy(app);"));
     expect(index.indexOf("registerApiV1(app);")).toBeLessThan(index.indexOf('app.use("/api/trpc"'));
     expect(index.match(/registerApiV1\(app\)/g)).toHaveLength(1);
-    const importers = files.filter(({ text }) => /from "\.\/apiV1Check"|from "\.\.\/apiV1Check"/.test(text)).map(({ file }) => file);
+    const importers = files.filter(({ text }) => /from "\.\/apiV1Testing"|from "\.\.\/apiV1Testing"/.test(text)).map(({ file }) => file);
     expect(importers).toEqual([]);
   });
 
@@ -602,6 +831,10 @@ describe("what the API is held to at the source", () => {
     expect(page).toContain("30 requests a minute");
     expect(page).toContain("/api/v1/agents/{chain}/{id}");
     expect(page).toContain("/api/v1/agents/search");
+    expect(page).toContain("/api/v1/stats");
+    // The stats are kept for the time the document says, and the page says it too.
+    expect(JSON.stringify(API_V1_SPEC.paths["/api/v1/stats"])).toContain("up to five minutes");
+    expect(page).toContain("up to five minutes");
   });
 
   it("lets a shared cache hold nothing about an agent: only the index and the document, which hold no per-caller state, are public", () => {
@@ -680,8 +913,31 @@ describe("a key", () => {
       for (let index = 0; index < 20; index += 1) status = (await get("/api/v1/agents/robinhood/7", { headers: bearer(keyText("y")) })).status;
       expect(status).toBe(429);
       expect(warn.mock.calls.map(call => String(call[0])).some(line => /^\[RateLimit\] api-v1-badkey limit reached for .+ \(retry in \d+s\)$/.test(line))).toBe(true);
-      // Guessing is counted against the address; a key that is right is not.
-      expect((await get("/api/v1/agents/robinhood/7", { headers: bearer(KEY_FREE) })).status).toBe(200);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("turns an address away before it reads a key that is not held, once the address has used up its wrong guesses, and still serves a key in use", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const keys = fakeKeys();
+      await start(deps({ keys: keys.access }));
+      // A key in use is read once and held.
+      expect((await get("/api/v1/agents/robinhood/7", { headers: bearer(KEY_PRO) })).status).toBe(200);
+      for (let index = 0; index < BAD_KEY_PER_MINUTE; index += 1) {
+        expect((await get("/api/v1/agents/robinhood/7", { headers: bearer(`nsk_${String(index).padStart(40, "m")}`) })).status).toBe(401);
+      }
+      const readsBefore = keys.reads.length;
+      // The next made-up key, and a real key the server does not hold, are refused without a read; a key it holds is served.
+      const guess = await get("/api/v1/agents/robinhood/7", { headers: bearer(`nsk_${"n".repeat(40)}`) });
+      const heldOut = await get("/api/v1/agents/robinhood/7", { headers: bearer(KEY_FREE) });
+      expect([guess.status, heldOut.status]).toEqual([429, 429]);
+      expect((await body(heldOut)).error.code).toBe("rate_limited");
+      expect(Number(heldOut.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
+      expect(keys.reads).toHaveLength(readsBefore);
+      expect((await get("/api/v1/agents/robinhood/7", { headers: bearer(KEY_PRO) })).status).toBe(200);
+      expect(keys.reads).toHaveLength(readsBefore);
     } finally {
       warn.mockRestore();
     }
@@ -757,6 +1013,7 @@ describe("a key", () => {
     expect(endpointOf("/openapi.json")).toBe("openapi");
     expect(endpointOf("/usage")).toBe("usage");
     expect(endpointOf("/agents/search")).toBe("search");
+    expect(endpointOf("/stats")).toBe("stats");
     expect(endpointOf("/agents/batch")).toBe("batch");
     expect(endpointOf("/agents/robinhood/7")).toBe("agent");
     expect(endpointOf("/agents/robinhood/7/history")).toBe("history");
@@ -865,6 +1122,11 @@ describe("POST /api/v1/agents/batch", () => {
     expect(tooMany.status).toBe(400);
     expect((await body(tooMany)).error.message).toContain("agents");
     expect((await post("/api/v1/agents/batch", { agents: Array.from({ length: BATCH_MAX }, () => ({ chain: "robinhood", id: "7" })) })).status).toBe(200);
+    // The longest id the pattern allows (78 digits) is taken and not found; one past the cap shared with the check and the watchlist is a malformed body.
+    const longest = await post("/api/v1/agents/batch", { agents: [{ chain: "robinhood", id: "9".repeat(78) }] });
+    expect(longest.status).toBe(200);
+    expect((await body(longest)).data.results[0].status).toBe(404);
+    expect((await post("/api/v1/agents/batch", { agents: [{ chain: "robinhood", id: "9".repeat(AGENT_ID_MAX_CHARS + 1) }] })).status).toBe(400);
     for (const payload of [{ agents: [] }, {}, { agents: [{ chain: "robinhood" }] }, { agents: [{ chain: "robinhood", id: "7", price: 1 }] }, { agents: [{ chain: "robinhood", id: "7" }], tier: "pro" }, { agents: "robinhood" }]) {
       const response = await post("/api/v1/agents/batch", payload);
       expect(response.status, JSON.stringify(payload)).toBe(400);

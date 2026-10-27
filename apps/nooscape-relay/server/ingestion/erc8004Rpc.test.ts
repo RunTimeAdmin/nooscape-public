@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BSC_CHAIN } from "./erc8004Chains";
-import { Erc8004RpcError, Erc8004RpcHttpError, Erc8004RpcNotConfiguredError, Erc8004RpcRangeError, callRpc, resolveRpcUrl, scrubProviderText } from "./erc8004Rpc";
+import { Erc8004RpcError, Erc8004RpcHttpError, Erc8004RpcNotConfiguredError, Erc8004RpcRangeError, callRpc, readBodyCapped, resolveRpcUrl, scrubProviderText } from "./erc8004Rpc";
 import { DEMO_CHAIN } from "./erc8004TestChain";
 
 /**
@@ -221,5 +221,78 @@ describe("callRpc on the chain", () => {
       const error = await thrown(callRpc(DEMO_CHAIN, "eth_getLogs", [], { url: URL_WITH_KEY, sleep: noSleep }));
       expect(error.message).not.toContain(KEY);
     }
+  });
+});
+
+describe("readBodyCapped", () => {
+  /** A body of `chunks` chunks of `size` bytes each, counting how many the reader has pulled and whether it was cancelled. */
+  function chunked(chunks: number, size: number) {
+    const state = { pulled: 0, cancelled: false };
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (state.pulled >= chunks) return controller.close();
+        state.pulled += 1;
+        controller.enqueue(new Uint8Array(size).fill(0x61));
+      },
+      cancel() {
+        state.cancelled = true;
+      },
+    });
+    return { response: new Response(body), state };
+  }
+
+  it("returns the whole text of a body under the cap", async () => {
+    const { response } = chunked(4, 1_000);
+    expect(await readBodyCapped(response, 4_000)).toBe("a".repeat(4_000));
+  });
+
+  it("stops reading and cancels the stream at the first chunk that passes the cap, not after the whole body", async () => {
+    const { response, state } = chunked(1_000, 1_024);
+    expect(await readBodyCapped(response, 5 * 1_024)).toBeNull();
+    // Six chunks put the total over the cap; the reader may have one more in flight, and the other 990 were never asked for.
+    expect(state.pulled).toBeLessThanOrEqual(8);
+    expect(state.cancelled).toBe(true);
+  });
+
+  it("decodes a character that is split across two chunks", async () => {
+    const bytes = new TextEncoder().encode("é€😀");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+        controller.close();
+      },
+    });
+    expect(await readBodyCapped(new Response(body), 100)).toBe("é€😀");
+  });
+
+  it("counts bytes, so a body of multi-byte characters is held to the cap by its size on the wire", async () => {
+    expect(await readBodyCapped(new Response("€".repeat(10)), 29)).toBeNull();
+    expect(await readBodyCapped(new Response("€".repeat(10)), 30)).toBe("€".repeat(10));
+  });
+
+  it("reads a response that has no stream", async () => {
+    const response = new Response(null);
+    expect(await readBodyCapped(response, 10)).toBe("");
+  });
+});
+
+describe("callRpc over the cap", () => {
+  it("stops downloading an answer that is over the cap and says so in the cap's words", async () => {
+    const cap = DEMO_CHAIN.rpc.maxResponseBytes;
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(new Uint8Array(64 * 1024).fill(0x61));
+        if (pulled > 10_000) controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status: 200 })));
+    const error = await thrown(callRpc(DEMO_CHAIN, "eth_getLogs", [], { url: URL_WITH_KEY }));
+    expect(error).toBeInstanceOf(Erc8004RpcRangeError);
+    expect(error.message).toBe("Demo Chain eth_getLogs response exceeds the response limit.");
+    // The cap is 1 MiB on this chain: 16 chunks of 64 KiB and at most a few more, nowhere near the 10,000 on offer.
+    expect(pulled).toBeLessThan(cap / (64 * 1024) + 6);
+    vi.unstubAllGlobals();
   });
 });

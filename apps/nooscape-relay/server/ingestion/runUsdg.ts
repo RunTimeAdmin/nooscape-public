@@ -20,7 +20,7 @@ export async function runApprovedUsdgSettlementSource(
     throw new Error("The Robinhood Chain USDG settlement ledger is manual-only and cannot be scheduled or replayed automatically.");
   }
 
-  return withIngestionRun(source, trigger, 4, async runId => {
+  return withIngestionRun(source, trigger, 4, async () => {
     const snapshot = await fetchUsdgSettlements(source);
     // The INSERT-IGNORE key makes re-runs idempotent and public totals stay a
     // pure function of the ledger.

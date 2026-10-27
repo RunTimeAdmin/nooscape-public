@@ -53,18 +53,18 @@ import {
  * line. It needs no migration.
  */
 
-export const NAMES_BUDGET_MS = 20_000;
+const NAMES_BUDGET_MS = 20_000;
 /** Registration files read in one run. */
 export const NAMES_MAX_PER_RUN = 16;
 /** The most of them from any one host in one run. */
 export const NAMES_MAX_PER_HOST = 6;
 /** Entries whose link is read from the chain in one run: one multicall. */
-export const NAMES_MAX_DISCOVER = 16;
+const NAMES_MAX_DISCOVER = 16;
 /** A run at most every 30 minutes. The gate between two runs is a little under this (`stepIntervalGateMs`, server/stepInterval.ts), so a tick's step starting a minute early is not skipped. */
 export const NAMES_INTERVAL_MS = 30 * 60 * 1000;
 /** Chain reads stop for this long after the node answers 403 or 429 (the edge throttles bursts and has blocked an address for minutes), and for the shorter one after any other failure. */
-export const NAMES_CHAIN_BACKOFF_MS = 2 * 60 * 60 * 1000;
-export const NAMES_CHAIN_SHORT_BACKOFF_MS = 30 * 60 * 1000;
+const NAMES_CHAIN_BACKOFF_MS = 2 * 60 * 60 * 1000;
+const NAMES_CHAIN_SHORT_BACKOFF_MS = 30 * 60 * 1000;
 /**
  * The worker does not start the step when its own tick has already run this long. The step can take 20 seconds. A tick's sources
  * take 25 to 70 seconds and the BNB rater step takes about 25 more while its ledger is filling, so a limit of 40 seconds skipped
@@ -93,7 +93,7 @@ export type RobinhoodNamesDeps = {
   intervalMs: number;
 };
 
-export type RobinhoodNamesResult =
+type RobinhoodNamesResult =
   | { state: "busy" | "idle" | "unavailable" | "no_source" | "too_late" }
   | {
       state: "completed";

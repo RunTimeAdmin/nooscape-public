@@ -121,12 +121,13 @@ describe("the card of a chain page", () => {
     ["/chains/bnb", "BNB Chain"],
     ["/chains/arc", "Arc"],
     ["/chains/base", "Base"],
+    ["/chains/ethereum", "Ethereum"],
   ];
   const publicDir = path.resolve(import.meta.dirname, "../client/public");
   const cardOf = (route: string) => ROUTE_HEADS[route]!.image!;
   const IMAGE_TAGS = [/<meta property="og:image"[^>]*>/, /<meta property="og:image:secure_url"[^>]*>/, /<meta property="og:image:alt"[^>]*>/, /<meta name="twitter:image"[^>]*>/, /<meta name="twitter:image:alt"[^>]*>/];
 
-  it("belongs to the five chain pages and to no other fixed page", () => {
+  it("belongs to the six chain pages and to no other fixed page", () => {
     expect(Object.keys(ROUTE_HEADS).filter(route => ROUTE_HEADS[route]!.image).sort()).toEqual(CHAINS.map(([route]) => route).sort());
   });
 
@@ -200,6 +201,31 @@ describe("the cache in front of the agent read", () => {
     clock = 61_000;
     await read("known");
     expect(reads).toEqual(["known", "nobody", "known"]);
+  });
+
+  it("gives requests that arrive while an id is being read that one read, and reads again if it failed", async () => {
+    const reads: string[] = [];
+    let release!: (facts: AgentHeadFacts | null) => void;
+    const read = cachedAgentReader(id => {
+      reads.push(id);
+      return new Promise<AgentHeadFacts | null>(resolve => {
+        release = resolve;
+      });
+    });
+    const burst = [read("fresh"), read("fresh"), read("fresh")];
+    release({ name: "Fresh", reviewed: false, chain: null });
+    expect((await Promise.all(burst)).map(facts => facts?.name)).toEqual(["Fresh", "Fresh", "Fresh"]);
+    expect(reads).toEqual(["fresh"]);
+
+    // A failed read is not held: the next request reads again.
+    let attempts = 0;
+    const flaky = cachedAgentReader(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("storage down");
+      return { name: "Back", reviewed: false, chain: null };
+    });
+    await expect(flaky("x")).rejects.toThrow("storage down");
+    expect((await flaky("x"))?.name).toBe("Back");
   });
 
   it("does not grow without end when a crawler asks for many ids", async () => {
@@ -333,6 +359,31 @@ describe("the routes", () => {
       const url = `https://nooscape.si/${card.file}`;
       const html = flat(page.body);
       expect(card.file).toBe("nooscape-card-chain-base.png");
+      for (const pattern of [/<meta property="og:image"[^>]*>/, /<meta property="og:image:secure_url"[^>]*>/, /<meta name="twitter:image"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${url}"`);
+      for (const pattern of [/<meta property="og:image:alt"[^>]*>/, /<meta name="twitter:image:alt"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${card.alt}"`);
+    } finally {
+      if (saved === undefined) delete process.env.VITE_FEATURES;
+      else process.env.VITE_FEATURES = saved;
+    }
+  });
+
+  it("serves the Ethereum page's head only while its switch is on, and indexes it with its own card", async () => {
+    const saved = process.env.VITE_FEATURES;
+    try {
+      delete process.env.VITE_FEATURES;
+      expect((await get("/chains/ethereum")).body).toBe("FALLBACK");
+      process.env.VITE_FEATURES = "chain_arc,chain_base";
+      expect((await get("/chains/ethereum")).body).toBe("FALLBACK");
+      process.env.VITE_FEATURES = "claims, chain_ethereum";
+      const page = await get("/chains/ethereum");
+      expect(page.status).toBe(200);
+      expect(page.body).toContain("<title>Ethereum registry groups | Nooscape</title>");
+      expect(tag(page.body, /<link rel="canonical"[^>]*>/)).toContain('href="https://nooscape.si/chains/ethereum"');
+      expect(tag(page.body, /<meta name="robots"[^>]*>/)).toContain(`content="${INDEXED}"`);
+      const card = ROUTE_HEADS["/chains/ethereum"]!.image!;
+      const url = `https://nooscape.si/${card.file}`;
+      const html = flat(page.body);
+      expect(card.file).toBe("nooscape-card-chain-ethereum.png");
       for (const pattern of [/<meta property="og:image"[^>]*>/, /<meta property="og:image:secure_url"[^>]*>/, /<meta name="twitter:image"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${url}"`);
       for (const pattern of [/<meta property="og:image:alt"[^>]*>/, /<meta name="twitter:image:alt"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${card.alt}"`);
     } finally {

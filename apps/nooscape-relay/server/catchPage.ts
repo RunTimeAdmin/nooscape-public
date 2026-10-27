@@ -47,7 +47,7 @@ export function injectHead(html: string, meta: PageMeta): string {
   return out.replace(/<link\b[^>]*\brel="canonical"[^>]*>/i, found => found.replace(/\bhref="[^"]*"/i, () => `href="${escapeHtml(meta.url)}"`));
 }
 
-export type CatchPageDeps = { readCatch: (date: string) => Promise<PublicCatch | null> };
+type CatchPageDeps = { readCatch: (date: string) => Promise<PublicCatch | null> };
 
 const exactPath = (req: Request) => (req.originalUrl || "").split("?")[0]!;
 

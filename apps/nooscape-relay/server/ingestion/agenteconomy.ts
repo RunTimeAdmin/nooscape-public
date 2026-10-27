@@ -9,7 +9,7 @@ const FEED_URL = "https://agenteconomy.to/data.json";
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const REQUEST_TIMEOUT_MS = 12_000;
 
-export class AgentEconomyValidationError extends Error {
+class AgentEconomyValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AgentEconomyValidationError";

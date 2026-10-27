@@ -54,24 +54,35 @@ export const CHAIN_WORLDS = {
     terrain: "Shore observatory",
     registry: "ERC-8004 / Base",
   },
+  ethereum: {
+    title: "The pale spire",
+    subtitle: "A long ledger, read in groups.",
+    description: "Inspect the groups of Ethereum registrations that share a wallet, a link or a host. A group is not an agent, and a registration is not an endorsement. Individual registrations are not drawn here.",
+    accent: "#7DD3FC",
+    secondary: "#C4B5FD",
+    number: "06",
+    terrain: "Spire observatory",
+    registry: "ERC-8004 / Ethereum",
+  },
 } as const;
 export const isChainWorld = (value: string): value is ChainKey => (CHAINS as readonly string[]).includes(value);
 
-/** The chains that have a page of their own: the original three, and Arc and Base while their switches are on. */
-export type WorldKey = ChainKey | "arc" | "base";
+/** The chains that have a page of their own: the original three, and Arc, Base and Ethereum while their switches are on. */
+export type WorldKey = ChainKey | "arc" | "base" | "ethereum";
 
-/** The worlds a build offers, in the order their pages are numbered. Arc and Base are there only while `chain_arc` and `chain_base` are in the build's switch list (shared/features.ts). */
+/** The worlds a build offers, in the order their pages are numbered. Arc, Base and Ethereum are there only while `chain_arc`, `chain_base` and `chain_ethereum` are in the build's switch list (shared/features.ts). */
 export const worldsOn = (features: string | undefined): WorldKey[] => [
   ...CHAINS,
   ...(featureOn("chain_arc", features) ? (["arc"] as const) : []),
   ...(featureOn("chain_base", features) ? (["base"] as const) : []),
+  ...(featureOn("chain_ethereum", features) ? (["ethereum"] as const) : []),
 ];
 
 /**
  * The worlds that have no feed of their own: a recorded event is shown only for the entry that is selected, from the entry's own activity.
- * BNB Chain has no global feed, and Arc and Base have none yet.
+ * BNB Chain has no global feed, and Arc, Base and Ethereum have none yet.
  */
-export const ENTRY_EVENT_WORLDS: readonly WorldKey[] = ["bnb", "arc", "base"];
+export const ENTRY_EVENT_WORLDS: readonly WorldKey[] = ["bnb", "arc", "base", "ethereum"];
 
 /** Only protocols that register identities belong in the character field. Reputation and settlement ledgers are separate. */
 export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {
@@ -80,15 +91,17 @@ export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {
   bnb: ["erc8004_bsc"],
   arc: ["erc8004_arc"],
   base: ["erc8004_base"],
+  ethereum: ["erc8004_eth"],
 };
 
 /**
  * Whether a figure may stand for an entry the directory lists and Nooscape has not reviewed. BNB Chain is groups only, as on the home map
  * (docs/bsc-fleet-lights-2026-10-16.md, invariant 23): no single BNB Chain registration is drawn, so only a reviewed public record and the
  * groups appear there. Base is groups only too, as the operator asked ("similar to bnb"): the directory lists 2.3 percent of the registrations
- * its registry holds (docs/base-census-2026-10-21.md), so no single Base registration is drawn either.
+ * its registry holds (docs/base-census-2026-10-21.md), so no single Base registration is drawn either. Ethereum is groups only as well:
+ * the directory lists 9.4 percent of its registrations (docs/ethereum-go-live-2026-10-27.md), and most of those still show a number for a name.
  */
-export const CHAIN_SHOWS_ACKNOWLEDGED: Record<WorldKey, boolean> = { robinhood: true, solana: true, bnb: false, arc: true, base: false };
+export const CHAIN_SHOWS_ACKNOWLEDGED: Record<WorldKey, boolean> = { robinhood: true, solana: true, bnb: false, arc: true, base: false, ethereum: false };
 
 /** The dated report that describes a chain's groups, where there is one. */
 export const CHAIN_GROUP_REPORT: Record<WorldKey, { href: string; label: string } | null> = {
@@ -97,6 +110,7 @@ export const CHAIN_GROUP_REPORT: Record<WorldKey, { href: string; label: string 
   bnb: { href: "/field/bnb-registry-2026-10-16", label: "BNB Chain registry census, 16 October 2026" },
   arc: { href: "/field/arc-registry-2026-10-20", label: "Arc registry census, 20 October 2026" },
   base: { href: "/field/base-registry-2026-10-21", label: "Base registry census, 21 October 2026" },
+  ethereum: null,
 };
 
 export type ChainWorldEvent = {
@@ -126,7 +140,7 @@ export type ChainWorldEntity = {
   /** The light a group stands for, with the shared fact in it. Null for a record or an entry. */
   fleet: MapFleet | null;
 };
-export type PublicWorldRecord = {
+type PublicWorldRecord = {
   agentId: string;
   displayName: string;
   protocols: string;
@@ -141,7 +155,7 @@ export type AcknowledgedWorldRecord = {
   protocol: string;
   locatorHost: string | null;
 };
-export type EvmWorldEvent = {
+type EvmWorldEvent = {
   entryId: string;
   displayName: string;
   kind: "mint" | "secondary" | "uri_update";
@@ -152,7 +166,7 @@ export type EvmWorldEvent = {
   toAddress: string | null;
   isHandout?: boolean;
 };
-export type SolanaWorldEvent = {
+type SolanaWorldEvent = {
   id: string;
   entryId: string;
   displayName: string;
@@ -220,7 +234,19 @@ export function normalizeSolanaEvents(rows: readonly SolanaWorldEvent[]): ChainW
 
 /** The protocol a group of this chain sits on, so it filters and is labelled with the registry it counts. */
 const groupProtocol = (chain: WorldKey, group: MapFleet): string =>
-  chain === "bnb" ? "erc8004_bsc" : chain === "arc" ? "erc8004_arc" : chain === "base" ? "erc8004_base" : chain === "robinhood" ? "erc8004" : group.registry === "8004" ? "solana_8004" : "solana_registry";
+  chain === "bnb"
+    ? "erc8004_bsc"
+    : chain === "arc"
+      ? "erc8004_arc"
+      : chain === "base"
+        ? "erc8004_base"
+        : chain === "ethereum"
+          ? "erc8004_eth"
+          : chain === "robinhood"
+            ? "erc8004"
+            : group.registry === "8004"
+              ? "solana_8004"
+              : "solana_registry";
 
 /** Only real, visible record IDs become selectable entities. No hash-only samples or invented agents. */
 export function buildWorldEntities(
@@ -327,6 +353,7 @@ export function worldProtocolLabel(protocol: string) {
         erc8004_bsc: "ERC-8004 / BNB",
         erc8004_arc: "ERC-8004 / Arc",
         erc8004_base: "ERC-8004 / Base",
+        erc8004_eth: "ERC-8004 / Ethereum",
         solana_registry: "Metaplex",
         solana_8004: "8004 Solana",
         solana_said: "SAID",
@@ -335,8 +362,18 @@ export function worldProtocolLabel(protocol: string) {
   );
 }
 
+/**
+ * Solana's page draws three registries and counts a fourth. AgenC's pass lists its agents and records no registration, ownership change or
+ * profile edit, so there is nothing of it to draw (docs/agenc-solana-2026-10-26.md). Said only while the chain's own count includes it.
+ */
+export function undrawnRegistryNote(chain: WorldKey, registries: ReadonlyArray<{ protocol: string; count: number }> = []): string | null {
+  return chain === "solana" && registries.some(row => row.protocol === "solana_agenc" && row.count > 0)
+    ? "AgenC, a fourth, is counted below but has no recorded events, so it is not drawn."
+    : null;
+}
+
 /** How each world sets its zones out: Robinhood Chain a narrow plate of wallets beside a wide plate of identities, the others in a row of lanes or platforms. */
-export const WORLD_ARRANGEMENT: Record<WorldKey, Arrangement> = { robinhood: "split", solana: "columns", bnb: "columns", arc: "columns", base: "columns" };
+export const WORLD_ARRANGEMENT: Record<WorldKey, Arrangement> = { robinhood: "split", solana: "columns", bnb: "columns", arc: "columns", base: "columns", ethereum: "columns" };
 
 /** A zone of a world: a plate with a name, the formations of its groups and the figures of its records. */
 export type WorldZone = { id: string; label: string; sublabel: string | null; groups: ChainWorldEntity[]; figures: ChainWorldEntity[] };
@@ -353,6 +390,8 @@ const BNB_PLATFORMS = ["platform_host", "shared_link", "wallet", "template"] as 
 const ARC_PLATFORMS = ["wallet", "platform_host", "shared_link"] as const;
 /** The kinds of shared fact a Base group can be, in BNB Chain's order: the host first, because the hosts hold most of the registry. Base has no template groups. */
 const BASE_PLATFORMS = ["platform_host", "shared_link", "wallet"] as const;
+/** The same for an Ethereum group, in the order BNB Chain's and Base's pages use: the host first. Ethereum has no template groups. */
+const ETHEREUM_PLATFORMS = BASE_PLATFORMS;
 
 /**
  * The zones of a world, and what stands in each. A place means only what its zone says: on Solana a registry (the one a record or a wallet
@@ -381,17 +420,17 @@ export function worldZones(chain: WorldKey, entities: readonly ChainWorldEntity[
     }
     zones.push({ id: "entries", label: "Entries", sublabel: "Reviewed records first, then a fixed sample of the entries the directory lists", groups: [], figures });
   } else {
-    for (const kind of chain === "base" ? BASE_PLATFORMS : BNB_PLATFORMS) {
+    for (const kind of chain === "base" ? BASE_PLATFORMS : chain === "ethereum" ? ETHEREUM_PLATFORMS : BNB_PLATFORMS) {
       const here = groups.filter(entity => entity.fleet?.kind === kind);
       zones.push({ id: kind, label: FLEET_KIND_LABEL[kind], sublabel: `${here.length} ${here.length === 1 ? "group" : "groups"} drawn`, groups: here, figures: [] });
     }
-    // A reviewed BNB Chain or Base record would stand on a plate of its own. There is none today, and no unreviewed registration is ever drawn.
+    // A reviewed BNB Chain, Base or Ethereum record would stand on a plate of its own. There is none today, and no unreviewed registration is ever drawn.
     zones.push({ id: "records", label: "Reviewed records", sublabel: null, groups: [], figures });
   }
   return zones.filter(zone => zone.groups.length + zone.figures.length > 0);
 }
 
-export type ShareSegment = { id: string; label: string; wallet: string | null; count: number; percent: number };
+type ShareSegment = { id: string; label: string; wallet: string | null; count: number; percent: number };
 export type RegistrationShareFigures = {
   /** The entries the directory lists. */
   listed: number;

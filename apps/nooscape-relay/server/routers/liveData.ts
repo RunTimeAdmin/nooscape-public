@@ -70,6 +70,8 @@ import { runApprovedAgenstrySource } from "../ingestion/runAgenstry";
 import { runApprovedAgentEconomySource } from "../ingestion/runAgentEconomy";
 import { runApproved8004SolanaSource } from "../ingestion/run8004Solana";
 import { runApprovedSaidSource } from "../ingestion/runSaid";
+import { runApprovedAgencSource } from "../ingestion/runAgenc";
+import { AGENC_CHAIN_SOURCE_KEY } from "../ingestion/agencChain";
 import { runApprovedBscRegistrySource } from "../ingestion/runBsc";
 import { BSC_ALLOWED_HOSTNAME, BSC_ROOT_URL, BSC_SOURCE_KEY, BscRegistryValidationError } from "../ingestion/bscChain";
 import { BscRpcError, BscRpcNotConfiguredError } from "../ingestion/bscRpc";
@@ -98,7 +100,6 @@ import {
   normalizeHttpsDomain,
 } from "../domainVerification";
 import {
-  createPublisherRotationPayload,
   supportedPublisherProtocols,
   validatePublisherKeyProof,
   validatePublisherRotationProof,
@@ -106,6 +107,8 @@ import {
 import { getPublicEcosystemContext } from "../censusContext";
 import { operatorProcedure, publicProcedure, router } from "../_core/trpc";
 import { isCircuitOpenError } from "../dbBreaker";
+import { describeFailure, driverErrorHas, noteSectionFailure } from "../driverErrors";
+import { OperatorRuleError } from "../operatorRuleError";
 
 const sourceRegistrationInput = z.object({
   label: z.string().trim().min(3).max(160),
@@ -212,6 +215,20 @@ const approvedPublicSources = {
     executionPolicy: "manual_only" as const,
     scheduleMinutes: 1_440,
   },
+  agenc: {
+    sourceKey: AGENC_CHAIN_SOURCE_KEY,
+    label: "AgenC Solana agent registry",
+    protocol: "solana_agenc" as const,
+    // Like the SAID, 8004 and Metaplex passes, the registry's machine surface is Solana mainnet itself, read through the shared paced RPC
+    // client; the row records the canonical public RPC the program was live-verified against (256 of 256 AgentRegistration accounts,
+    // 2026-10-26). AgenC's own HTTP API is not a source of this row: its feeds are hosted, its robots.txt disallows /api/ to crawlers,
+    // and the chain is the source of truth.
+    rootUrl: "https://api.mainnet-beta.solana.com",
+    allowedHostname: "api.mainnet-beta.solana.com",
+    // No cron path at birth: staged, run and compared to the chain by an operator first; the scheduled flip is a separate reviewed migration.
+    executionPolicy: "manual_only" as const,
+    scheduleMinutes: 1_440,
+  },
   bsc: {
     sourceKey: BSC_SOURCE_KEY,
     label: "BNB Smart Chain ERC-8004 identity registry",
@@ -267,27 +284,26 @@ const publisherKeyInput = z.object({
 });
 
 function databaseFailure(error: unknown): never {
+  // A rule of the product that refused the operator's request is said as it is: its message is written for the operator and carries
+  // nothing of the database, and it is not a storage failure to log.
+  if (error instanceof OperatorRuleError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   // The driver message can carry schema, constraint, or query details; the
   // server logs it in full while every client gets the same fixed summary.
   if (!isCircuitOpenError(error)) console.error(`[LiveData] storage failure: ${describeStorageFailure(error)}`);
   throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Live data is temporarily unavailable." });
 }
 
+/**
+ * A public read that failed and answered its empty value: the cause goes to the log, unless the breaker has already said the database is
+ * paused, so that a timeout or a deadlock does not pass for missing data. The client is told nothing of it.
+ */
+function logReadFailure(label: string, error: unknown): void {
+  if (!isCircuitOpenError(error)) console.warn(`[LiveData] ${label} read failed:`, describeStorageFailure(error));
+}
+
+/** The driver's message and code for the log, and the causes Drizzle wraps, on one line and without the parameters it appends (server/driverErrors.ts). */
 function describeStorageFailure(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
-
-  const details = [error.message];
-  let cause: unknown = error.cause;
-
-  // Drizzle wraps driver errors. Capture the nested message and code for server
-  // diagnostics without emitting credentials or configuration values.
-  for (let depth = 0; cause instanceof Error && depth < 2; depth += 1) {
-    const code = "code" in cause && typeof cause.code === "string" ? ` (${cause.code})` : "";
-    details.push(`${cause.message}${code}`);
-    cause = cause.cause;
-  }
-
-  return details.join(" :: ");
+  return describeFailure(error);
 }
 
 /**
@@ -322,14 +338,16 @@ export const liveDataRouter = router({
   publicRecords: publicProcedure.query(async () => {
     try {
       return { records: await listLiveAtlasRecords() };
-    } catch {
+    } catch (error) {
+      logReadFailure("Public records", error);
       return { records: [] };
     }
   }),
   publicCoverage: publicProcedure.query(async () => {
     try {
       return await getLiveAtlasProvenanceCoverage();
-    } catch {
+    } catch (error) {
+      logReadFailure("Public coverage", error);
       // Keep the public dashboard fail-closed: no operational database detail
       // is exposed if a coverage query cannot be evaluated.
       return { publicRecordCount: 0, provenanceReadyCount: 0, coveragePercent: 0 } as const;
@@ -343,7 +361,8 @@ export const liveDataRouter = router({
     .query(async ({ input }) => {
       try {
         return await searchAgentDirectory({ query: input.query, limit: input.limit });
-      } catch {
+      } catch (error) {
+        logReadFailure("Directory search", error);
         return { entries: [], matchedTotal: 0 };
       }
     }),
@@ -354,7 +373,8 @@ export const liveDataRouter = router({
     .query(async ({ input }) => {
       try {
         return { entry: await getAgentDirectoryEntry(input.id) } as const;
-      } catch {
+      } catch (error) {
+        logReadFailure("Directory entry", error);
         return { entry: null } as const;
       }
     }),
@@ -391,7 +411,8 @@ export const liveDataRouter = router({
   directoryTotal: publicProcedure.query(async () => {
     try {
       return { total: await countAgentDirectoryEntries() };
-    } catch {
+    } catch (error) {
+      logReadFailure("Directory total", error);
       return { total: 0 };
     }
   }),
@@ -404,7 +425,8 @@ export const liveDataRouter = router({
         breakdownAgentDirectoryByProtocol(),
       ]);
       return { total, byProtocol } as const;
-    } catch {
+    } catch (error) {
+      logReadFailure("Directory breakdown", error);
       return { total: 0, byProtocol: [] } as const;
     }
   }),
@@ -480,7 +502,8 @@ export const liveDataRouter = router({
   directoryWalletCensus: publicProcedure.query(async () => {
     try {
       return { wallets: await listAgentDirectoryWallets(12) } as const;
-    } catch {
+    } catch (error) {
+      logReadFailure("Wallet census", error);
       return { wallets: [] } as const;
     }
   }),
@@ -528,7 +551,7 @@ export const liveDataRouter = router({
   // more of its registrations share, from the registry rows (docs/chain-worlds-2026-10-20.md). No registration is returned, only the
   // shared fact. Fails closed to no groups, which is also what it answers while the chain's switch is off or before its first
   // complete pass has published.
-  registryFleets: publicProcedure.input(z.object({ chain: z.enum(["arc", "base"]) })).query(async ({ input }) => {
+  registryFleets: publicProcedure.input(z.object({ chain: z.enum(["arc", "base", "ethereum"]) })).query(async ({ input }) => {
     try {
       if (!extraChainsOn(process.env.VITE_FEATURES).includes(input.chain)) return EMPTY_REGISTRY_FLEETS;
       return await readRegistryFleets(input.chain);
@@ -557,7 +580,8 @@ export const liveDataRouter = router({
   directoryUsdgSettlements: publicProcedure.query(async () => {
     try {
       return { totals: await readUsdgSettlementTotals() } as const;
-    } catch {
+    } catch (error) {
+      logReadFailure("USDG settlements", error);
       return { totals: null } as const;
     }
   }),
@@ -608,9 +632,11 @@ export const liveDataRouter = router({
       let withRegistrant: number | null = null;
       try {
         withRegistrant = await countAgentDirectoryRegistrants();
-      } catch {
+      } catch (error) {
         // The registrant migration is still pending; the step stays explicitly
-        // unmeasured until the operator applies it and the walk fills it.
+        // unmeasured until the operator applies it and the walk fills it. That case
+        // is quiet; any other failure is logged, and the step stays unmeasured too.
+        noteSectionFailure("Directory funnel registrant step", error);
       }
       let activityTotals: Awaited<ReturnType<typeof readAgentDirectoryActivityTotals>> | null = null;
       let mintMeasured: number | null = null;
@@ -619,10 +645,12 @@ export const liveDataRouter = router({
         // The mint step counts every listed EVM identity registry (Robinhood Chain
         // and BNB Chain), so it stays a subset of the acknowledged step.
         mintMeasured = await countAgentDirectoryMintMeasured();
-      } catch {
+      } catch (error) {
         // The chain-activity migration is still pending; the mint step and the
         // activity totals stay explicitly unmeasured until the operator applies
-        // 0013 and the activity walk fills them.
+        // 0013 and the activity walk fills them. That case is quiet; any other
+        // failure is logged, and the steps stay unmeasured too.
+        noteSectionFailure("Directory funnel activity step", error);
       }
       const domainProven = records.filter(
         record => record.evidenceTier === "tier_3" || record.evidenceTier === "tier_4"
@@ -638,7 +666,8 @@ export const liveDataRouter = router({
         ],
         activityTotals,
       } as const;
-    } catch {
+    } catch (error) {
+      logReadFailure("Directory funnel", error);
       return { steps: [], activityTotals: null } as const;
     }
   }),
@@ -650,7 +679,8 @@ export const liveDataRouter = router({
   sourceStatuses: publicProcedure.query(async () => {
     try {
       return { sources: await listPublicIngestionSourceStatuses() };
-    } catch {
+    } catch (error) {
+      logReadFailure("Source statuses", error);
       // The public status surface must fail closed rather than disclose an
       // underlying storage error or source configuration.
       return { sources: [] };
@@ -715,7 +745,7 @@ export const liveDataRouter = router({
       }
     }),
     registerApprovedPublicSource: operatorProcedure
-      .input(z.object({ source: z.enum(["agenstry", "agentEconomy", "metaplex", "robinhood", "usdgSettlements", "robinhoodReputation", "solana8004", "said", "bsc", "ethereum", "base", "arc"]) }))
+      .input(z.object({ source: z.enum(["agenstry", "agentEconomy", "metaplex", "robinhood", "usdgSettlements", "robinhoodReputation", "solana8004", "said", "agenc", "bsc", "ethereum", "base", "arc"]) }))
       .mutation(async ({ ctx, input }) => {
         const candidate =
           input.source === "ethereum" || input.source === "base" || input.source === "arc"
@@ -727,6 +757,11 @@ export const liveDataRouter = router({
           const created = await createIngestionSource({ ...candidate, state: "review", createdByUserId: ctx.user.id });
           return { ...created, state: "review" as const, created: true };
         } catch (error) {
+          // The AgenC protocol value reaches the database by hand (migration 0051). Until it has, the database refuses the row, and the
+          // operator is told which step is missing instead of that live data is unavailable.
+          if (input.source === "agenc" && driverErrorHas(error, "WARN_DATA_TRUNCATED") && describeFailure(error).includes("'protocol'")) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The database does not have the AgenC protocol value yet. Paste migration 0051 first (docs/agenc-solana-2026-10-26.md), then stage the source again." });
+          }
           return databaseFailure(error);
         }
       }),
@@ -1117,10 +1152,8 @@ export const liveDataRouter = router({
       .input(
         z.object({
           state: z.enum(["paused", "enabled"]),
-          tickSeconds: z.number().int().min(300).max(3_600),
-          // Two per tick is the reviewed ceiling: the five scheduled sources
-          // share the cadence, and each Solana pass is paced by its own RPC
-          // client, so a tick's worst-case duration stays inside tickSeconds.
+          // Two per tick is the reviewed ceiling: the scheduled sources share the
+          // cadence, and each Solana pass is paced by its own RPC client.
           maxSourcesPerTick: z.union([z.literal(1), z.literal(2)]),
           minGlobalIntervalMinutes: z.number().int().min(15).max(1_440),
         })
@@ -1152,7 +1185,7 @@ export const liveDataRouter = router({
       try {
         return await runWebhookPass();
       } catch (error) {
-        console.warn("[Webhooks] pass failed:", error instanceof Error ? error.message.slice(0, 200) : String(error));
+        console.warn("[Webhooks] pass failed:", describeFailure(error));
         return { status: "error" as const };
       }
     }),
@@ -1205,6 +1238,17 @@ export const liveDataRouter = router({
               });
             }
             return await runApprovedSaidSource(source, "manual");
+          }
+          if (source.protocol === "solana_agenc") {
+            // The AgenC registry has one surface: the on-chain agent pass (inventory until an `agenc:` cursor exists, then refresh passes).
+            // Observe and the walk modes have no meaning here.
+            if (input.mode !== "activity") {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "The AgenC Solana registry supports the chain activity pass only.",
+              });
+            }
+            return await runApprovedAgencSource(source, "manual");
           }
           if (source.protocol === "erc8004_bsc") {
             // The BNB Chain registry has one surface: the chain pass (a forward

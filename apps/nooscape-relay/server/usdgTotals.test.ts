@@ -113,6 +113,37 @@ describe("readUsdgSettlementTotals: source-only visibility gate (regression)", (
   });
 });
 
+describe("readUsdgSettlementTotals: served from the directory read cache", () => {
+  /** The three answers a full read takes: the source, the aggregate, the median. */
+  const ledger = () => scripted.push([["usdg-settlement-source"]], [[2, 2, 1, 1, 1, 85000000, 85000001]], [["6714"]]);
+
+  it("reads the database once for visitors that arrive together and for those that come after, inside the cache window", async () => {
+    const { readUsdgSettlementTotals } = await importDbWithDatabaseUrl();
+    ledger();
+
+    const [first, second] = await Promise.all([readUsdgSettlementTotals(), readUsdgSettlementTotals()]);
+    const third = await readUsdgSettlementTotals();
+
+    expect(first).not.toBeNull();
+    expect(second).toEqual(first);
+    expect(third).toEqual(first);
+    expect(captured.length).toBe(3);
+  });
+
+  it("reads again once an operator's decision has dropped the cache, so a source that was paused stops showing at once", async () => {
+    const { readUsdgSettlementTotals } = await importDbWithDatabaseUrl();
+    const { invalidateDirectoryReads } = await import("./readCache");
+    ledger();
+    expect(await readUsdgSettlementTotals()).not.toBeNull();
+
+    invalidateDirectoryReads();
+    scripted.push([]);
+
+    expect(await readUsdgSettlementTotals()).toBeNull();
+    expect(captured.length).toBe(4);
+  });
+});
+
 const previousDatabaseUrl = process.env.DATABASE_URL;
 
 afterAll(() => {

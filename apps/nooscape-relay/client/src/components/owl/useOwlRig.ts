@@ -1,5 +1,6 @@
 import { useEffect, type RefObject } from "react";
 import { useOwl } from "@/contexts/OwlContext";
+import { onPageCoverChange, pageCovered } from "@/lib/pageCover";
 import { chooseTarget, overlaps, owlOpacity, type Rect } from "./owlAvoid";
 import { createOwlState, OWL_SIZE, perchedBox, poseTransforms, stepOwl, type OwlSize } from "./owlRig";
 import { createOwlWorld, type Perch } from "./owlWorld";
@@ -31,7 +32,7 @@ const nearest = (points: readonly Perch[], from: { x: number; y: number }): Perc
 /**
  * Runs the owl: one animation frame loop that steps the rig and writes each part's `style.transform` straight to
  * the DOM. Nothing is read back from the layout except the page's own marks (owlWorld) and no React state changes,
- * so the owl costs no renders. The loop stops when the tab is hidden and when the owl is unmounted.
+ * so the owl costs no renders. The loop stops when the tab is hidden, while Deep Space covers the page, and when the owl is unmounted.
  *
  * The owl follows the pointer, but not over what the page marks `data-owl-avoid`: there it goes to the nearest clear
  * place, or to a perch (`data-owl-perch`) when none is near or the pointer has been still for a moment. Until the
@@ -168,20 +169,23 @@ export function useOwlRig({ boxRef, reducedMotion, coarse, onRest }: Options) {
       last = performance.now();
       frame = requestAnimationFrame(step);
     };
-    const onVisibility = () => {
-      if (document.hidden) {
+    // The loop runs while the tab shows and nothing covers the page: under Deep Space the owl is behind an opaque overlay.
+    const sync = () => {
+      if (document.hidden || pageCovered()) {
         cancelAnimationFrame(frame);
         frame = 0;
       } else if (!frame) begin();
     };
-    document.addEventListener("visibilitychange", onVisibility);
-    if (!document.hidden) begin();
+    document.addEventListener("visibilitychange", sync);
+    const uncover = onPageCoverChange(sync);
+    if (!document.hidden && !pageCovered()) begin();
 
     return () => {
       cancelAnimationFrame(frame);
       world.dispose();
       window.removeEventListener(pointerEvent, onPointer);
-      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("visibilitychange", sync);
+      uncover();
       if (restingSince !== null) onRest?.(null);
     };
   }, [boxRef, coarse, reducedMotion, position, scanning, onRest]);

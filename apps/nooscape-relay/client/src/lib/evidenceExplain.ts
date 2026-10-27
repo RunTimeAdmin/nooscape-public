@@ -52,12 +52,13 @@ export function registrantNarration(sameWallet: number) {
  *   last pass (Metaplex and 8004 Solana), which changes hands and is not
  *   necessarily the wallet that registered the identity;
  * - authority: the controller recorded in the SAID program account, which the
- *   registering owner can hand to another wallet (transfer_authority).
+ *   registering owner can hand to another wallet (transfer_authority), or in an
+ *   AgenC AgentRegistration account, the wallet that controls the agent.
  */
-export type WalletKind = "registrant" | "owner" | "authority";
+type WalletKind = "registrant" | "owner" | "authority";
 
 export function walletKind(protocol: string): WalletKind {
-  if (protocol === "solana_said") return "authority";
+  if (protocol === "solana_said" || protocol === "solana_agenc") return "authority";
   if (protocol === "solana_registry" || protocol === "solana_8004") return "owner";
   return "registrant";
 }
@@ -68,6 +69,9 @@ export const ownerWalletExplanation =
 export const saidAuthorityExplanation =
   "The wallet currently recorded as this identity's authority in the SAID program account, read from the account itself. SAID lets the registering owner hand authority to another wallet, so this can differ from the wallet the identity was registered under. It is a chain fact, not a verified operator.";
 
+export const agencAuthorityExplanation =
+  "The wallet recorded as this agent's authority in the AgenC program account, read from the account itself: the wallet that controls the agent and signs its actions. It is a chain fact, not a verified operator.";
+
 /** The label above the wallet, matched to what the wallet is. */
 export function registrantLabel(protocol: string) {
   const kind = walletKind(protocol);
@@ -76,6 +80,7 @@ export function registrantLabel(protocol: string) {
 
 export function registrantExplanationFor(protocol: string) {
   const kind = walletKind(protocol);
+  if (protocol === "solana_agenc") return agencAuthorityExplanation;
   return kind === "authority" ? saidAuthorityExplanation : kind === "owner" ? ownerWalletExplanation : registrantExplanation;
 }
 
@@ -163,7 +168,7 @@ export const registryRatingsExplanation =
 
 // Chain-activity event kinds, in plain words. Counted facts decoded from the
 // identity registry's Transfer and URIUpdated events — never self-descriptions.
-export const chainActivityEventLabels: Record<string, string> = {
+const chainActivityEventLabels: Record<string, string> = {
   mint: "Minted to its first wallet",
   secondary: "Changed hands",
   uri_update: "Profile link edited",
@@ -171,7 +176,7 @@ export const chainActivityEventLabels: Record<string, string> = {
 
 // Hand-outs are secondary Transfers from the minting wallet inside the
 // mint-hour window — labelled distinctly from later changes of hands.
-export const handoutEventLabel = "Handed out to a wallet";
+const handoutEventLabel = "Handed out to a wallet";
 
 export function chainActivityEventLabel(kind: string, isHandout?: boolean) {
   if (kind === "secondary" && isHandout) return handoutEventLabel;
@@ -181,7 +186,7 @@ export function chainActivityEventLabel(kind: string, isHandout?: boolean) {
 // Reputation-ledger event kinds, in plain words. Records decoded from the
 // ERC-8004 Reputation Registry's feedback events — shown as submitted,
 // never a Nooscape rating.
-export const registryRatingsEventLabels: Record<string, string> = {
+const registryRatingsEventLabels: Record<string, string> = {
   new_feedback: "Rating submitted",
   feedback_revoked: "Rating revoked",
   response_appended: "Response appended",
@@ -194,7 +199,7 @@ export function registryRatingsEventLabel(kind: string) {
 // Governance-authored evidence events, in plain words. The description that
 // accompanies each event is written by Nooscape's own ingestion and
 // governance code, never by the agent.
-export const timelineEventLabels: Record<string, string> = {
+const timelineEventLabels: Record<string, string> = {
   A2A_AGENT_CARD_OBSERVED: "Agent Card observed",
   CATALOG_AGENT_METADATA_OBSERVED: "Catalog metadata observed",
   SOLANA_REGISTRY_AGENT_METADATA_OBSERVED: "Solana registry metadata observed",

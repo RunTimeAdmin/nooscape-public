@@ -487,6 +487,24 @@ describe("8004 Solana chain adapter", () => {
       expect(result.unknownCount).toBe(1);
     });
 
+    it("hands back the rows that carry the metadata discriminator as they came, which still count among the unknown accounts, for the metadata parser", () => {
+      const metadata = { pubkey: "M".repeat(44), account: { data: [b64(metadataAccountData(ownerBytes(7), "name", "James")), "base64"] } };
+      // Discriminated but not 332 bytes: it is handed back too, and the metadata parser skips it and counts it, as a memcmp-filtered answer would have.
+      const shortMetadata = { pubkey: "N".repeat(44), account: { data: [b64(Uint8Array.from([...METADATA_DISCRIMINATOR, 1, 2, 3])), "base64"] } };
+      const result = parseSolana8004ProgramAccounts([
+        { pubkey: ACCOUNT_PDA, account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: ownerBytes(7) })), "base64"] } },
+        metadata,
+        { pubkey: "Z".repeat(44), account: { data: [b64(new Uint8Array(64)), "base64"] } },
+        shortMetadata,
+      ]);
+      expect(result.accounts).toHaveLength(1);
+      expect(result.unknownCount).toBe(3);
+      expect(result.metadataRows).toEqual([metadata, shortMetadata]);
+      const parsed = parseSolana8004MetadataAccounts(result.metadataRows);
+      expect(parsed.entries).toEqual([{ account: "M".repeat(44), asset: ASSET_2, key: "name", value: "James" }]);
+      expect(parsed.skippedCount).toBe(1);
+    });
+
     it("fails the pass on a malformed gPA envelope entry", () => {
       // Deliberate divergence from the Metaplex parser: under disappearance-
       // based closure detection, an entry the envelope misreads could hide a
@@ -1075,13 +1093,13 @@ describe("8004 Solana chain adapter", () => {
         closedAcknowledgedCount: 0,
         unanchoredClosureCount: 0,
         metadataCount: 0,
-        // The metadata enumeration re-serves the agent gPA response here; all
-        // three entries are skipped as non-metadata rows.
-        metadataSkippedCount: 3,
+        // None of the three rows carries the metadata discriminator (the zeroed
+        // one is an unknown program account), so none is read as metadata.
+        metadataSkippedCount: 0,
         fetchAttemptedCount: 1,
         fetchResolvedCount: 0,
-        // getSlot + agent gPA + metadata gPA.
-        requestCount: 3,
+        // getSlot + the program's accounts, the metadata entries among them.
+        requestCount: 2,
       });
       expect(snapshot.events).toEqual([]);
       // The one fetchable registration link spent the budget and recorded a
@@ -1177,8 +1195,8 @@ describe("8004 Solana chain adapter", () => {
       // The transaction that moved the owner touched the AgentAccount PDA —
       // that is the walk address, never the asset.
       expect(attributionAddresses).toEqual([ACCOUNT_PDA]);
-      // getSlot + gPA + metadata gPA + one shared scan + two transaction fetches.
-      expect(snapshot.requestCount).toBe(6);
+      // getSlot + gPA + one shared scan + two transaction fetches.
+      expect(snapshot.requestCount).toBe(5);
     });
 
     it("asks for transactions up to version 1, and skips one this client cannot read instead of failing the pass", async () => {
@@ -1276,9 +1294,9 @@ describe("8004 Solana chain adapter", () => {
         { kind: "transfer", externalKey: ASSET_2, transactionSignature: SIGNATURE, slot: 4242, fromOwner: OWNER_C, toOwner: OWNER_A },
         { kind: "profile_update", externalKey: ASSET_2, transactionSignature: SIGNATURE, slot: 4242, fromOwner: null, toOwner: OWNER_A },
       ]);
-      // getSlot + gPA + metadata gPA + one scan + one transaction fetch — the
+      // getSlot + gPA + one scan + one transaction fetch — the
       // walk is shared.
-      expect(snapshot.requestCount).toBe(5);
+      expect(snapshot.requestCount).toBe(4);
     });
 
     it("anchors a registration made with the Register instruction, which transferred the new agent in the same transaction, and does not fail the pass", async () => {
@@ -1425,10 +1443,10 @@ describe("8004 Solana chain adapter", () => {
       // The deferred account's draft is dropped: its directory row keeps the
       // prior registrant and the next pass re-detects the same transfer.
       expect(snapshot.drafts.map(draft => draft.externalKey)).toEqual([ASSET_2]);
-      // getSlot + gPA + metadata gPA + two scans + ten fetches — one healthy
+      // getSlot + gPA + two scans + ten fetches — one healthy
       // match plus nine examined ratings before the budget stopped the
       // stormy walk with its last three signatures unexamined.
-      expect(snapshot.requestCount).toBe(15);
+      expect(snapshot.requestCount).toBe(14);
     });
 
     it("defers a closure whose walk starts with the shared fetch budget already spent", async () => {
@@ -1495,9 +1513,9 @@ describe("8004 Solana chain adapter", () => {
       // unchanged fillers' refresh through.
       expect(snapshot.drafts).toHaveLength(49);
       expect(snapshot.drafts.some(draft => draft.externalKey === ASSET_2)).toBe(false);
-      // getSlot + gPA + metadata gPA + two scans (stormy PDA, closure
+      // getSlot + gPA + two scans (stormy PDA, closure
       // asset) + ten stormy fetches — the closure walk fetched nothing.
-      expect(snapshot.requestCount).toBe(15);
+      expect(snapshot.requestCount).toBe(14);
     });
 
     it("anchors closures to a registry line naming the asset and leaves unmatched closures unanchored", async () => {
@@ -1554,9 +1572,9 @@ describe("8004 Solana chain adapter", () => {
         accountPubkey: "F".repeat(44),
         profileUriHash: hashRegistrationUri(FILLER_URI),
       });
-      // getSlot + gPA + metadata gPA + two signature scans + one transaction
+      // getSlot + gPA + two signature scans + one transaction
       // fetch — and no getAccountInfo confirm reads.
-      expect(snapshot.requestCount).toBe(6);
+      expect(snapshot.requestCount).toBe(5);
     });
 
     it("refuses a closure whose last-known PDA still holds a live AgentAccount", async () => {
@@ -1620,9 +1638,9 @@ describe("8004 Solana chain adapter", () => {
       ]);
       expect(snapshot.unconfirmedClosureCount).toBe(0);
       expect(snapshot.closedExternalKeys).toEqual([ASSET_2]);
-      // getSlot + gPA + metadata gPA + one paced confirm read + one scan +
+      // getSlot + gPA + one paced confirm read + one scan +
       // one fetch.
-      expect(snapshot.requestCount).toBe(6);
+      expect(snapshot.requestCount).toBe(5);
     });
 
     it("treats non-agent data at the last-known PDA as a confirmed close", async () => {
@@ -1697,28 +1715,19 @@ describe("8004 Solana chain adapter", () => {
     });
 
     it("decodes metadata, enriches only placeholders, builds chain links, and emits no events", async () => {
-      // The stub's getProgramAccounts route is method-keyed, so the call
-      // count separates the agent enumeration (first) from the
-      // memcmp-scoped metadata enumeration (second).
-      let gpaCalls = 0;
+      // One enumeration answers with all of the program's accounts: the two agent
+      // accounts and the metadata entries beside them, which are read from it.
       stubRpc({
         getSlot: () => 4242,
-        getProgramAccounts: () => {
-          gpaCalls += 1;
-          if (gpaCalls === 1) {
-            return [
-              // Placeholder target: no inline name — enrichment may rename it.
-              { pubkey: ACCOUNT_PDA, account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: ownerBytes(7), uri: "ipfs://bafy-placeholder" })), "base64"] } },
-              // Inline name: the chain decode wins; nothing enriches it.
-              { pubkey: "B".repeat(44), account: { data: [b64(agentAccountData({ owner: ownerBytes(2), asset: ownerBytes(8), uri: `data:application/json,${encodeURIComponent(JSON.stringify({ name: "Inline" }))}` })), "base64"] } },
-            ];
-          }
-          return [
-            { pubkey: "M".repeat(44), account: { data: [b64(metadataAccountData(ownerBytes(7), "name", "James")), "base64"] } },
-            { pubkey: "N".repeat(44), account: { data: [b64(metadataAccountData(ownerBytes(7), "erc8004-eth", "#25045")), "base64"] } },
-            { pubkey: "P".repeat(44), account: { data: [b64(metadataAccountData(ownerBytes(8), "description", "prose never links")), "base64"] } },
-          ];
-        },
+        getProgramAccounts: () => [
+          // Placeholder target: no inline name — enrichment may rename it.
+          { pubkey: ACCOUNT_PDA, account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: ownerBytes(7), uri: "ipfs://bafy-placeholder" })), "base64"] } },
+          // Inline name: the chain decode wins; nothing enriches it.
+          { pubkey: "B".repeat(44), account: { data: [b64(agentAccountData({ owner: ownerBytes(2), asset: ownerBytes(8), uri: `data:application/json,${encodeURIComponent(JSON.stringify({ name: "Inline" }))}` })), "base64"] } },
+          { pubkey: "M".repeat(44), account: { data: [b64(metadataAccountData(ownerBytes(7), "name", "James")), "base64"] } },
+          { pubkey: "N".repeat(44), account: { data: [b64(metadataAccountData(ownerBytes(7), "erc8004-eth", "#25045")), "base64"] } },
+          { pubkey: "P".repeat(44), account: { data: [b64(metadataAccountData(ownerBytes(8), "description", "prose never links")), "base64"] } },
+        ],
       });
       const fetchedUris: string[] = [];
       const snapshot = await fetchSolana8004ChainState({
@@ -1771,8 +1780,8 @@ describe("8004 Solana chain adapter", () => {
           attempts: 0,
         },
       ]);
-      // getSlot + agent gPA + metadata gPA; the HTTP fetch is not an RPC request.
-      expect(snapshot.requestCount).toBe(3);
+      // getSlot + the program's accounts; the HTTP fetch is not an RPC request.
+      expect(snapshot.requestCount).toBe(2);
     });
 
     it("spends no budget on settled hashes and records fetch failures without failing the pass", async () => {

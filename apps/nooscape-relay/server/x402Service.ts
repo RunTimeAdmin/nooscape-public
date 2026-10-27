@@ -97,7 +97,7 @@ export type PaymentService = {
   charge: (context: PayContext, subject: string) => Promise<Charge>;
 };
 
-export type PaymentServiceOptions = {
+type PaymentServiceOptions = {
   config: X402Config;
   ledger: PaymentLedger;
   fetchImpl?: typeof fetch;

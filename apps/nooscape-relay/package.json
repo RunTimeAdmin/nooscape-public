@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
-    "build": "node scripts/ensure-esbuild-executable.mjs && vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "node scripts/ensure-esbuild-executable.mjs && vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist && node -v",
     "start": "NODE_ENV=production node dist/index.js",
     "worker:tick": "NODE_ENV=production tsx server/worker.ts",
     "durability:audit": "tsx server/durabilityAudit.ts",

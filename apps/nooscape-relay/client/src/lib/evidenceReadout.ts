@@ -22,7 +22,7 @@ export function toPublisherState(value: string): PublisherState {
   return PUBLISHER_STATES.find(state => state === value) ?? "unverified";
 }
 
-export type EvidenceReadout =
+type EvidenceReadout =
   | { kind: "observed"; tierLabel: string; tierSentence: string; publisherLabel: string; publisherSentence: string };
 
 /** The tier names, weakest first. Order is for sorting only; it is never shown as a number. */

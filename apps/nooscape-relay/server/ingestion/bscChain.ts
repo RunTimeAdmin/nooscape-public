@@ -13,7 +13,6 @@ import {
   parseCursor,
   parseWindowLogs,
   planWindows,
-  registryChainOf,
   uriFacts,
   type ChainWindow,
   type Registration,
@@ -21,7 +20,6 @@ import {
   type UriUpdate,
   type WindowParse,
 } from "./erc8004Chain";
-import type { EvmRegistryChain } from "./robinhood";
 
 /**
  * The BNB Smart Chain view of the ERC-8004 identity pass (docs/bnb-chain-agents-plan-2026-10-13.md, decisions D1 to D3).
@@ -44,7 +42,6 @@ export const BSC_CHAIN_ID = BSC_CHAIN.chainId;
 export const BSC_CHAIN_ID_HEX = BSC_CHAIN.chainIdHex;
 /** The identity registry proxy, deployed at the same address on every chain it runs on. */
 export const BSC_IDENTITY_REGISTRY = BSC_CHAIN.identityRegistry;
-export const BSC_REGISTRY_CHAIN: EvmRegistryChain = registryChainOf(BSC_CHAIN);
 /** The block the registry was deployed at (no code at the block before it; verified on an archive node 2026-10-13). */
 export const BSC_DEPLOY_BLOCK = BSC_CHAIN.deployBlock;
 /** The provider's hard `eth_getLogs` ceiling ("exceed maximum block range: 50000"), measured 2026-10-13. */
@@ -81,7 +78,7 @@ export const planBscWindows = (nextBlock: number, finalizedBlock: number, maxWin
 
 // ---------------------------------------------------------------- URI facts
 
-export type BscUriFacts = UriFacts;
+type BscUriFacts = UriFacts;
 
 /** What the registry-recorded URI says, derived from its bytes alone. Pure. */
 export const bscUriFacts = (uri: string): BscUriFacts => uriFacts(uri);
@@ -123,13 +120,13 @@ export const bscDirectoryDraft = (registration: BscRegistration) => directoryDra
 
 // ---------------------------------------------------------------- URIUpdated
 
-export type BscUriUpdate = UriUpdate;
+type BscUriUpdate = UriUpdate;
 
 export const decodeBscUriUpdatedLog = (log: unknown, bounds: Bounds): BscUriUpdate | null => decodeUriUpdatedLog(BSC_CHAIN, log, bounds);
 
 // ---------------------------------------------------------------- one window
 
-export type BscWindowParse = WindowParse;
+type BscWindowParse = WindowParse;
 
 /** A window larger than this is a provider fault (or a burst the range cap should have prevented), never trusted. */
 export const BSC_MAX_WINDOW_LOGS = BSC_CHAIN.maxWindowLogs;

@@ -11,7 +11,7 @@ import { safeFetch as realSafeFetch, type SafeFetchOptions, type SafeFetchReason
  * it spent is refused as `budget_exhausted` without anything being sent.
  */
 
-export type PoliteOptions = {
+type PoliteOptions = {
   /** At most this many fetches at once, and never more than POLITE_MAX_CONCURRENCY. */
   concurrency?: number;
   /** At least this long between two requests to one host (a minute at most). */
@@ -29,7 +29,7 @@ export const POLITE_DEFAULT_GAP_MS = 1000;
 /** A longer gap would be a timer too long for setTimeout, which then fires at once. */
 const MAX_GAP_MS = 60_000;
 const DEFAULT_BUDGET = 200;
-export const POLITE_MAX_BUDGET = 1000;
+const POLITE_MAX_BUDGET = 1000;
 /** A robots.txt may move to another host's robots.txt (example.com to www.example.com), but not far. */
 const ROBOTS_MAX_REDIRECTS = 1;
 

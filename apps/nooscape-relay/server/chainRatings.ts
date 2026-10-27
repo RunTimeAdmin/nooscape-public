@@ -7,6 +7,7 @@ import { Erc8004RpcRangeError, callRpc, createPacer, resolveRpcUrl } from "./ing
 import { ROBINHOOD_FEEDBACK_REVOKED_TOPIC, ROBINHOOD_NEW_FEEDBACK_TOPIC } from "./ingestion/robinhoodReputation";
 import { invalidateDirectoryReadsSoftly } from "./readCache";
 import { stepIntervalGateMs } from "./stepInterval";
+import { isMissingTable } from "./driverErrors";
 
 /**
  * The ratings step of the worker (docs/extra-chain-ratings-2026-10-21.md). For each chain the identity pass reads beyond BNB Chain whose entry
@@ -39,11 +40,11 @@ export type RatingsDeps = {
   chains: readonly Erc8004Chain[];
 };
 
-export const RATINGS_INTERVAL_MS = 30 * 60 * 1000;
-export const RATINGS_BUDGET_MS = 30_000;
-export const RATINGS_MAX_WINDOWS = 200;
+const RATINGS_INTERVAL_MS = 30 * 60 * 1000;
+const RATINGS_BUDGET_MS = 30_000;
+const RATINGS_MAX_WINDOWS = 200;
 /** The worker does not start the step when its own tick has already run this long. */
-export const RATINGS_TICK_LIMIT_MS = 100_000;
+const RATINGS_TICK_LIMIT_MS = 100_000;
 /** The narrowest window a result-size refusal may split down to. */
 const MIN_SPLIT_WIDTH = 64;
 
@@ -64,7 +65,7 @@ const defaultDeps = (): RatingsDeps => ({
   chains: ERC8004_CHAINS,
 });
 
-export type ChainRatingsResult = {
+type ChainRatingsResult = {
   chainKey: string;
   state: "unavailable" | "no_source" | "waiting" | "busy" | "completed" | "failed";
   windows: number;
@@ -111,15 +112,6 @@ async function fetchWindowLogs(rpc: RpcCall, registry: string, from: number, to:
     }
     throw error;
   }
-}
-
-function isMissingTable(error: unknown): boolean {
-  let cause: unknown = error;
-  for (let depth = 0; cause instanceof Error && depth < 4; depth += 1) {
-    if ("code" in cause && cause.code === "ER_NO_SUCH_TABLE") return true;
-    cause = cause.cause;
-  }
-  return false;
 }
 
 const affectedRows = (result: unknown) => Number((result as [{ affectedRows?: number }])[0]?.affectedRows ?? 0);

@@ -136,7 +136,7 @@ The body has to be `{}`: the cron runner strips double quotes. Deleting the job 
 
 ## The first run (2026-10-16)
 
-The cron job was created in the morning. Its first scheduled call, at 10:07Z, was refused with a 401: the token in the job's command was not the one the app holds. A call by hand at 10:30Z answered `unavailable`, and the runtime log carried one `nooscape_checks_failed` line, `Table 'u373211336_nooscape.agent_checks' doesn't exist (ER_NO_SUCH_TABLE)`: the table was not in the app's database yet. Nothing was asked at either point, which is the design. After the table was created, the run at 10:40Z answered:
+The cron job was created in the morning. Its first scheduled call, at 10:07Z, was refused with a 401: the token in the job's command was not the one the app holds. A call by hand at 10:30Z answered `unavailable`, and the runtime log carried one `nooscape_checks_failed` line, `Table 'app_database.agent_checks' doesn't exist (ER_NO_SUCH_TABLE)`: the table was not in the app's database yet. Nothing was asked at either point, which is the design. After the table was created, the run at 10:40Z answered:
 
 ```json
 { "state": "completed", "due": 1, "taken": 1, "heldBack": 0, "asked": 1, "answered": 1, "noAnswer": 0, "skipped": 0, "notReached": 0, "recorded": 1, "failedToRecord": 0, "ms": 1155 }

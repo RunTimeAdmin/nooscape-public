@@ -34,20 +34,20 @@ export function perchedBox(perch: { x: number; y: number }, size: OwlSize) {
   return { left: perch.x - size.width / 2, top, right: perch.x + size.width / 2, bottom: top + size.height };
 }
 
-export const SPRING_STIFFNESS = 38;
-export const SPRING_DAMPING_RATIO = 0.62;
+const SPRING_STIFFNESS = 38;
+const SPRING_DAMPING_RATIO = 0.62;
 /** Fast enough to catch a flick, slow enough to read as flight: a pointer thrown across the page leaves the owl behind, and it catches up. */
 export const MAX_SPEED = 1400;
 /** The most the owl moves in one frame, whatever the frame time, so a stall cannot throw it. */
 export const MAX_FRAME_PX = 40;
 /** The most any part of the squash and stretch changes the owl's size, along either axis. The owl never streaks. */
 export const MAX_STRETCH = 0.08;
-export const TAKEOFF_SPEED = 140;
-export const LANDING_SPEED = 35;
-export const LANDING_AFTER_S = 0.25;
+const TAKEOFF_SPEED = 140;
+const LANDING_SPEED = 35;
+const LANDING_AFTER_S = 0.25;
 export const HEAD_LIMIT_DEG = 26;
 /** A frame that took longer than this is treated as this long, so a background tab cannot fling the owl. */
-export const MAX_STEP_MS = 50;
+const MAX_STEP_MS = 50;
 
 export type OwlState = {
   x: number;
@@ -130,7 +130,7 @@ export type OwlInput = {
 };
 
 /** What the owl looks like this frame, in the units the SVG transforms use (degrees, pixels, scale factors). */
-export type OwlPose = {
+type OwlPose = {
   flying: boolean;
   /** The top-left corner of the owl's box, in viewport pixels. */
   x: number;
@@ -308,7 +308,7 @@ export function stepOwl(state: OwlState, input: OwlInput, random: () => number =
 }
 
 /** The CSS transform of each moving part, ready to assign to `style.transform`. */
-export type OwlTransforms = {
+type OwlTransforms = {
   box: string;
   root: string;
   body: string;

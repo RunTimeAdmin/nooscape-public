@@ -12,7 +12,7 @@ import { formatAsOf } from "./chainTabsModel";
 export const HERO_COPY = {
   headline: ["The Owl watches the Noosphere.", "Look up any agent. See what the evidence shows."],
   subcopy:
-    "Nooscape watches the public agent registries on Solana, Robinhood Chain, BNB Chain, Base and Arc, groups the copycat fleets, and keeps the evidence it can read, labeled by how much has been checked. Most records are listed only. A few are reviewed. No scores for sale. No rankings for hire.",
+    "Nooscape watches the public agent registries on Solana, Robinhood Chain, BNB Chain, Ethereum, Base and Arc, groups the copycat fleets, and keeps the evidence it can read, labeled by how much has been checked. Most records are listed only. A few are reviewed. No scores for sale. No rankings for hire.",
   primaryCta: "Ask the Owl",
   secondaryCta: "Explore the Noosphere",
 } as const;
@@ -53,7 +53,7 @@ export function sweepHeading(sweptAt: string | null, status: ReadStatus = "ready
   return when ? `The Owl's last sweep: ${when}` : "The Owl has not finished a sweep yet";
 }
 
-export type HeroFigure = { label: string; value: number };
+type HeroFigure = { label: string; value: number };
 
 /**
  * The three numbers under the buttons, each one a count the sample returned. With no fleet found the third is
@@ -89,8 +89,8 @@ export function sampleCaption(drawn: number, total: number): string {
 
 // ---------------------------------------------------------------- placement
 
-export type LightKind = "steady" | "plain" | "fleet";
-export type Depth = 0 | 1 | 2;
+type LightKind = "steady" | "plain" | "fleet";
+type Depth = 0 | 1 | 2;
 export type PlacedLight = {
   /** Pixels from the hero's top-left corner. */
   x: number;
@@ -112,7 +112,7 @@ export type PlacedLight = {
   phase: number;
 };
 
-export type Box = { width: number; height: number };
+type Box = { width: number; height: number };
 /** A rectangle inside the hero, in pixels from its top-left corner. */
 export type Rect = { x: number; y: number; width: number; height: number };
 
@@ -289,7 +289,7 @@ export const SWEEP_LASTS_MS = 3_200;
 /** The first sweep waits for the page to settle. */
 export const SWEEP_FIRST_MS = 3_000;
 /** A fleet needs at least this many drawn lights to be worth a sweep. */
-export const SWEEP_MIN_LIGHTS = 3;
+const SWEEP_MIN_LIGHTS = 3;
 
 /** The fleets worth sweeping, biggest first: those with enough drawn lights to show. */
 export function sweepOrder(lights: readonly PlacedLight[], fleets: readonly Fleet[]): number[] {

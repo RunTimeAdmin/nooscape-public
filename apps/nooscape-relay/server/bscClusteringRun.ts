@@ -4,10 +4,11 @@ import { agentDirectoryRegistryRows, bscClusters, bscEndpointHostGroups, bscEntr
 import { BSC_LISTING_RULES, REGISTRY_LISTING } from "./agentRegistryRows";
 import { agentIdOfKey, CLUSTER_MIN, ENDPOINT_HOST_RULE, endpointHostGroups, evidenceFromUri, groupEvidence, templateLabelMember, type ClusterKind, type EndpointHostGroup } from "./bscClusters";
 import { getDb, requireDb } from "./db";
-import { BSC_READ_CU_PER_SECOND, bscReadBucket } from "./ingestion/bscBudget";
+import { bscReadBucket } from "./ingestion/bscBudget";
 import { MULTICALL3, MULTICALL_MAX_READS, decodeTokenUris, encodeTokenUriMulticall } from "./ingestion/bscMulticall";
 import { callBscRpc } from "./ingestion/bscRpc";
 import { sanitizePublicText } from "./publicText";
+import { isMissingTable } from "./driverErrors";
 
 /**
  * The BNB fleet and template clustering step of the worker (docs/bsc-clusters-2026-10-16.md). After the day's sources
@@ -39,15 +40,13 @@ export type ClusteringDeps = {
   refreshMs: number;
 };
 
-export const CLUSTERING_BUDGET_MS = 20_000;
-export const CLUSTERING_MAX_BATCHES = 40;
-export const CLUSTERING_REFRESH_MS = 6 * 60 * 60 * 1000;
-/** The chain budget of this step, in compute units a second: half of the 150 the plan allows. */
-export const CLUSTERING_CU_PER_SECOND = BSC_READ_CU_PER_SECOND;
+const CLUSTERING_BUDGET_MS = 20_000;
+const CLUSTERING_MAX_BATCHES = 40;
+const CLUSTERING_REFRESH_MS = 6 * 60 * 60 * 1000;
 /** NodeReal's price of an eth_call (docs.nodereal.io/docs/compute-units-cus). */
 const ETH_CALL_CU = 20;
 /** The worker does not start the step when its own tick has already run this long. */
-export const CLUSTERING_TICK_LIMIT_MS = 90_000;
+const CLUSTERING_TICK_LIMIT_MS = 90_000;
 
 
 const defaultDeps = (): ClusteringDeps => ({
@@ -61,7 +60,7 @@ const defaultDeps = (): ClusteringDeps => ({
   refreshMs: CLUSTERING_REFRESH_MS,
 });
 
-export type ClusteringResult =
+type ClusteringResult =
   | { state: "busy" | "unavailable" | "no_source" | "too_late" }
   | {
       state: "completed";
@@ -83,16 +82,6 @@ type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 const ROWS = agentDirectoryRegistryRows;
 const EMPTY_URI_SHA256 = createHash("sha256").update("").digest("hex");
 const chunks = <T>(items: T[], size: number): T[][] => Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
-
-/** True when the driver says a table is not there: migration 0038 has not been run yet. Expected, and not worth a log line. */
-function isMissingTable(error: unknown): boolean {
-  let cause: unknown = error;
-  for (let depth = 0; cause instanceof Error && depth < 4; depth += 1) {
-    if ("code" in cause && cause.code === "ER_NO_SUCH_TABLE") return true;
-    cause = cause.cause;
-  }
-  return false;
-}
 
 const logFailure = (message: string) => console.error(JSON.stringify({ event: "nooscape_bsc_clusters_failed", message: message.replace(/[\r\n]+/g, " ").slice(0, 400) }));
 

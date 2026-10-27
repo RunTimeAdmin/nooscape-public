@@ -18,7 +18,7 @@ import { BNB_FETCH_SENTENCE } from "../bscSourceNote";
  */
 
 /** How the RPC client behaves for one chain. */
-export type Erc8004RpcPolicy = {
+type Erc8004RpcPolicy = {
   /** One request, from the first byte sent to the last byte read. */
   timeoutMs: number;
   /** The most a response may hold; a longer one is refused as too large. */
@@ -67,7 +67,7 @@ export type Erc8004RunBudget = {
  * the operator stages the source, and the source row records it (`https://` and the host). On every run the variable's host must
  * equal the row's, so changing the variable can never send the pass to a host the operator did not stage. Arc is derived.
  */
-export type Erc8004Provider = { kind: "pinned"; rootUrl: string; allowedHostname: string } | { kind: "derived" };
+type Erc8004Provider = { kind: "pinned"; rootUrl: string; allowedHostname: string } | { kind: "derived" };
 
 export type Erc8004Chain = {
   /** The directory protocol of the source that reads this chain (the `protocol` value on its rows). */
@@ -284,9 +284,15 @@ export const ETHEREUM_CHAIN: PinnedErc8004Chain = {
  *  - The registry is quiet for most of its life (38 of 40 sampled 1,000-block windows across it hold 40 events or fewer) and is now
  *    in a surge: the latest 10,000 blocks hold 82,477 events (26,647 registrations from 26,606 wallets, 55,830 transfers), and the rate
  *    per 1,000 blocks rose from about 2,300 to 10,404 over the last 30,000 blocks, a 6.7 MiB response at 682 bytes an event. The
- *    window is therefore 1,000 blocks, the smallest the pass splits to, and the caps below leave 3.6 times the densest window.
+ *    window is therefore 1,000 blocks, and the caps below left 3.6 times the densest window then measured.
  *  - 321,929 registrations to the head, counted exactly: 222,661 (69%) in the last 10 days and 54,227 in the latest 24 hours, against
  *    a few hundred a day before. The pass walks all of it from the deploy block.
+ *  - 22 October 2026, read from public nodes: a burst passed both caps. Three consecutive 1,000-block windows (blocks 52,952,494 to
+ *    52,955,493, about 18:38Z to 20:18Z) held 38,578, 55,508 and 43,689 events, 25.0, 35.9 and 28.5 MiB at 680 bytes an event, against
+ *    24 MiB and 40,000. The densest stretch had 64 events a block (20,000 events in 311 blocks), and its registrations were all one
+ *    host's (5,603 registrations from 5,603 owners in those 311 blocks). The run failed with "response exceeds the response limit"
+ *    because the pass could not split a window of the width it plans. It now splits a refused window down to 10 blocks and applies
+ *    each half on its own, so both caps hold per read; the windows after the burst held 32,014, 22,828, 14,303 and 6,088 events.
  */
 export const BASE_CHAIN: PinnedErc8004Chain = {
   protocol: "erc8004_base",
@@ -298,7 +304,7 @@ export const BASE_CHAIN: PinnedErc8004Chain = {
   identityRegistry: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
   deployBlock: 41_663_783,
   maxLogRange: 1_000,
-  /** 3.8 times the densest 1,000-block window measured (10,404 events). Above this a window is a provider fault and fails the run. */
+  /** 3.8 times the densest 1,000-block window measured on 20 October (10,404 events). Above this one read is a provider fault and fails the run; at 680 bytes an event the response cap below is reached first, and a read that reaches it is split. */
   maxWindowLogs: 40_000,
   handoutBlockWindow: 1_800,
   sourceKey: "base-erc8004-identity-registry",
@@ -307,7 +313,7 @@ export const BASE_CHAIN: PinnedErc8004Chain = {
   readRpcUrl: () => ENV.baseRpcUrl,
   rpc: {
     timeoutMs: 30_000,
-    /** 3.6 times the densest 1,000-block window measured (6.7 MiB). */
+    /** 3.6 times the densest 1,000-block window measured on 20 October (6.7 MiB). A read that passes it is split in halves, not failed. */
     maxResponseBytes: 24 * MIB,
     retryStatuses: [429, 500, 502, 503, 504],
     backoffMs: [1_000, 3_000],
@@ -317,16 +323,22 @@ export const BASE_CHAIN: PinnedErc8004Chain = {
   budget: {
     /** 200 windows of 1,000 blocks: 200,000 blocks a run, so the 11 million blocks of history are read in at least 56 runs (189 on 2026-10-20, where the history is dense). */
     maxWindows: 200,
-    /** Two at once: a window in the surge is about 7 MB, and a window fetched beyond the run's event cap is read again next run. */
+    /** Two at once: a window in the surge is about 7 MB, and a window fetched after the run's budget has ended is read again next run. */
     concurrency: 2,
-    maxElapsedMs: 30_000,
     /**
-     * 40,000, eight times the first value. The first attended runs on the production database took about 0.4 milliseconds an event
-     * (5,000 to 6,000 events in 2 seconds), and the shared worker gives Base about 23 runs a day, so 5,000 events a run could not keep
-     * up with a chain that adds 280,000 events a day (docs/base-backfill-throughput-2026-10-20.md). The cap is checked between windows,
-     * so a run can pass it by one window.
+     * What ends a run: no new window is applied after 20 seconds. An event count cannot size a run on this chain, because a window costs
+     * so differently. One that only counts (a flood host past its cap: one grouped count and a few upserts) applies 17,000 to 29,000
+     * events a second, and one that stores a row for each registration 2,500 to 5,000, so 20 seconds is 340,000 to 580,000 events of the
+     * first kind and 50,000 to 100,000 of the second. The count used to end a run: in a flood, 40,000 events took about 3 of the 30
+     * seconds allowed, while the chain added 20 to 32 events a second and the shared worker gives Base a slot only some ticks.
      */
-    maxEvents: 40_000,
+    maxElapsedMs: 20_000,
+    /**
+     * A ceiling above what the time budget reaches even at 50,000 events a second, so the clock ends a run and this only bounds one the
+     * clock does not. It was 40,000, eight times the first value of 5,000 (docs/base-backfill-throughput-2026-10-20.md). It is checked
+     * between windows, so a run can pass it by one window.
+     */
+    maxEvents: 1_000_000,
   },
   cursorPrefix: "base",
   errorPrefix: "Base",

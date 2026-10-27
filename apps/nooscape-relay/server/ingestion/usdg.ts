@@ -65,7 +65,7 @@ const USDG_RECEIPT_PACING_MS = 700;
  */
 const USDG_LOG_PACING_MS = 700;
 
-export type UsdgSettlementCursor = { mode: "seed" } | { mode: "walk"; toBlock: number } | { mode: "done" };
+type UsdgSettlementCursor = { mode: "seed" } | { mode: "walk"; toBlock: number } | { mode: "done" };
 
 /**
  * Parses the persisted settlement-walk position. A fresh source starts in

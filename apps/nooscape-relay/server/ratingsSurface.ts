@@ -36,7 +36,7 @@ export type RatingsEventInput = {
   tag2: string | null;
 };
 
-export type AgentDirectoryEntryRatingsEvent = RatingsEventInput & {
+type AgentDirectoryEntryRatingsEvent = RatingsEventInput & {
   /** True when a FeedbackRevoked names this rating's (client, feedbackIndex) triple. */
   revoked: boolean;
 };

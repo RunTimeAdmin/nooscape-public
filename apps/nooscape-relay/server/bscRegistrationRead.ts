@@ -15,7 +15,7 @@ export type BscRegistrationRead = { checked: true; readAt: Date } | { checked: f
 export const BSC_NOT_CHECKED: BscRegistrationRead = { checked: false, readAt: null };
 
 /** The evidence row of a listed BNB entry, as far as this rule reads it. */
-export type BscEvidenceForRead = { readStatus: string; readAt: Date; profileUriHash: string };
+type BscEvidenceForRead = { readStatus: string; readAt: Date; profileUriHash: string };
 
 /**
  * Checked only when the evidence row records a read and was made from the link the entry carries now. A row made from an older

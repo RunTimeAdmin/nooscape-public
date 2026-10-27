@@ -16,6 +16,7 @@
  * imitate a broken deploy (see docs/AI_HANDOFF_2026-10-12.md).
  */
 import { appendFileSync } from "node:fs";
+import { createLiveGet, statusDetail, why } from "./liveGet.mjs";
 
 const BASE = (process.argv[2] ?? process.env.NOOSCAPE_URL ?? "https://nooscape.si").replace(/\/$/, "");
 const HOUR = 3_600_000;
@@ -32,6 +33,8 @@ const FRESHNESS_HOURS = {
   catalog: 36,
   census: 36,
   a2a: 36,
+  // The Arc identity pass runs once a day (migration 0050), so it gets the same allowance.
+  erc8004_arc: 36,
 };
 
 const results = [];
@@ -39,14 +42,12 @@ function check(name, ok, detail, severity = "fail") {
   results.push({ name, ok: Boolean(ok), detail, severity });
 }
 
-async function get(path, init) {
-  const response = await fetch(`${BASE}${path}`, { redirect: "manual", signal: AbortSignal.timeout(30_000), ...init });
-  return response;
-}
+// A request the site's CDN turns away from this runner is asked again (scripts/liveGet.mjs); the site was up each time that happened.
+const { get } = createLiveGet({ base: BASE });
 
 async function trpc(procedure) {
   const response = await get(`/api/trpc/${procedure}`);
-  if (!response.ok) throw new Error(`${procedure} answered HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`${procedure} answered ${statusDetail(response)}`);
   const body = await response.json();
   return body.result.data.json;
 }
@@ -56,7 +57,7 @@ async function run() {
   try {
     const home = await get("/");
     const html = await home.text();
-    check("home page serves", home.status === 200, `HTTP ${home.status}`);
+    check("home page serves", home.status === 200, statusDetail(home));
     check("home page is the small production shell", html.length < 100_000, `${html.length} bytes`);
     check("no dev runtime in production HTML", !html.includes("manus-runtime"), html.includes("manus-runtime") ? "manus-runtime present" : "absent");
     const h = (name) => home.headers.get(name) ?? "";
@@ -64,16 +65,16 @@ async function run() {
     check("CSP present", h("content-security-policy").includes("default-src"), h("content-security-policy") ? "present" : "missing");
     check("nosniff and frame protection", /nosniff/i.test(h("x-content-type-options")) && /deny/i.test(h("x-frame-options")), `${h("x-content-type-options")} / ${h("x-frame-options")}`);
   } catch (error) {
-    check("home page serves", false, String(error));
+    check("home page serves", false, why(error));
   }
 
   // 2. Removed surfaces stay removed and unknown paths 404 honestly.
   for (const path of ["/admin", "/manus-storage/x", "/api/oauth/callback", "/__manus__/debug-collector.js"]) {
     try {
       const response = await get(path);
-      check(`${path} answers 404`, response.status === 404, `HTTP ${response.status}`);
+      check(`${path} answers 404`, response.status === 404, statusDetail(response));
     } catch (error) {
-      check(`${path} answers 404`, false, String(error));
+      check(`${path} answers 404`, false, why(error));
     }
   }
 
@@ -84,10 +85,10 @@ async function run() {
     check(
       "security.txt publishes the security contact",
       response.status === 200 && /^Contact: mailto:security@nooscape\.si$/m.test(text) && /^Expires: \d{4}-\d{2}-\d{2}T/m.test(text),
-      `HTTP ${response.status}`
+      statusDetail(response)
     );
   } catch (error) {
-    check("security.txt publishes the security contact", false, String(error));
+    check("security.txt publishes the security contact", false, why(error));
   }
 
   // 3. Operator procedures refuse an unauthenticated caller before doing anything.
@@ -97,9 +98,9 @@ async function run() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ json: {} }),
     });
-    check("operator procedure refuses unauthenticated calls", response.status === 401, `HTTP ${response.status}`);
+    check("operator procedure refuses unauthenticated calls", response.status === 401, statusDetail(response));
   } catch (error) {
-    check("operator procedure refuses unauthenticated calls", false, String(error));
+    check("operator procedure refuses unauthenticated calls", false, why(error));
   }
 
   // 4. Storage, the reviewed census, and the directory.
@@ -107,20 +108,20 @@ async function run() {
     const availability = await trpc("liveData.availability");
     check("persistent storage configured", availability.persistentStorageConfigured === true, JSON.stringify(availability.persistentStorageConfigured));
   } catch (error) {
-    check("persistent storage configured", false, String(error));
+    check("persistent storage configured", false, why(error));
   }
   try {
     const coverage = await trpc("liveData.publicCoverage");
     check("reviewed census is served", coverage.publicRecordCount >= 1, `${coverage.publicRecordCount} records`);
     check("every reviewed record has retained evidence", coverage.coveragePercent === 100, `${coverage.provenanceReadyCount}/${coverage.publicRecordCount} (${coverage.coveragePercent}%)`);
   } catch (error) {
-    check("reviewed census is served", false, String(error));
+    check("reviewed census is served", false, why(error));
   }
   try {
     const breakdown = await trpc("liveData.directoryBreakdown");
     check("directory is served", breakdown.total >= 1_000, `${breakdown.total} acknowledged entries`);
   } catch (error) {
-    check("directory is served", false, String(error));
+    check("directory is served", false, why(error));
   }
 
   // 5. Source health. Scheduled sources must be active, failure-free, and fresh;
@@ -145,7 +146,7 @@ async function run() {
       }
     }
   } catch (error) {
-    check("source statuses are served", false, String(error));
+    check("source statuses are served", false, why(error));
   }
 
   // 6. Pay per call. A payment the facilitator never decided stays open for the operator to look at, with no refund and no timeout, so a
@@ -157,7 +158,7 @@ async function run() {
     else if (stuck === null) check("no payment is stuck", false, "the count could not be read", "warn");
     else check("no payment is stuck", stuck === 0, stuck === 0 ? "none unresolved for over an hour" : `${stuck} payment(s) unresolved for over an hour: open Pay per call on /admin/sources`);
   } catch (error) {
-    check("the API index is served", false, String(error), "warn");
+    check("the API index is served", false, why(error), "warn");
   }
 }
 
