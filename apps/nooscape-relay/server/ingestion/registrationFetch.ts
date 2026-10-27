@@ -1,5 +1,5 @@
 import { createPoliteFetcher } from "../politeFetch";
-import { SAFE_FETCH_MAX_BODY_CEILING, SAFE_FETCH_MAX_REDIRECTS, type SafeFetchResult } from "../safeFetch";
+import { SAFE_FETCH_MAX_BODY_CEILING, type SafeFetchResult } from "../safeFetch";
 
 /**
  * The registration-name reader for the 8004 Solana chain pass. The pass itself never dereferences a URI: its chain-facts
@@ -27,8 +27,6 @@ import { SAFE_FETCH_MAX_BODY_CEILING, SAFE_FETCH_MAX_REDIRECTS, type SafeFetchRe
 export const REGISTRATION_FETCH_MAX_BYTES = SAFE_FETCH_MAX_BODY_CEILING;
 /** Fetched names are trimmed and capped here before anything stores them. */
 export const REGISTRATION_NAME_MAX_CHARS = 200;
-/** Redirect hops are followed by the safe fetch, each with its full checks. */
-export const REGISTRATION_FETCH_MAX_REDIRECTS = SAFE_FETCH_MAX_REDIRECTS;
 /**
  * Retry policy, evaluated by the adapter per pass: `failed` re-attempts up to this many total attempts, `no_name` confirms
  * once (two attempts) before it goes terminal: a placeholder may be permanent, but one bad response should not decide that
@@ -154,7 +152,7 @@ export async function resolveRegistrationName(
  * returns its text for the caller to parse. Never throws. A link with no CID in it, or an `http` address, has nothing to read and
  * is `gone`. `createRegistrationFileReader` makes the reader for a pass.
  */
-export async function readRegistrationFile(uri: string, kind: RegistrationUriKind, options: { fetcher?: RegistrationFetcher } = {}): Promise<RegistrationFileResult> {
+async function readRegistrationFile(uri: string, kind: RegistrationUriKind, options: { fetcher?: RegistrationFetcher } = {}): Promise<RegistrationFileResult> {
   const fetchUrl = addressOf(uri, kind);
   if (fetchUrl === null || !fetchUrl.startsWith("https://")) return { status: "gone" };
   try {

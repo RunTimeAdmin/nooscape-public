@@ -144,6 +144,13 @@ const { data } = await (await fetch(url)).json();
 for (const result of data.results) {
   console.log(result.chain, result.agent_id, result.name);
 }`;
+  const restStatsCurl = `curl "${baseUrl}/api/v1/stats"`;
+  const restStatsJs = `const { as_of, data } = await (await fetch("${baseUrl}/api/v1/stats")).json();
+
+console.log("read at", as_of, "listed in all:", data.totals.acknowledged);
+for (const chain of data.chains) {
+  console.log(chain.label, chain.indexed ? chain.acknowledged : "not indexed");
+}`;
   const restBatchCurl = `curl -X POST "${baseUrl}/api/v1/agents/batch" \\
   -H "Authorization: Bearer $NOOSCAPE_KEY" \\
   -H "Content-Type: application/json" \\
@@ -291,6 +298,17 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
               ["host", "host name", "The locator host, in full."],
               ["chain", "enum", `${["robinhood", "bnb", "solana", ...EXTRA_CHAINS_ON].join(" | ")}. Limits the search to that chain's registries.`],
               ["limit", "integer", "1 to 25. Default 10."],
+            ]} />
+
+            <EndpointCard method="GET" path="/api/v1/stats" label="Public · 30 a minute" />
+            <p className="developer-body-copy">What the directory holds on each chain it reads: the entries it lists, the registries behind them, the ratings recorded on chain where they are counted, the entries first seen in the last day, and when each chain was last read. They are the figures on the chain tabs of the site, read the same way. The counts are kept for up to five minutes, so a change can take that long to show, and <code>as_of</code> is when the answer was built. It takes no option.</p>
+            <SnippetTabs curl={restStatsCurl} javascript={restStatsJs} />
+            <SchemaPanel title="The stats" rows={[
+              ["acknowledged", "integer | null", "Entries the directory lists on the chain under the public rules. A hidden, withdrawn or closed entry is not counted. null means Nooscape does not read the chain, which is not the same as zero. It is not a count of the agents that exist or work."],
+              ["ratings_recorded", "integer | null", "Ratings written on chain for the chain's identities, revoked ones included, where Nooscape counts them. null where it does not. Not a score."],
+              ["registrations_on_chain", "integer | null", "What the chain's registry holds, where Nooscape counts that apart from the entries it lists. The registrations the published listing rules do not list are held out, and held out is not judged."],
+              ["new_in_24h", "integer | null", "Entries Nooscape first saw on the chain in the last day. It says when Nooscape saw an entry, not when the agent was made."],
+              ["registries, last_read_at", "array, ISO 8601", "The registries behind the chain's entries with how many each lists, largest first, and when a source last read the chain."],
             ]} />
 
             <EndpointCard method="POST" path="/api/v1/agents/batch" label="Key · counts as one request" />

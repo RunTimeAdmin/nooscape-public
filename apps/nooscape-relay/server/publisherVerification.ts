@@ -2,9 +2,9 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import { normalizeHttpsDomain } from "./domainVerification";
 
 export const supportedPublisherProtocols = ["a2a", "anp", "agntcy", "erc8004"] as const;
-export type PublisherProtocol = (typeof supportedPublisherProtocols)[number];
+type PublisherProtocol = (typeof supportedPublisherProtocols)[number];
 
-export type PublisherKeyAttestation = {
+type PublisherKeyAttestation = {
   format: "Nooscape Publisher Key Attestation v1";
   issuerName: string;
   publicKeyFingerprint: string;

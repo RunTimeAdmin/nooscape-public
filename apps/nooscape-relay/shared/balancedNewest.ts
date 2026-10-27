@@ -5,7 +5,7 @@
  * and the rest of the limit is filled with the newest of what is left, so the list is still sorted newest first.
  * Pure and shared, so the server that reads the ledger and the page that picks six lines from it use one rule.
  */
-export type BalancedNewestOptions<T> = {
+type BalancedNewestOptions<T> = {
   /** How many items to return at most. */
   limit: number;
   /** How many of each group's newest items are kept first. At most `limit` of them are returned, the newest ones. */

@@ -1,4 +1,3 @@
-import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { featureOn } from "@shared/features";
@@ -54,6 +53,7 @@ function Router() {
         <Route path="/chains/bnb">{() => <ChainExplorer key="bnb" chain="bnb" />}</Route>
         {featureOn("chain_arc", FEATURES) && <Route path="/chains/arc">{() => <ChainExplorer key="arc" chain="arc" />}</Route>}
         {featureOn("chain_base", FEATURES) && <Route path="/chains/base">{() => <ChainExplorer key="base" chain="base" />}</Route>}
+        {featureOn("chain_ethereum", FEATURES) && <Route path="/chains/ethereum">{() => <ChainExplorer key="ethereum" chain="ethereum" />}</Route>}
         <Route path="/field/bnb-registry-2026-10-16" component={BnbRegistryReport} />
         <Route path="/field/bnb-ratings-2026-10-16" component={BnbRatingsReport} />
         <Route path="/field/solana-registries-2026-10-18" component={SolanaRegistryReport} />
@@ -91,7 +91,6 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <OwlProvider>
-            <Toaster theme="dark" />
             <Router />
             <OwlLayer />
           </OwlProvider>

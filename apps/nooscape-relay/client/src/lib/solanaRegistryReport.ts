@@ -11,7 +11,7 @@
 export const SOLANA_DOC = "docs/solana-census-2026-10-18.md";
 
 export const REGISTRIES = ["solana_said", "solana_8004", "solana_registry"] as const;
-export type RegistryKey = (typeof REGISTRIES)[number];
+type RegistryKey = (typeof REGISTRIES)[number];
 
 export const REGISTRY_LABEL: Record<RegistryKey, string> = { solana_said: "SAID", solana_8004: "8004", solana_registry: "Metaplex" };
 
@@ -20,7 +20,7 @@ export type Q0Row = readonly [protocol: RegistryKey, entries: number, firstSeen:
 /** One row of query 1: size and surface. */
 export type Q1Row = readonly [protocol: RegistryKey, entries: number, wallets: number, noWallet: number, withLink: number, distinctLinks: number, withHttpsHost: number, hosts: number];
 /** One row of queries 2 and 3: a size bucket, how many wallets (or links) fall in it, the entries they hold, and the largest holding in it. */
-export type BucketRow = readonly [protocol: RegistryKey, bucket: string, groups: number, entries: number, largest: number];
+type BucketRow = readonly [protocol: RegistryKey, bucket: string, groups: number, entries: number, largest: number];
 /** One row of query 4: the host names of a registry by size and never by name. Rank 0 is how many host names hold 50 or more entries. */
 export type Q4Row = readonly [protocol: RegistryKey, hostRank: number, entries: number];
 /** One row of query 5 (SAID only): a fact the chain records, its value, and the entries that carry it. */

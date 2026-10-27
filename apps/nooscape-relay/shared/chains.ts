@@ -7,8 +7,8 @@ import { featureOn, type Feature } from "./features";
  *
  * The mapping is the one the directory already uses: the ERC-8004 identity registry
  * on Robinhood Chain is `erc8004` (and its reputation and USDG settlement ledgers
- * belong to that chain too), the three Solana registries are `solana_registry`,
- * `solana_8004` and `solana_said`, and the BNB Chain registry is `erc8004_bsc`.
+ * belong to that chain too), the four Solana registries are `solana_registry`,
+ * `solana_8004`, `solana_said` and `solana_agenc`, and the BNB Chain registry is `erc8004_bsc`.
  * Locator protocols (A2A, the catalog and the census) are on no chain.
  */
 export type ChainKey = "robinhood" | "solana" | "bnb";
@@ -28,6 +28,7 @@ const CHAIN_OF_PROTOCOL: Record<string, ChainKey> = {
   solana_registry: "solana",
   solana_8004: "solana",
   solana_said: "solana",
+  solana_agenc: "solana",
   erc8004_bsc: "bnb",
 };
 

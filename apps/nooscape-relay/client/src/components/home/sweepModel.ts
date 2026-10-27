@@ -18,7 +18,7 @@ const shortDay = (date: Date) => `${date.getUTCDate()} ${MONTHS[date.getUTCMonth
 const dayOf = (date: Date) => `${shortDay(date)} ${date.getUTCFullYear()}`;
 const clockOf = (date: Date) => `${two(date.getUTCHours())}:${two(date.getUTCMinutes())} UTC`;
 
-export type SweepInput = {
+type SweepInput = {
   status: ReadStatus;
   rows: ReadonlyArray<Pick<ChainStat, "chain" | "indexed" | "asOf">>;
   /** The block the Robinhood activity ledger has been measured through, or null when it has not been measured. */

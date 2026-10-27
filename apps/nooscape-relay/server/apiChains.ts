@@ -9,6 +9,8 @@ import { ROBINHOOD_IDENTITY_REGISTRY, ROBINHOOD_REGISTRY_CHAIN } from "./ingesti
  */
 
 const DECIMAL_ID = /^(0|[1-9]\d{0,77})$/;
+/** The longest agent id any endpoint takes: more than the 78 digits a decimal id may have and the 44 characters of a Solana address. The batch lookup, the check and the watchlist share it. */
+export const AGENT_ID_MAX_CHARS = 80;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 export type ApiChain = "robinhood" | "bnb" | "solana" | ExtraChainKey;
@@ -40,7 +42,7 @@ export const API_CHAINS: Record<ApiChain, ApiChainTable> = {
     idPattern: DECIMAL_ID,
     keyOf: id => `eip155:${BSC_CHAIN_ID}:${BSC_IDENTITY_REGISTRY}:${id}`,
   },
-  solana: { protocols: ["solana_8004", "solana_said", "solana_registry"], chainId: null, registry: null, idPattern: BASE58, keyOf: id => id },
+  solana: { protocols: ["solana_8004", "solana_said", "solana_registry", "solana_agenc"], chainId: null, registry: null, idPattern: BASE58, keyOf: id => id },
   ethereum: chainPassTable(ETHEREUM_CHAIN),
   base: chainPassTable(BASE_CHAIN),
   arc: chainPassTable(ARC_CHAIN),

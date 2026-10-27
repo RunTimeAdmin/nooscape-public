@@ -74,9 +74,9 @@ describe("answers from the router", () => {
 
 describe("a record's publisher state", () => {
   it("is checked on its way in, not assumed: the router types it as a string", () => {
-    const home = read("./pages/Home.tsx");
-    expect(home).toContain("  publisherState: string;");
-    expect(home).toContain("status: toPublisherState(record.publisherState),");
-    expect(home).not.toContain("publisherState: PublisherState;");
+    const model = read("./pages/home/atlasModel.ts");
+    expect(model).toContain("  publisherState: string;");
+    expect(model).toContain("status: toPublisherState(record.publisherState),");
+    expect(model).not.toContain("publisherState: PublisherState;");
   });
 });

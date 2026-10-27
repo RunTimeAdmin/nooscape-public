@@ -59,6 +59,10 @@ describe("registrySplitText", () => {
     expect(registrySplitText([{ protocol: "solana_said", count: 13_764 }, { protocol: "solana_registry", count: 1_596 }, { protocol: "solana_8004", count: 1_506 }])).toBe("By registry: SAID 13,764 · Metaplex 1,596 · 8004 1,506.");
   });
 
+  it("names the AgenC registry beside the others", () => {
+    expect(registrySplitText([{ protocol: "solana_said", count: 13_764 }, { protocol: "solana_agenc", count: 256 }])).toBe("By registry: SAID 13,764 · AgenC 256.");
+  });
+
   it("words a single registry on its own, and says nothing for the chains that have only one registry each", () => {
     expect(registrySplitText([{ protocol: "solana_8004", count: 3 }])).toBe("By registry: 8004 3.");
     expect(registrySplitText([{ protocol: "erc8004", count: 80 }])).toBeNull();
@@ -127,7 +131,7 @@ describe("the regions", () => {
     expect(REGION_ORDER.map(chain => CHAIN_LABEL[chain].split(" ")[0])).toEqual(["Robinhood", "BNB", "Solana"]);
   });
 
-  it("link to a page of their own for the original three, and for Arc and Base while their switches are on, since Ethereum has none", () => {
+  it("link to a page of their own for the original three, and for Arc, Base and Ethereum while their switches are on", () => {
     // The page links are the only use of REGION_ORDER in the component besides the import.
     expect(tabs.match(/REGION_ORDER\.map\(/g)).toHaveLength(1);
     expect(tabs).toContain("href={`/chains/${chain}`}");
@@ -135,7 +139,8 @@ describe("the regions", () => {
     expect(tabs).toContain('href="/chains/arc"');
     expect(tabs).toContain('regions.includes("base")');
     expect(tabs).toContain('href="/chains/base"');
-    expect(tabs).not.toMatch(/\/chains\/ethereum/);
+    expect(tabs).toContain('regions.includes("ethereum")');
+    expect(tabs).toContain('href="/chains/ethereum"');
   });
 });
 

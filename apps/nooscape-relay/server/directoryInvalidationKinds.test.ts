@@ -68,6 +68,7 @@ const ingestionWrites: Array<[string, () => Promise<unknown>]> = [
   ["applyAgentDirectoryActivityWindow", () => db.applyAgentDirectoryActivityWindow({} as never)],
   ["applySolanaActivityWindow", () => db.applySolanaActivityWindow({} as never)],
   ["applyAgentDirectoryReputationWindow", () => db.applyAgentDirectoryReputationWindow({} as never)],
+  ["applyUsdgSettlementWindow", () => db.applyUsdgSettlementWindow({ source, settlements: [{}] } as never)],
   [
     "applyAgentRegistryUriUpdates",
     () => {
@@ -82,6 +83,9 @@ const operatorWrites: Array<[string, () => Promise<unknown>]> = [
   ["hideDirectoryEntry", () => db.hideDirectoryEntry("entry-1")],
   ["unhideDirectoryEntry", () => db.unhideDirectoryEntry("entry-1")],
   ["decideIngestionSource", () => db.decideIngestionSource({} as never)],
+  // The hero sample embeds the reviewed set: a record taken out of it, or a source taken out of public view, must not be served from the cache.
+  ["decideSourceProjection", () => db.decideSourceProjection({} as never)],
+  ["decideRecordWithdrawal", () => db.decideRecordWithdrawal({} as never)],
 ];
 
 describe("directory writes and the cache", () => {

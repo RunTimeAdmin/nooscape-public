@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agencAuthorityExplanation,
   ownerWalletExplanation,
   registrantExplanation,
   registrantExplanationFor,
@@ -32,6 +33,7 @@ describe("walletKind", () => {
     expect(walletKind("solana_registry")).toBe("owner");
     expect(walletKind("solana_8004")).toBe("owner");
     expect(walletKind("solana_said")).toBe("authority");
+    expect(walletKind("solana_agenc")).toBe("authority");
   });
 
   it("defaults any other protocol to the existing registrant wording", () => {
@@ -72,8 +74,19 @@ describe("registrant copy is worded per wallet kind", () => {
     expect(text).not.toContain("registration event");
   });
 
+  it("describes an AgenC agent's wallet as its authority in the AgenC program account, and says nothing of SAID", () => {
+    expect(registrantLabel("solana_agenc")).toBe("Controlling wallet");
+    const text = registrantExplanationFor("solana_agenc");
+    expect(text).toBe(agencAuthorityExplanation);
+    expect(text).toContain("AgenC program account");
+    expect(text).toContain("controls the agent");
+    expect(text).toContain("not a verified operator");
+    expect(text).not.toContain("SAID");
+    expect(text).not.toContain("registration event");
+  });
+
   it("words fold counts for owner and authority wallets without claiming they registered the identities", () => {
-    for (const protocol of ["solana_registry", "solana_8004", "solana_said"]) {
+    for (const protocol of ["solana_registry", "solana_8004", "solana_said", "solana_agenc"]) {
       expect(registrantNarrationFor(protocol, 0)).toBe("This wallet is recorded against only this identity in the directory so far.");
       expect(registrantNarrationFor(protocol, 1)).toBe("This wallet is also recorded against 1 other identity in the directory.");
       expect(registrantNarrationFor(protocol, 2)).toBe("This wallet is also recorded against 2 other identities in the directory.");

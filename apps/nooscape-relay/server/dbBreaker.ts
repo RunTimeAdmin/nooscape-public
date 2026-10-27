@@ -62,7 +62,7 @@ function refusalLabel(error: unknown): string {
   return "refused";
 }
 
-export type ConnectionBreakerOptions = {
+type ConnectionBreakerOptions = {
   /** Cooldown after the first refusal. */
   baseCooldownMs?: number;
   /** Cooldown never grows past this. It doubles on each refused probe. */

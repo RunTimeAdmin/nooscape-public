@@ -19,6 +19,18 @@ describe("the scan map on Home", () => {
     expect(home).not.toMatch(/<LandingHero[^>]*seed/i);
   });
 
+  it("pins the agent a link named, once, and is handed the link only when the page has the record", () => {
+    expect(hero).toContain("linkedAgentId = null }: Props");
+    expect(hero).toContain("linkedPinId(nodes, linkedAgentId, linkUsed.current)");
+    // The id is marked used before the pin is set, so a later change of the nodes cannot pin it again.
+    const marked = hero.indexOf("linkUsed.current = true;");
+    expect(marked).toBeGreaterThan(-1);
+    expect(marked).toBeLessThan(hero.indexOf("setPinnedId(linked);"));
+    expect(home).toContain("linkedAgentId={linkedAgentId}");
+    expect(home).toContain("if (linkedAgent && agents.some(agent => agent.id === linkedAgent)) {");
+    expect(home.indexOf("setSelectedId(linkedAgent);")).toBeLessThan(home.indexOf("setLinkedAgentId(linkedAgent);"));
+  });
+
   it("is given no individual BNB Chain registration: the page reads none for the map and hands none to it", () => {
     // PR-B3 replaced the fixed hollow sample (liveData.mapAcknowledged) with groups of registrations (liveData.mapFleets). The
     // endpoint and the hero's way of drawing a sample are still there; the page no longer asks for one.

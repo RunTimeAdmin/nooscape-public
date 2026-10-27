@@ -114,4 +114,9 @@ describe("the build script", () => {
     const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { scripts: Record<string, string> };
     expect(manifest.scripts.build).toMatch(/^node scripts\/ensure-esbuild-executable\.mjs && vite build && esbuild /);
   });
+
+  it("ends by printing the Node version, because the host's own line says only `Node.js: 22`", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { scripts: Record<string, string> };
+    expect(manifest.scripts.build).toMatch(/ && node -v$/);
+  });
 });

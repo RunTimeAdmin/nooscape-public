@@ -106,3 +106,22 @@ The real pass (`runApprovedErc8004ChainSource`, with the budget in the code), a 
 
 - `server/ingestion/erc8004Chains.test.ts` pins Base's budget.
 - `server/workerClaim.integration.test.ts` (real MySQL, skips without one): the first tick, a tick on the mark, a tick 15 seconds early (taken), a tick 45 seconds early (refused, the last claim kept), a manual tick or a second instance 1 second, 2 and 10 minutes after the last (refused), a 60-minute interval (the tolerance is 30 seconds, not a share), a paused worker, and what a claimed tick takes (due, active, scheduled sources, oldest first, no more than the limit; a newcomer waits behind the sources that have waited longer). Each guard was removed once to see its test fail.
+
+## Update, 23 October 2026: a time budget in place of the event count
+
+The host cap (21 October) changed what a window costs. A window of one flood host past its cap only counts, which is one grouped count and a few upserts: 17,000 to 29,000 events a second in this review's measurements, against 2,500 to 5,000 for a window that stores a row for each registration. The cap of 40,000 events ended a run after about 3 seconds of the 30 allowed, in a flood that adds 20 to 32 events a second.
+
+`BASE_CHAIN.budget` is now 20 seconds (`maxElapsedMs`) with an event ceiling of 1,000,000 (`maxEvents`) that the clock normally reaches first. Rollback is the two constants. Ethereum (5,000 events) and Arc (1,000) keep their caps: neither has a scheduled source, and Arc's keeps its node free for payment checks.
+
+One run of the real pass on a database seeded to production size (MariaDB 10.11 in memory), windows of 14,000 events, 400 ms for each read, two runs of each:
+
+| Windows | Budget | Windows applied | Events | Seconds | Rows stored |
+|---|---|---|---|---|---|
+| One host (only counts) | before (40,000, 30 s) | 3 and 3 | 42,000 | 3.0 and 2.8 | 2,000 |
+| One host (only counts) | now (20 s) | 40 and 38 | 560,000 and 532,000 | 19.4 and 20.4 | 2,000 |
+| A host each (stores) | before | 3 and 3 | 42,000 | 8.2 and 8.9 | 14,635 |
+| A host each (stores) | now | 8 and 7 | 112,000 and 98,000 | 21.8 and 22.3 | 39,026 and 34,139 |
+
+A run that only counts applies about 13 times more events. A run that stores a row for each registration applies 2.3 to 2.7 times more and takes about as many times longer (8 or 9 seconds became 22); 40,000 events took 14 to 22 seconds in the benchmark of 20 October (a local database and the real node), so a run that stores rows should take about 20 to 25 seconds on the host. The event loop's longest wait is about the same in every run (p99 90 to 140 ms, longest 170 to 215 ms): it is the cost of one window, and a longer run has more of them. The worker's follow-on steps skip a tick that has already run 90 to 100 seconds, and a Base run is now up to about 25 seconds.
+
+`server/baseRunBudget.integration.test.ts` (real MySQL, skips without one) runs the pass with Base's own budget: a flood of 56,000 events goes to the end of its windows in one run, and a run whose reads take 6 seconds each stops after two windows.

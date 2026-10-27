@@ -6,7 +6,7 @@ import { createConnection, createPool } from "mysql2/promise";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../drizzle/schema";
-import { problems, schemaOf } from "./apiV1Check";
+import { problems, schemaOf } from "./apiV1Testing";
 
 /**
  * The pre-flight check against a real database (docs/data-access-2026-10-19.md, stage D3): the ledgers it reads, with real keys and the

@@ -32,7 +32,7 @@ export const BSC_REPUTATION_TOPIC_FILTER: string[][] = [[ROBINHOOD_NEW_FEEDBACK_
 
 export type LedgerRow = FeedbackEvent & { transactionHash: string };
 
-export type ReputationWindowParse = { rows: LedgerRow[]; rejected: number };
+type ReputationWindowParse = { rows: LedgerRow[]; rejected: number };
 
 /**
  * One window's `eth_getLogs` answer as ledger rows, in chain order. A log that does not decode (the filter asked only for the

@@ -5,7 +5,7 @@ import { createCuBucket } from "./cuBucket";
  * reads): half of the 150 CU/s the NodeReal plan allows, so they cannot starve the identity pass (AUTO_REVIEW_PLAN.md). One
  * bucket for all of them, so the steps cannot add up to more than the half whatever order a tick runs them in.
  */
-export const BSC_READ_CU_PER_SECOND = 75;
+const BSC_READ_CU_PER_SECOND = 75;
 export const bscReadBucket = createCuBucket(BSC_READ_CU_PER_SECOND);
 
 /** NodeReal's published prices in compute units (docs.nodereal.io/docs/compute-units-cus). */

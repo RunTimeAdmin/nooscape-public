@@ -161,4 +161,11 @@ describe("the share of the registrations the registering wallets are recorded ag
     expect(markup).not.toMatch(/BNB|census/);
     expect(markup).toContain("Arc");
   });
+
+  it("words the Ethereum event rail's missing feed as Ethereum's, with no census to point at and no entry to select", () => {
+    const markup = renderToStaticMarkup(createElement(ChainEventRail, { chain: "ethereum", events: [], activeId: null, playing: false, onSelect: noop, onTogglePlayback: noop, motionReduced: false, status: "unsupported", coverage: "Global feed not published" }));
+    expect(markup).toContain("No global Ethereum activity feed is published. No event is shown in its place.");
+    expect(markup).not.toMatch(/BNB|Base|Arc|census|Select an entry/);
+    expect(markup).toContain("Ethereum");
+  });
 });

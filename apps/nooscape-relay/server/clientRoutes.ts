@@ -46,13 +46,14 @@ export const EXACT_CLIENT_ROUTES = [
 
 /**
  * The routes behind a switch, by the feature that turns each on. A feature that is a section of a page and not a route (`claims`) has none,
- * and neither has the Ethereum switch, which has no page of its own yet. Arc's page and its census report are behind `chain_arc`, and Base's page and its census report are behind `chain_base`.
+ * Arc's page and its census report are behind `chain_arc`, Base's page and its census report are behind `chain_base`, and Ethereum's page (it has no census report) is behind `chain_ethereum`.
  */
 export const FLAGGED_CLIENT_ROUTES: Partial<Record<Feature, readonly string[]>> = {
   watch: ["/watch"],
   patrols: ["/patrols"],
   chain_arc: ["/chains/arc", "/field/arc-registry-2026-10-20"],
   chain_base: ["/chains/base", "/field/base-registry-2026-10-21"],
+  chain_ethereum: ["/chains/ethereum"],
 };
 
 export function isClientRoutePath(pathname: string, features: string | undefined = process.env.VITE_FEATURES): boolean {

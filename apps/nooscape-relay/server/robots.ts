@@ -16,9 +16,9 @@ import type { SafeFetchReason, SafeFetchResult } from "./safeFetch";
 /** The names this visitor answers to in a User-agent line, lower case. */
 const OUR_NAMES = ["nooscape-checker", "nooscape"];
 
-export type RobotsRule = { allow: boolean; pattern: string };
-export type RobotsGroup = { agents: string[]; rules: RobotsRule[] };
-export type RobotsRules = RobotsGroup[];
+type RobotsRule = { allow: boolean; pattern: string };
+type RobotsGroup = { agents: string[]; rules: RobotsRule[] };
+type RobotsRules = RobotsGroup[];
 
 /** Groups of User-agent lines, each with its Allow and Disallow rules. Anything else in the file is ignored. */
 export function parseRobots(text: string): RobotsRules {
@@ -58,7 +58,7 @@ export function parseRobots(text: string): RobotsRules {
 function canonical(text: string): string {
   return text
     .replace(/[^\x00-\x7f]+/g, run => Array.from(Buffer.from(run, "utf8"), byte => `%${byte.toString(16).toUpperCase().padStart(2, "0")}`).join(""))
-    .replace(/%([0-9a-f]{2})/gi, (escape, hex: string) => {
+    .replace(/%([0-9a-f]{2})/gi, (_, hex: string) => {
       const character = String.fromCharCode(parseInt(hex, 16));
       return /[A-Za-z0-9\-._~]/.test(character) ? character : `%${hex.toUpperCase()}`;
     });
@@ -107,7 +107,7 @@ export function robotsAllows(rules: RobotsRules, path: string): boolean {
   return best === null ? true : best.allow;
 }
 
-export type RobotsDecision =
+type RobotsDecision =
   | { allowed: true }
   | { allowed: false; reason: "robots_disallowed" | "robots_unavailable" | "budget_exhausted"; detail: string; cause?: SafeFetchReason };
 

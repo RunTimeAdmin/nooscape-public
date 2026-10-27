@@ -20,9 +20,9 @@ export const EMPTY_CLAIM_PROFILE: ClaimProfile = { name: null, website: null, de
 export type ClaimEdit = { name?: string | null; website?: string | null; description?: string | null; links?: string[] };
 
 /** The same text, made safe for public pages by the caller: control and invisible characters out, cut to a length. */
-export type Sanitize = (text: string, maxLength: number) => string | null;
+type Sanitize = (text: string, maxLength: number) => string | null;
 
-export type ClaimEditResult = { ok: true; fields: ClaimEdit } | { ok: false; field: ClaimField; message: string };
+type ClaimEditResult = { ok: true; fields: ClaimEdit } | { ok: false; field: ClaimField; message: string };
 
 /** The names a link host must not have: a local name is never a public website. */
 const LOCAL_SUFFIXES = [".local", ".localhost", ".internal", ".lan", ".home", ".corp", ".intranet"];

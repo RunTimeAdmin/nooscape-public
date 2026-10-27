@@ -42,6 +42,7 @@ const protocolTones: Record<string, string> = {
   solana_registry: "#66E8FF",
   solana_8004: "#66E8FF",
   solana_said: "#5CF2C8",
+  solana_agenc: "#FF8FB8",
   erc8004_bsc: "#F5C451",
   erc8004_eth: "#7DD3FC",
   erc8004_base: "#3B82F6",
@@ -288,6 +289,15 @@ export default function DirectoryAgent() {
         {profileQuery.isLoading && (
           <div className={`${card} text-center`}>
             <p className="eyebrow">Checking the agent index…</p>
+          </div>
+        )}
+
+        {profileQuery.isError && !profile && (
+          <div role="alert" className={`${card} text-center`}>
+            <p className="eyebrow">The agent index did not answer</p>
+            <h1 className="mt-2 text-2xl font-medium tracking-[-.03em] text-[#F2FFF5]">This record could not be read just now</h1>
+            <p className={`${note} mx-auto mt-3`}>The read failed, which is not the same as the record not existing. Nothing about it has been guessed. Try again in a moment.</p>
+            <button type="button" onClick={() => void profileQuery.refetch()} className={`${pill} mt-6`}>Try again</button>
           </div>
         )}
 

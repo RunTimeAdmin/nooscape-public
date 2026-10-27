@@ -11,7 +11,7 @@ import dns from "node:dns";
  * (which can carry TLS material), and the text of a URL that does not parse are never
  * written.
  */
-export type DatabaseTarget = { host: string; port: number; database: string; user: string; hasPassword: boolean };
+type DatabaseTarget = { host: string; port: number; database: string; user: string; hasPassword: boolean };
 
 function decoded(value: string) {
   try {

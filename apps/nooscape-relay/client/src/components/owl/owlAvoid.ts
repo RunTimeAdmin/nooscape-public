@@ -120,7 +120,7 @@ export type Choice = {
   perch: number | null;
 };
 
-export type ChoiceInput = {
+type ChoiceInput = {
   /** Where the pointer is. */
   pointer: Point;
   /** Where the owl's feet are now. */

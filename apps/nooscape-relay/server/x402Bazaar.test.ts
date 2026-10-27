@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { problems, schemaOf } from "./apiV1Check";
+import { problems, schemaOf } from "./apiV1Testing";
 import { bazaarFor, checkDiscovery, CHECK_BODY_EXAMPLE, CHECK_OUTPUT_EXAMPLE, LOOKUP_ROUTE_TEMPLATE, lookupDiscovery, type BazaarExtension } from "./x402Bazaar";
 
 /**

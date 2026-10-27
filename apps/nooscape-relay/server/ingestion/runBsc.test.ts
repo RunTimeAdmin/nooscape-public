@@ -343,8 +343,8 @@ describe("failures", () => {
     });
     const result = await runApprovedBscRegistrySource(source(), "manual", "activity", { rpc });
     expect(logCalls()).toHaveLength(3);
-    // Both halves came back and were applied as one window, in chain order.
-    expect(state.order).toEqual(["entries:6,7"]);
+    // Both halves came back and were applied, each as a window of its own, in chain order.
+    expect(state.order).toEqual(["entries:6", "entries:7"]);
     expect(result.nextCursor).toBe(`bsc:${START + W}`);
 
     state.order.length = 0;

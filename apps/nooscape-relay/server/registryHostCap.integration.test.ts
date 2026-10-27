@@ -326,6 +326,21 @@ describe.skipIf(!dbReachable)("the host cap, against a real database", { timeout
       expect(await overflowOf(second, "late.example")).toBeNull();
     });
 
+    it("reads the room of every host of a window, past the 1,000 hosts that one grouped count carries", async () => {
+      // 1,100 hosts of one registration each. Two of them already hold their cap of three rows: one is read by the first count, the other
+      // (the 1,051st) by the second. Every other host has room, and only those two registrations are counted.
+      const hosts = Array.from({ length: 1_100 }, (_, i) => `many-${String(i).padStart(4, "0")}.example`);
+      const fullHosts = [hosts[10]!, hosts[1_050]!];
+      const stored = fullHosts.flatMap((host, h) => Array.from({ length: 3 }, (_, i) => item(host, 500 + i, 9500 + h * 10 + i)));
+      await registry.insertAgentRegistryRows({ source: await asSource(), runId: "run-many", drafts: stored.map(draftOf) });
+      const items = hosts.map((host, i) => item(host, 600 + i, 9600 + i));
+      const { kept, counted } = await registry.keepWithinHostCap(await asSource(), items, 3);
+      expect(counted).toBe(2);
+      expect(kept.map(entry => entry.host)).toEqual(hosts.filter(host => !fullHosts.includes(host)));
+      expect(await overflowOf(second, fullHosts[0]!)).toEqual({ count: 1, lastBlock: 610 });
+      expect(await overflowOf(second, fullHosts[1]!)).toEqual({ count: 1, lastBlock: 1_650 });
+    });
+
     it("keeps only the events of stored tokens", async () => {
       const events = [item("x", 1, 9100), item("x", 2, 9107), item("x", 3, 9200)];
       const kept = await registry.keepStoredTokens(second, events);

@@ -97,7 +97,7 @@ export const SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS = 25;
  * Signature-scan depth per event-bearing address: one getSignaturesForAddress
  * call per address, shared by every event kind on that address.
  */
-export const SOLANA_8004_SIGNATURE_SCAN_LIMIT = 25;
+const SOLANA_8004_SIGNATURE_SCAN_LIMIT = 25;
 /** The program's instructions that register an agent. A registration made with one this list lacks has no anchor, and the pass fails on it. */
 const SOLANA_8004_REGISTER_INSTRUCTIONS = ["RegisterWithOptions", "Register"];
 /**
@@ -124,23 +124,23 @@ export const SOLANA_8004_ATTRIBUTION_TX_FETCH_CAP = 10;
  * pass is genuine and passes through; a faster one stops the pass for an
  * operator to read first — the census has never observed a single closure.
  */
-export const SOLANA_8004_ENUMERATION_FLOOR_PERCENT = 98;
+const SOLANA_8004_ENUMERATION_FLOOR_PERCENT = 98;
 /**
  * Account discriminator `30910cf9b08dc5bb` (MetadataEntryPda), as raw bytes —
- * the second, memcmp-scoped enumeration of step 3. Live-probed 2026-10-12:
+ * how the metadata rows are picked out of the program's accounts. Live-probed 2026-10-12:
  * 36 accounts of exactly 332 bytes (asset [8..40), flag [40], bump [41], then
  * borsh key and value Strings), carrying free-form per-agent metadata whose
  * observed keys include "name", "image", "chain-registrations", and
  * registry-scoped id tags like "erc8004-eth: #25045".
  */
-export const SOLANA_8004_METADATA_DISCRIMINATOR = [0x30, 0x91, 0x0c, 0xf9, 0xb0, 0x8d, 0xc5, 0xbb];
+const SOLANA_8004_METADATA_DISCRIMINATOR = [0x30, 0x91, 0x0c, 0xf9, 0xb0, 0x8d, 0xc5, 0xbb];
 /** Exact MetadataEntryPda size at probe time; anything else is not one. */
-export const SOLANA_8004_METADATA_ENTRY_BYTES = 332;
+const SOLANA_8004_METADATA_ENTRY_BYTES = 332;
 /**
- * Growth ceiling for the metadata enumeration, aligned with the agent
+ * Growth ceiling for the metadata entries, aligned with the agent
  * ceiling's stop-loudly posture.
  */
-export const SOLANA_8004_METADATA_MAX_ACCOUNTS = 4_000;
+const SOLANA_8004_METADATA_MAX_ACCOUNTS = 4_000;
 /**
  * Registration-URI name fetches per pass. At the 30-minute cadence this
  * sweeps the ~1,159 fetchable links (755 ipfs + ~404 https) in about a day;
@@ -208,7 +208,7 @@ export type Solana8004DiffEvent = {
   toOwner: string | null;
 };
 
-export type Solana8004ChainSnapshot = {
+type Solana8004ChainSnapshot = {
   slot: number;
   seed: boolean;
   /** Every account the gPA scan returned (agent accounts plus every other program account). */
@@ -326,6 +326,14 @@ function extractInlineName(uri: string): string | null {
   }
 }
 
+function isMetadataAccount(data: Uint8Array): boolean {
+  if (data.length < SOLANA_8004_METADATA_DISCRIMINATOR.length) return false;
+  for (let index = 0; index < SOLANA_8004_METADATA_DISCRIMINATOR.length; index += 1) {
+    if (data[index] !== SOLANA_8004_METADATA_DISCRIMINATOR[index]) return false;
+  }
+  return true;
+}
+
 function isAgentAccount(data: Uint8Array): boolean {
   if (data.length < AGENT_ACCOUNT_DISCRIMINATOR.length) return false;
   for (let index = 0; index < AGENT_ACCOUNT_DISCRIMINATOR.length; index += 1) {
@@ -437,16 +445,21 @@ type RawAccount = { pubkey?: unknown; account?: { data?: unknown } | null };
  * pubkey and base64 data tuple is an RPC contract violation and fails the
  * pass — under disappearance-based closure detection, a misread envelope
  * could otherwise hide a live account and masquerade as a closure. Non-agent
- * accounts (metadata entries, configs) are counted, never parsed. An
+ * accounts (metadata entries, configs) are counted, never parsed here; the
+ * metadata rows among them are handed back as they came, for
+ * parseSolana8004MetadataAccounts. An
  * AgentAccount-discriminated row that fails decode fails the pass loudly:
  * layout drift must never be guessed past.
  */
 export function parseSolana8004ProgramAccounts(result: unknown): {
   accounts: Solana8004AgentAccount[];
   unknownCount: number;
+  /** The rows that carry the MetadataEntryPda discriminator, as received: what a memcmp filter at offset 0 would have returned. They are also in `unknownCount`. */
+  metadataRows: unknown[];
 } {
   if (!Array.isArray(result)) throw new Solana8004ValidationError("8004 getProgramAccounts response must be an array.");
   const accounts: Solana8004AgentAccount[] = [];
+  const metadataRows: unknown[] = [];
   let unknownCount = 0;
   for (const entry of result as RawAccount[]) {
     const pubkey = entry && typeof entry === "object" ? entry.pubkey : undefined;
@@ -457,11 +470,12 @@ export function parseSolana8004ProgramAccounts(result: unknown): {
     const bytes = Buffer.from(data[0]!, "base64");
     if (!isAgentAccount(bytes)) {
       unknownCount += 1;
+      if (isMetadataAccount(bytes)) metadataRows.push(entry);
       continue;
     }
     accounts.push(decodeSolana8004AgentAccount(pubkey, bytes));
   }
-  return { accounts, unknownCount };
+  return { accounts, unknownCount, metadataRows };
 }
 
 /** One decoded MetadataEntryPda row: free-form key/value metadata attached to an agent asset. */
@@ -529,7 +543,7 @@ export function parseSolana8004MetadataAccounts(result: unknown): {
 }
 
 /** A cross-chain reference row for agent_directory_chain_links, before persistence. */
-export type Solana8004ChainLinkDraft = {
+type Solana8004ChainLinkDraft = {
   externalKey: string;
   metadataKey: string;
   linkedProtocol: "a2a" | "anp" | "agntcy" | "erc8004" | "erc8004_reputation" | "catalog" | "census" | "solana_registry" | "solana_8004" | "usdg_settlement" | "other";
@@ -575,7 +589,7 @@ export function buildSolana8004ChainLinks(entries: Solana8004MetadataEntry[]): S
 }
 
 /** A registration-name resolution row for agent_registration_resolutions, before persistence. */
-export type Solana8004ResolutionDraft = {
+type Solana8004ResolutionDraft = {
   externalKey: string;
   uriHash: string;
   uriKind: string;
@@ -1007,7 +1021,7 @@ export async function fetchSolana8004ChainState(input: {
     ),
     "8004 getProgramAccounts"
   );
-  const { accounts, unknownCount } = parseSolana8004ProgramAccounts(accountsResult);
+  const { accounts, unknownCount, metadataRows } = parseSolana8004ProgramAccounts(accountsResult);
   if (accounts.length > SOLANA_8004_CHAIN_MAX_ACCOUNTS) {
     throw new Solana8004ValidationError(
       `8004 enumeration returned ${accounts.length} AgentAccounts, past the approved ${SOLANA_8004_CHAIN_MAX_ACCOUNTS}-account ceiling.`
@@ -1205,27 +1219,11 @@ export async function fetchSolana8004ChainState(input: {
   }
 
   // ---- Step-3 surfaces: metadata entries, twin links, budgeted name fetches ----
-  // A second, memcmp-scoped enumeration after the attribution loop: these
-  // surfaces feed enrichment and linkage only — never closures — so spending
-  // their cost before an attribution failure could throw would be waste, and
-  // their results are idempotent upserts that simply retry next pass.
-  const metadataResult = parseSolanaRpcResult(
-    await pacedCall(() =>
-      callSolanaRpc(
-        "getProgramAccounts",
-        [
-          SOLANA_8004_PROGRAM,
-          {
-            encoding: "base64",
-            filters: [{ memcmp: { offset: 0, bytes: encodeBase58(new Uint8Array(SOLANA_8004_METADATA_DISCRIMINATOR)) } }],
-          },
-        ],
-        { countAttempt: count, rpcUrl: input.rpcUrl }
-      )
-    ),
-    "8004 metadata getProgramAccounts"
-  );
-  const metadata = parseSolana8004MetadataAccounts(metadataResult);
+  // The metadata entries are among the accounts the enumeration above already returned (the probe of 2026-10-12 counted 36 beside the 1,504
+  // agent accounts), so they are read from it and not asked for again with a memcmp filter: a second getProgramAccounts after the attribution
+  // loop cost a request, a pause and the provider's own load, for the same rows. These surfaces feed enrichment and linkage only, never
+  // closures, and their results are idempotent upserts.
+  const metadata = parseSolana8004MetadataAccounts(metadataRows);
   if (metadata.entries.length > SOLANA_8004_METADATA_MAX_ACCOUNTS) {
     throw new Solana8004ValidationError(
       `8004 metadata enumeration returned ${metadata.entries.length} entries, past the approved ${SOLANA_8004_METADATA_MAX_ACCOUNTS}-account ceiling.`

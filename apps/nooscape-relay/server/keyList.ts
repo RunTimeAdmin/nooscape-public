@@ -10,7 +10,7 @@ import { listRelayKeys } from "./evidence";
  * purpose), so a reader of the old file still works. It is built from the signing key at request time, so it cannot
  * drift from the key that is actually signing, which is what a file edited by hand can do at the next rotation.
  */
-export function relayKeyDocument() {
+function relayKeyDocument() {
   return {
     format: "Nooscape Relay Key Manifest v1",
     algorithm: "Ed25519",

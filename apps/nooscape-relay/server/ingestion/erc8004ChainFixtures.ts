@@ -14,7 +14,7 @@
  */
 export type ChainFixtureLog = Record<string, unknown>;
 
-export type ChainFixtureExpected = {
+type ChainFixtureExpected = {
   agentId: string;
   owner: string;
   blockNumber: number;
@@ -27,7 +27,7 @@ export type ChainFixtureExpected = {
   truncated: boolean;
 };
 
-export type ChainFixtureUpdate = {
+type ChainFixtureUpdate = {
   label: string;
   log: ChainFixtureLog;
   agentId: string;

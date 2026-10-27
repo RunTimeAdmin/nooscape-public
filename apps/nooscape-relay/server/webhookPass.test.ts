@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { plan, runWebhookPass, type PassDeps, type SendResult } from "./webhookPass";
 import { LIVE_WATCH_LIMIT, type DeliveryRow } from "./webhookStore";
 import { ARC_ENTRY, ROBINHOOD_ENTRY, SOLANA_ENTRY, memoryEventSource, memoryWebhookStore, type MemoryLedgers } from "./webhookTesting";
@@ -435,6 +435,36 @@ describe("when a delivery fails", () => {
     expect(report.sent).toBe(1);
     expect(r.mem.all().find(row => row.id === "other-1")).toMatchObject({ status: "sent" });
     expect(r.sent.filter(call => call.url.endsWith("key-b"))).toHaveLength(1);
+  });
+
+  it("goes on to the other webhooks and to the tidy step when a database error stops one webhook's deliveries, and counts it", async () => {
+    const r = rig();
+    await r.watch("key-b");
+    await r.watch("key-p");
+    r.advance(MINUTE);
+    await r.mem.store.insertDeliveries([
+      { id: "d-b", keyId: "key-b", eventRef: "claim:1", kind: "claim.changed", entryId: ROBINHOOD_ENTRY.id, body: "{}" },
+      { id: "d-p", keyId: "key-p", eventRef: "claim:1", kind: "claim.changed", entryId: ROBINHOOD_ENTRY.id, body: "{}" },
+    ]);
+    const longAgo = new Date(T0.getTime() - 40 * 24 * 3_600_000);
+    r.mem.deliveries.set("old-1", { id: "old-1", seq: 900, keyId: "key-b", eventRef: "old:1", kind: "claim.changed", entryId: ROBINHOOD_ENTRY.id, body: "{}", status: "sent", attempts: 1, nextAttemptAt: longAgo, lastStatus: 200, lastError: null, createdAt: longAgo, sentAt: longAgo });
+    const store = {
+      ...r.mem.store,
+      getWebhook: async (keyId: string) => {
+        if (keyId === "key-b") throw new Error("Failed query: select * from api_webhooks where keyId = ?" + String.fromCharCode(10) + "params: key-b,https://hooks.example.com/private");
+        return r.mem.store.getWebhook(keyId);
+      },
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const report = await r.run({ store });
+    const logged = warn.mock.calls.map(call => call.join(" ")).join(" ");
+    warn.mockRestore();
+    expect(report).toMatchObject({ status: "ran", failed: 1, sent: 1, purged: 1 });
+    expect(r.mem.all().find(row => row.id === "d-p")).toMatchObject({ status: "sent" });
+    expect(r.mem.all().find(row => row.id === "d-b")).toMatchObject({ status: "pending" });
+    expect(r.mem.deliveries.has("old-1")).toBe(false);
+    expect(logged).toContain("[Webhooks] deliveries for one webhook failed:");
+    expect(logged).not.toContain("hooks.example.com/private");
   });
 
   it("takes only a few of one key's deliveries in a run, oldest first, and the rest in later runs", async () => {

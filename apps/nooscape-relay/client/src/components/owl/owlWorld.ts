@@ -18,7 +18,7 @@ type StoredPerch = Stored & { topic: string | null };
 /** A perch: where the owl's feet rest, and what it is beside (`data-owl-topic`), if the page says. */
 export type Perch = Point & { topic: string | null };
 
-export type OwlWorld = {
+type OwlWorld = {
   /** Reads the marks again. */
   refresh: () => void;
   /** The boxes to avoid, in screen pixels now, those near the screen only. */

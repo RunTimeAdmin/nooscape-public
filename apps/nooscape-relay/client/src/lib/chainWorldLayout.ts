@@ -38,16 +38,16 @@ const FIGURE_CELL = { w: 72, h: 90, wobbleX: 2, wobbleY: 2, stagger: 6 } as cons
 /** What a figure and a formation take up on the stage, as the stylesheet sizes them: a formation is its drawing, a gap, a one-line title and a two-line count. */
 export const FIGURE_BOX = { w: 64, h: 80 } as const;
 export const FORMATION_BOX_W = 108;
-export const FORMATION_LABELS_H = 63;
+const FORMATION_LABELS_H = 63;
 /** The drawing of a formation is `size` wide and 0.846 of that tall. */
-export const formationDrawingHeight = (size: number): number => Math.round(size * 0.846);
+const formationDrawingHeight = (size: number): number => Math.round(size * 0.846);
 export const formationBoxHeight = (size: number): number => formationDrawingHeight(size) + FORMATION_LABELS_H;
 /** The cell of a formation is its box and a little room for the wobble. */
 const FORMATION_ROOM = 6;
 
 export type PlacedItem = { id: string; x: number; y: number };
-export type PlacedZone = { id: string; x: number; y: number; w: number; h: number };
-export type GroupSpec = { id: string; size: number };
+type PlacedZone = { id: string; x: number; y: number; w: number; h: number };
+type GroupSpec = { id: string; size: number };
 export type ZoneSpec = { id: string; groups: readonly GroupSpec[]; figureIds: readonly string[] };
 /** How a world sets its zones out: side by side (as many in a row as fit), or one narrow zone beside one wide one. A narrow stage stacks them. */
 export type Arrangement = "columns" | "split";

@@ -39,7 +39,7 @@ export type RegistryRow = {
   hasLink: boolean;
 };
 
-export type UriChange = { agentId: string; uri: string };
+type UriChange = { agentId: string; uri: string };
 
 const rowFor = (registration: BscRegistration): RegistryRow => {
   const facts = bscUriFacts(registration.uri);
@@ -116,7 +116,7 @@ export function classifyRegistry(rows: Map<string, RegistryRow>, rules: typeof B
   return { listing, walletSize, hostSize, hashSize };
 }
 
-export type ListingCounts = { recorded: number; listed: number; grouped: number; withoutProfileLink: number; numericName: number };
+type ListingCounts = { recorded: number; listed: number; grouped: number; withoutProfileLink: number; numericName: number };
 
 /** The same five numbers the public registry profile prints, so a replay can be held against it. */
 export function listingCounts(listing: Map<string, Listing>): ListingCounts {
@@ -140,18 +140,18 @@ const MAX_NAME_CHARS = 200;
 const MAX_DESCRIPTION_CHARS = 2_000;
 
 /** Service names and hosts that point at a person or a profile and not at the agent: asked of no one, and not an agent endpoint. */
-export const SOCIAL_SERVICE_NAMES: ReadonlySet<string> = new Set([
+const SOCIAL_SERVICE_NAMES: ReadonlySet<string> = new Set([
   "twitter", "x", "github", "gitlab", "telegram", "discord", "farcaster", "warpcast", "lens", "linkedin", "youtube", "medium", "mirror",
   "email", "mail", "ens", "did", "wallet", "agentwallet", "avatar", "image", "logo", "icon", "docs", "documentation", "whitepaper", "blog", "contact",
 ]);
-export const SOCIAL_HOSTS: readonly string[] = [
+const SOCIAL_HOSTS: readonly string[] = [
   "x.com", "twitter.com", "github.com", "gitlab.com", "t.me", "telegram.me", "telegram.org", "discord.com", "discord.gg", "warpcast.com", "farcaster.xyz",
   "linkedin.com", "youtube.com", "youtu.be", "medium.com", "mirror.xyz", "instagram.com", "facebook.com", "reddit.com", "tiktok.com", "linktr.ee",
 ];
 
 const isSocialHost = (host: string) => SOCIAL_HOSTS.some(social => host === social || host.endsWith(`.${social}`));
 
-export type DeclaredService = { name: string; endpoint: string };
+type DeclaredService = { name: string; endpoint: string };
 
 export type RegistrationFacts = {
   name: string | null;
@@ -179,7 +179,7 @@ export type RegistrationFacts = {
   altAddressCount: number;
 };
 
-export type ParsedRegistration = { ok: true; facts: RegistrationFacts } | { ok: false; reason: "not_json" | "not_object" };
+type ParsedRegistration = { ok: true; facts: RegistrationFacts } | { ok: false; reason: "not_json" | "not_object" };
 
 const text = (value: unknown, cap: number): string | null => {
   if (typeof value !== "string") return null;
@@ -289,7 +289,7 @@ export function inlineJsonText(uri: string): string | null {
 /** D, the headline definition: a name, a description, and at least one https address an agent can be asked at. */
 export const isComplete = (facts: RegistrationFacts): boolean => facts.name !== null && facts.description !== null && facts.agentEndpoints.length > 0;
 /** D, the stricter definition: the headline plus an image, the standard's `type`, and a back reference to this registry and agent id. */
-export const isFullyComplete = (facts: RegistrationFacts): boolean => isComplete(facts) && facts.hasImage && facts.typeMarker && facts.backReference;
+const isFullyComplete = (facts: RegistrationFacts): boolean => isComplete(facts) && facts.hasImage && facts.typeMarker && facts.backReference;
 
 // ------------------------------------------------------------------ junk and empty
 
@@ -319,13 +319,12 @@ const PLACEHOLDER_HOSTS = ["example.com", "example.org", "example.net", "localho
 const PLACEHOLDER_SUFFIXES = [".example", ".test", ".invalid", ".localhost", ".local", ".example.com", ".example.org", ".example.net"];
 const PRIVATE_ADDRESS = /^(127\.|10\.|192\.168\.|169\.254\.|0\.0\.0\.0|172\.(1[6-9]|2\d|3[01])\.)/;
 
-export const SHORT_NAME_CHARS = 2;
-export const SHORT_DESCRIPTION_CHARS = 10;
+const SHORT_NAME_CHARS = 2;
+const SHORT_DESCRIPTION_CHARS = 10;
 
-export type JunkFlag = "placeholder_name" | "placeholder_description" | "placeholder_endpoint" | "short_name" | "short_description" | "name_is_description";
-export const JUNK_FLAGS: readonly JunkFlag[] = ["placeholder_name", "placeholder_description", "placeholder_endpoint", "short_name", "short_description", "name_is_description"];
+type JunkFlag = "placeholder_name" | "placeholder_description" | "placeholder_endpoint" | "short_name" | "short_description" | "name_is_description";
 
-export const isPlaceholderHost = (host: string): boolean => PLACEHOLDER_HOSTS.includes(host) || PLACEHOLDER_SUFFIXES.some(suffix => host.endsWith(suffix)) || PRIVATE_ADDRESS.test(host);
+const isPlaceholderHost = (host: string): boolean => PLACEHOLDER_HOSTS.includes(host) || PLACEHOLDER_SUFFIXES.some(suffix => host.endsWith(suffix)) || PRIVATE_ADDRESS.test(host);
 
 /**
  * Why a registration reads as placeholder text or as no effort, from the text alone. A heuristic list, and every flag is
@@ -369,7 +368,7 @@ export function readAgentCard(raw: string): CardReading {
 }
 
 /** The most addresses of one agent that are asked. */
-export const PROBES_PER_AGENT = 2;
+const PROBES_PER_AGENT = 2;
 
 /** The addresses to ask for an agent: its first agent addresses that are not example or private hosts. */
 export const addressesToAsk = (facts: RegistrationFacts): string[] =>
@@ -377,7 +376,7 @@ export const addressesToAsk = (facts: RegistrationFacts): string[] =>
 
 // ------------------------------------------------------------------ answering (check A)
 
-export type ProbeOutcome = "answered" | "no_answer" | "skipped";
+type ProbeOutcome = "answered" | "no_answer" | "skipped";
 const NO_ANSWER_REASONS: ReadonlySet<string> = new Set(["timeout", "connection_failed", "tls_failed", "response_invalid", "unresolvable"]);
 
 /** What the liveness check records for a fetch result (agentChecks.factsOf; a test pins the two together): a complete HTTP answer, a host that did not answer in full, or an ask a rule stopped. */
@@ -431,10 +430,10 @@ export function groupByKey(members: Array<{ id: string; key: string | null }>, m
 }
 
 export type G1Entry = { agentId: string; owner: string; templateKey: string | null };
-export type G1Kind = "independent" | "wallet_fleet" | "template_group" | "wallet_fleet_and_template_group";
-export type G1Options = { fleetMin?: number; templateMin?: number };
+type G1Kind = "independent" | "wallet_fleet" | "template_group" | "wallet_fleet_and_template_group";
+type G1Options = { fleetMin?: number; templateMin?: number };
 
-export type G1Result = {
+type G1Result = {
   byAgent: Map<string, { kind: G1Kind; walletRegistrations: number; templateSize: number }>;
   walletFleets: FleetGroup[];
   templates: FleetGroup[];
@@ -655,7 +654,7 @@ const tally = (labels: Iterable<string>): Tally => {
   return Array.from(counts, ([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1));
 };
 
-export type Summary = {
+type Summary = {
   g0: { listed: number; byUriKind: Tally; suppressedSkipped: number; walletsBySize: Tally };
   g1: {
     walletFleetWallets: number;

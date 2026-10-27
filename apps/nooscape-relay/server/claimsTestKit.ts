@@ -7,7 +7,7 @@ import { addressOfUncompressedKey, personalMessageHash, toChecksumAddress } from
  * of its own checks. Tests only. The server never holds a key and never signs, and `claimsTestKit.test.ts` fails if any file
  * outside the tests imports this one.
  */
-export type TestWallet = {
+type TestWallet = {
   secretKey: Uint8Array;
   /** The lower-case address. */
   address: string;

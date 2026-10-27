@@ -33,7 +33,7 @@ const SCRIPT_COLLECTOR_ORIGINS: Record<string, string> = {
   "https://cloud.umami.is": "https://gateway.umami.is",
 };
 
-export type CspBuildResult = {
+type CspBuildResult = {
   policy: string;
   inlineScriptHashes: string[];
 };

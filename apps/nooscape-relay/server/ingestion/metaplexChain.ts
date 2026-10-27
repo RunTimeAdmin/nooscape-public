@@ -26,13 +26,12 @@ import type { IngestionSource } from "../../drizzle/schema";
 import type { DirectoryEntryDraft, SolanaChainActivityEvent } from "./types";
 import { callSolanaRpc, parseSolanaRpcResult, sleepSolana, SOLANA_RPC_PACING_MS } from "./solanaRpc";
 
-export const METAPLEX_IDENTITY_PROGRAM = "1DREGFgysWYxLnRnKQnwrxnJQeSMk2HmGaC6whw2B2p";
-export const METAPLEX_CORE_PROGRAM = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
+const METAPLEX_IDENTITY_PROGRAM = "1DREGFgysWYxLnRnKQnwrxnJQeSMk2HmGaC6whw2B2p";
 export const METAPLEX_CHAIN_SOURCE_KEY = "metaplex-solana-agent-registry";
 /** AgentIdentityV1 account `Key` byte (40-byte layout, 68 accounts at probe time). */
-export const METAPLEX_IDENTITY_V1_KEY = 1;
+const METAPLEX_IDENTITY_V1_KEY = 1;
 /** AgentIdentityV2 account `Key` byte (104-byte layout, the 1,575-account majority). */
-export const METAPLEX_IDENTITY_V2_KEY = 2;
+const METAPLEX_IDENTITY_V2_KEY = 2;
 const IDENTITY_V1_BYTES = 40;
 const IDENTITY_V2_BYTES = 104;
 /** Below this the Core asset is closed/burned (5 of 40 spec samples); its PDA may outlive it. */
@@ -40,9 +39,9 @@ const ASSET_CLOSED_BYTES = 40;
 /** key(1) + owner(32) + updateAuthority(1+32); the u32-length name starts here. */
 const ASSET_NAME_OFFSET = 66;
 /** Bounded scan ceiling: 1,643 PDAs at probe time; growth past 4,000 stops the pass loudly. */
-export const METAPLEX_CHAIN_MAX_ASSETS = 4_000;
+const METAPLEX_CHAIN_MAX_ASSETS = 4_000;
 /** getMultipleAccounts batch size — the spec-verified maximum the RPC accepts. */
-export const METAPLEX_CHAIN_BATCH_SIZE = 100;
+const METAPLEX_CHAIN_BATCH_SIZE = 100;
 /**
  * Diff events acknowledged per pass, each costing one attribution call. A
  * busier day is processed over consecutive passes: un-processed changed
@@ -66,7 +65,7 @@ export class MetaplexChainValidationError extends Error {
 
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
-export type MetaplexIdentityRecord = { pda: string; version: 1 | 2; asset: string };
+type MetaplexIdentityRecord = { pda: string; version: 1 | 2; asset: string };
 export type MetaplexAssetState = {
   asset: string;
   owner: string | null;
@@ -79,14 +78,14 @@ export type MetaplexChainPriorEntry = {
   /** True once a prior pass already acknowledged this asset closing (assetClosedAt set). */
   closed: boolean;
 };
-export type MetaplexChainDiffEvent = {
+type MetaplexChainDiffEvent = {
   kind: SolanaChainActivityEvent["kind"];
   asset: string;
   fromOwner: string | null;
   toOwner: string | null;
 };
 
-export type MetaplexChainSnapshot = {
+type MetaplexChainSnapshot = {
   slot: number;
   seed: boolean;
   /** Identity PDAs enumerated (every account returned by the gPA scan). */

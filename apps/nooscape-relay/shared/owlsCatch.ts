@@ -10,8 +10,8 @@
 import { CHAINS, EXTRA_CHAINS, extraChainsOn, listedChainLabel, type ChainStat, type ExtraChainKey, type ExtraChainStat, type ListedChainKey } from "./chains";
 import { FLEET_MIN } from "./noosphere";
 
-export const CATCH_RULES = ["fleet", "milestone"] as const;
-export type CatchRule = (typeof CATCH_RULES)[number];
+const CATCH_RULES = ["fleet", "milestone"] as const;
+type CatchRule = (typeof CATCH_RULES)[number];
 /** A day with nothing to report is stored too, so the day is decided once and never again. */
 export const NO_CATCH = "none";
 export type StoredRule = CatchRule | typeof NO_CATCH;
@@ -23,10 +23,10 @@ export const WALLETS_READ = 40;
 /** How many of a fleet's identities are stored with its catch. */
 export const MAX_AGENT_IDS = 20;
 /** A milestone is recent while the count is under this multiple of it. */
-export const MILESTONE_WINDOW = 1.25;
+const MILESTONE_WINDOW = 1.25;
 
 export type FleetFacts = { registrant: string; agentCount: number; dominantHost: string | null };
-export type MilestoneMetric = "reviewed" | "acknowledged";
+type MilestoneMetric = "reviewed" | "acknowledged";
 export type MilestoneFacts = { chain: ListedChainKey; metric: MilestoneMetric; milestone: number; value: number; asOf: string | null };
 
 export type Choice =
@@ -99,7 +99,7 @@ export function daysBetween(earlier: string, later: string): number {
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
 const isText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
 
-export function parseFleetFacts(value: unknown): FleetFacts | null {
+function parseFleetFacts(value: unknown): FleetFacts | null {
   if (typeof value !== "object" || value === null) return null;
   const facts = value as Record<string, unknown>;
   if (!isText(facts.registrant) || !isCount(facts.agentCount)) return null;
@@ -107,7 +107,7 @@ export function parseFleetFacts(value: unknown): FleetFacts | null {
   return { registrant: facts.registrant, agentCount: facts.agentCount, dominantHost: facts.dominantHost ?? null };
 }
 
-export function parseMilestoneFacts(value: unknown): MilestoneFacts | null {
+function parseMilestoneFacts(value: unknown): MilestoneFacts | null {
   if (typeof value !== "object" || value === null) return null;
   const facts = value as Record<string, unknown>;
   const chain = MILESTONE_CHAINS.find(candidate => candidate === facts.chain);
@@ -238,7 +238,7 @@ export type CatchView = {
 };
 
 /** A directory entry a fleet's catch links to: its id and the name it is recorded under. */
-export type CatchAgent = { id: string; name: string };
+type CatchAgent = { id: string; name: string };
 
 /** What the public reads serve: a catch with the entries it links to by name, and only those the public may see now. */
 export type PublicCatch = Omit<CatchView, "agentIds"> & { agents: CatchAgent[] };

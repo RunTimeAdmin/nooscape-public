@@ -20,7 +20,9 @@ import {
   isFleet,
   LIGHT_GAP,
   layoutNodes,
+  layoutSignature,
   legendEntries,
+  linkedPinId,
   markerPath,
   MAX_NODES,
   nearestLinks,
@@ -359,6 +361,27 @@ describe("what the card shows", () => {
   });
 });
 
+describe("a link's agent on the map", () => {
+  const placed = layoutNodes([record("a"), record("b")]);
+
+  it("is pinned when the map has a node for it, and nothing is pinned when it has not", () => {
+    expect(linkedPinId(placed, "b", false)).toBe("b");
+    expect(linkedPinId(placed, "gone", false)).toBeNull();
+    // Before the records arrive the map is empty; the same link pins when they do.
+    expect(linkedPinId([], "b", false)).toBeNull();
+  });
+
+  it("is used once: after that the reader's pin stands and the link names nothing", () => {
+    expect(linkedPinId(placed, "b", true)).toBeNull();
+  });
+
+  it("names nothing when the link names no agent", () => {
+    expect(linkedPinId(placed, null, false)).toBeNull();
+    expect(linkedPinId(placed, undefined, false)).toBeNull();
+    expect(linkedPinId(placed, "", false)).toBeNull();
+  });
+});
+
 describe("the status lines by kind of selection", () => {
   const target = node("rec-1", 0.5, 0.5);
 
@@ -500,6 +523,30 @@ describe("fleet lights", () => {
   const solanaSample = (...wallets: ReturnType<typeof owner>[]) => ({ fleets: [], groups: 0, registrations: null, asOf: null, solana: { fleets: wallets, groups: wallets.length, asOf: "2026-10-18T12:00:00.000Z" }, robinhood: noRobinhood });
   const robinhoodSample = (...wallets: ReturnType<typeof registrant>[]) => ({ fleets: [], groups: 0, registrations: null, asOf: null, solana: noSolana, robinhood: { fleets: wallets, groups: wallets.length, asOf: "2026-10-19T12:00:00.000Z", listed: null } });
   const withLights = () => [...many(82), ...fleetRecords(sample(fleet("bsc-fleet-a", 129_773), fleet("bsc-fleet-b", 126_839, "shared_link", "Ave.ai Trading Agent"), fleet("bsc-fleet-c", 13_419, "wallet"), fleet("bsc-fleet-d", 300, "template", "CryptoMaster Agent #2")))];
+
+  it("lays out without placing: the same nodes in the same order with the same facts, each left where its id hashes", () => {
+    const placed = layoutNodes(withLights(), 2);
+    const unplaced = layoutNodes(withLights(), 2, { place: false });
+    const facts = ({ x: _x, y: _y, ...rest }: ConstellationNode) => rest;
+    expect(unplaced.map(facts)).toEqual(placed.map(facts));
+    // Nothing is pushed, so the spots do not depend on the order the records arrive in, and placing did move some of them.
+    const spots = (nodes: ConstellationNode[]) => nodes.map(item => `${item.id} ${item.x} ${item.y}`).sort();
+    expect(spots(layoutNodes([...withLights()].reverse(), 2, { place: false }))).toEqual(spots(unplaced));
+    expect(unplaced.some((item, index) => item.x !== placed[index]!.x || item.y !== placed[index]!.y)).toBe(true);
+    // What the landing page reads from its copy, which has no position in it, comes out the same.
+    expect(pickFeaturedNode(unplaced)?.id).toBe(pickFeaturedNode(placed)?.id);
+    expect(legendEntries(unplaced)).toEqual(legendEntries(placed));
+  });
+
+  it("signs what the layout reads and nothing else, so a new list of the same records is laid out once", () => {
+    const first = withLights();
+    const again = first.map(item => ({ ...item, lastObservedAt: new Date(), sourceCount: 9 }));
+    expect(layoutSignature(again)).toBe(layoutSignature(first));
+    expect(layoutNodes(again, 2)).toEqual(layoutNodes(first, 2));
+    expect(layoutSignature(first.map((item, index) => (index === 3 ? { ...item, displayName: `${item.displayName} (renamed)` } : item)))).not.toBe(layoutSignature(first));
+    expect(layoutSignature(first.slice(1))).not.toBe(layoutSignature(first));
+    expect(layoutSignature(first.map(item => (item.fleet ? { ...item, fleet: { ...item.fleet, count: item.fleet.count + 1 } } : item)))).not.toBe(layoutSignature(first));
+  });
 
   it("turns a group into a record of its own kind: its title, its kind in words, BNB Chain, and no tier", () => {
     const [record] = fleetRecords(sample(fleet("bsc-fleet-b", 126_839, "shared_link", "Ave.ai Trading Agent")));

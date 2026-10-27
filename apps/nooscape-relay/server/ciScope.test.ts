@@ -297,7 +297,7 @@ describe("the workflow", () => {
     const names = steps.map(label);
     const byName = (name: string) => steps[names.indexOf(name)]!;
     expect(conditionOf(byName("Test"))).toContain("github.event_name != 'push'");
-    for (const name of ["Install", "Typecheck", "Build", "No Manus tooling in the build", "Dependency audit (advisory)"]) {
+    for (const name of ["Install", "Typecheck", "Build", "No Manus tooling in the build", "No dev-tool attributes in the build", "Dependency audit (advisory)"]) {
       expect(conditionOf(byName(name)), name).toBe(NOT_DOCS);
     }
     // Only the test step and its note look at the event: nothing else is left out of a push.

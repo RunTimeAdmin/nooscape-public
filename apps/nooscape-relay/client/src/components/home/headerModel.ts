@@ -3,7 +3,7 @@
  * without a browser. The bar carries three links, one button and a menu; everything else the old
  * header spread across one crowded row lives in the menu, and the status chips became lines in it.
  */
-export type NavLink = { label: string; href: string };
+type NavLink = { label: string; href: string };
 
 /**
  * The links that stay in the bar. Each is an in-page anchor to a heading id, so a test can check the

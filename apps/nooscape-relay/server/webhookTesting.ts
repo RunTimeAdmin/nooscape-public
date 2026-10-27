@@ -7,7 +7,7 @@ import type { DeliveryRow, LiveWatch, WatchRow, WebhookRow, WebhookStore } from 
  * the same behaviour.
  */
 
-export type MemoryKey = { tier: "free" | "builder" | "pro"; revoked?: boolean };
+type MemoryKey = { tier: "free" | "builder" | "pro"; revoked?: boolean };
 
 export function memoryWebhookStore(keys: Record<string, MemoryKey> = {}, clock: () => Date = () => new Date()) {
   const watches = new Map<string, WatchRow & { keyId: string }>();

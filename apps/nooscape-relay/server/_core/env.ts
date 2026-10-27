@@ -1,8 +1,6 @@
 export const ENV = {
   databaseUrl: process.env.DATABASE_URL ?? "",
   isProduction: process.env.NODE_ENV === "production",
-  forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   nooscapeS3Endpoint: process.env.NOOSCAPE_S3_ENDPOINT ?? "",
   nooscapeS3Region: process.env.NOOSCAPE_S3_REGION ?? "",
   nooscapeS3Bucket: process.env.NOOSCAPE_S3_BUCKET ?? "",

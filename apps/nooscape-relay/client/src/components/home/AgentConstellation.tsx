@@ -3,6 +3,7 @@ import { compactCount, fleetShape, type FleetShape } from "@shared/mapFleets";
 import { useOwl } from "@/contexts/OwlContext";
 import { usePointerKind } from "@/hooks/usePointerKind";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { pageCovered } from "@/lib/pageCover";
 import {
   buildNodeGrid,
   CHAIN_STYLE,
@@ -12,6 +13,7 @@ import {
   isAcknowledged,
   isFleet,
   layoutNodes,
+  layoutSignature,
   markerPath,
   nearestLinks,
   nearestNodeInGrid,
@@ -37,6 +39,8 @@ type Props = {
 
 /** How close the scan point has to be to a dot, in pixels. */
 const SCAN_RADIUS = { fine: 44, coarse: 56 } as const;
+/** The map is drawn at most 30 times a second: its dots only twinkle by a few percent of their opacity, and 60 doubled the work for nothing the eye can tell. */
+const FRAME_MS = 1000 / 30;
 /** The brand accent, for the ring on the selected record. It is the same colour as --ns-radar in index.css. */
 const SELECTED_RING = "#7CF5C8";
 
@@ -87,9 +91,9 @@ function lightOutline(context: CanvasRenderingContext2D, x: number, y: number, r
 /**
  * The map of reviewed records, and beside them the acknowledged entries the page hands it, drawn hollow. The scan point is the owl's feet when the owl is on (and on this page), and
  * otherwise the pointer. A click or tap pins the record under it; the arrow keys move between records, Enter pins
- * and Escape clears. One animation frame loop draws it, and it stops while the map is off screen or the tab is
- * hidden. Nothing in the loop reads the layout: sizes and the canvas's position are cached by observers and
- * scroll and resize handlers.
+ * and Escape clears. One animation frame loop draws it, at most 30 times a second, and it stops while the map is off
+ * screen, the tab is hidden or Deep Space covers the page. Nothing in the loop reads the layout: sizes and the canvas's
+ * position are cached by observers and scroll and resize handlers.
  */
 export function AgentConstellation({ records, scannedId, onScan, pinnedId, onPin, selectedId }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -100,7 +104,10 @@ export function AgentConstellation({ records, scannedId, onScan, pinnedId, onPin
   // The latest of everything the loop reads, so the loop itself never restarts for a re-render.
   // Laid out for the shape the canvas actually has, so dots keep their spacing on a phone as well as a wide screen.
   const [aspect, setAspect] = useState(2);
-  const nodes = useMemo(() => layoutNodes(records, aspect), [records, aspect]);
+  // Keyed on what the layout reads, not on the list: the page hands over a new list on every poll, and placing the lights costs 30 to 400 ms each time.
+  const signature = layoutSignature(records);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `signature` stands for `records`
+  const nodes = useMemo(() => layoutNodes(records, aspect), [signature, aspect]);
   // The faint links join the dots only. The fleet lights come after the dots in `nodes`, so the indices still match.
   const links = useMemo(() => nearestLinks(nodes.filter(node => !isFleet(node)), aspect), [nodes, aspect]);
   const live = useRef({ nodes, links, scannedId, pinnedId, selectedId, onScan, onPin, owlOn: owlEnabled, coarse, reducedMotion });
@@ -123,6 +130,7 @@ export function AgentConstellation({ records, scannedId, onScan, pinnedId, onPin
     let pointer: { x: number; y: number } | null = null;
     let last: string | null = null;
     let frame = 0;
+    let drawnAt = 0;
     // The grid is rebuilt when the nodes or the size change, never per frame.
     let grid = buildNodeGrid([], 1, 1, SCAN_RADIUS.coarse);
     let gridFor: { nodes: readonly ConstellationNode[]; width: number; height: number } | null = null;
@@ -208,7 +216,9 @@ export function AgentConstellation({ records, scannedId, onScan, pinnedId, onPin
 
     const draw = (now: number) => {
       const { nodes: current, links: joins, scannedId: scanned, pinnedId: pinned, selectedId: selected, onScan: report, owlOn, coarse: touch, reducedMotion: still } = live.current;
-      if (visible && !document.hidden) {
+      // Not while the tab is hidden, the map is off screen or Deep Space covers the page, and not more often than FRAME_MS (the gap is a little short, as the hero's is, so a frame that arrives early is not skipped).
+      if (visible && !document.hidden && !pageCovered() && now - drawnAt >= FRAME_MS - 4) {
+        drawnAt = now;
         // Where the scan point is, in canvas pixels: the owl's feet, or the pointer.
         let point: { x: number; y: number } | null = null;
         if (owlOn) point = { x: position.current.x - rect.left, y: position.current.y - rect.top };

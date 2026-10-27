@@ -10,7 +10,7 @@ export const ARRIVALS_WINDOW_HOURS = 24;
 /** How many of a chain's newest entries the page names. */
 export const ARRIVALS_NEWEST_PER_CHAIN = 3;
 
-export type ArrivedEntry = { id: string; displayName: string; firstSeenAt: string };
+type ArrivedEntry = { id: string; displayName: string; firstSeenAt: string };
 
 export type ChainArrivals = {
   chain: ListedChainKey;
@@ -31,7 +31,7 @@ export type Arrivals = {
   chains: ChainArrivals[];
 };
 
-export type ArrivalsInput = {
+type ArrivalsInput = {
   now: Date;
   /** Visible entries first seen in the window, by protocol. */
   counts: ReadonlyArray<{ protocol: string; count: number }>;

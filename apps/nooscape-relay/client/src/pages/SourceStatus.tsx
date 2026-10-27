@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { directoryProtocolLabel } from "@/lib/directoryProtocols";
 import {
@@ -115,7 +114,7 @@ export default function SourceStatus() {
 
       <section className="source-status-guardrail">
         <ShieldAlert size={18} />
-        <div><strong>What this means</strong><p>An <b>active</b> status authorizes bounded reads of public data from that source, scheduled or run by an operator. For an A2A source it also allows a check once a day that the endpoints its approved cards declare answer (Nooscape-Checker). For the 8004 registries on Solana, Robinhood Chain and BNB Chain, and the SAID registry on Solana, it also allows reading the registration link of an entry, a few at a time, to find its name or to group look-alike entries (Nooscape-Checker). It does not verify a publisher key, invoke an agent, execute a tool, authorize payment, or create a trust score.</p></div>
+        <div><strong>What this means</strong><p>An <b>active</b> status authorizes bounded reads of public data from that source, scheduled or run by an operator. For an A2A source it also allows a check once a day that the endpoints its approved cards declare answer (Nooscape-Checker). For the 8004 registries on Solana, Robinhood Chain, BNB Chain, Ethereum, Base and Arc, and the SAID registry on Solana, it also allows reading the registration link of an entry, a few at a time, to find its name or to group look-alike entries (Nooscape-Checker). It does not verify a publisher key, invoke an agent, execute a tool, authorize payment, or create a trust score.</p></div>
       </section>
 
       <footer className="source-status-footer"><span>NOOSCAPE / PUBLIC AGENT OBSERVATORY</span><span>Source state is not a trust tier</span></footer>

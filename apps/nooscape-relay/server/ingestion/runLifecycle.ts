@@ -2,7 +2,7 @@ import { beginIngestionRun, finishIngestionRun } from "../db";
 import type { IngestionSource } from "../../drizzle/schema";
 import type { A2aIngestionResult } from "./types";
 
-export type IngestionTrigger = "manual" | "scheduled" | "replay";
+type IngestionTrigger = "manual" | "scheduled" | "replay";
 
 /**
  * The run lifecycle every approved-source orchestrator shares: open a run,

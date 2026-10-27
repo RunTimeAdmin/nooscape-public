@@ -18,7 +18,7 @@ const ZERO = BigInt(0);
 /** The largest token id a word holds, plus one. */
 const WORD_LIMIT = BigInt(1) << BigInt(256);
 
-export type EvmSignature = { r: Uint8Array; s: Uint8Array; recovery: 0 | 1 };
+type EvmSignature = { r: Uint8Array; s: Uint8Array; recovery: 0 | 1 };
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 export const isEvmAddress = (value: unknown): value is string => typeof value === "string" && ADDRESS.test(value);

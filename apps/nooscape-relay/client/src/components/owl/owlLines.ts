@@ -96,7 +96,7 @@ export const SETTLE_MS = 900;
 /** After a bubble is dismissed the owl says nothing more about that record for this long. */
 export const DISMISS_QUIET_MS = 60_000;
 
-export type SpeakInput = {
+type SpeakInput = {
   now: number;
   /** When the owl came to rest on the perch beside the record, or null while it is not at rest there. */
   restingSince: number | null;

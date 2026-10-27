@@ -8,7 +8,7 @@ import * as schema from "../drizzle/schema";
 import { ARC_CHAIN } from "./ingestion/erc8004Chains";
 
 /**
- * The groups behind the formations on Arc's and Base's own pages, counted over the registry rows of a real database (docs/chain-worlds-2026-10-20.md,
+ * The groups behind the formations on Arc's, Base's and Ethereum's own pages, counted over the registry rows of a real database (docs/chain-worlds-2026-10-20.md,
  * "The Arc world", and docs/base-world-2026-10-21.md): the registering wallets, hosts and profile links that 50 or more registrations share, every registration counted
  * whether it is listed or held out, and a registration that is hidden counted in none. Skips when no database is reachable.
  */
@@ -300,6 +300,45 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
       expect(arc.fleets.every(fleet => fleet.chain === "arc")).toBe(true);
       expect(arc.fleets.some(fleet => fleet.wallet === wallet(7) || fleet.name === "base-host.example.app")).toBe(false);
       expect((await caller().liveData.registryFleets({ chain: "base" })).fleets.map(fleet => fleet.count)).toEqual([70, 55]);
+      features(undefined);
+    });
+
+    it("serves Ethereum's groups the same way, from Ethereum's own rows and only while its switch is on, and never mixes the chains", async () => {
+      await writer.insert(schema.ingestionSources).values({ id: "src-ethereum", sourceKey: "fleets-ethereum", label: "Ethereum", protocol: "erc8004_eth", rootUrl: "https://eth-mainnet.nodereal.io", allowedHostname: "eth-mainnet.nodereal.io", state: "active", createdByUserId: operatorUserId });
+      const [row] = await writer.select().from(schema.ingestionSources).where(eq(schema.ingestionSources.id, "src-ethereum"));
+      const ethereumSource = row!;
+      // A wallet of 90, a host of 60 and three registrations that stand alone, which the pass publishes.
+      await register(ethereumSource, 90, { owner: () => wallet(9) });
+      await register(ethereumSource, 60, { host: "eth-host.example.app" });
+      await register(ethereumSource, 3);
+      await registry.refreshAgentRegistryListing(ethereumSource, { classify: true, publish: true });
+
+      features(undefined);
+      expect(await caller().liveData.registryFleets({ chain: "ethereum" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, asOf: null });
+      features("chain_arc,chain_base");
+      expect((await caller().liveData.registryFleets({ chain: "ethereum" })).fleets).toEqual([]);
+      features("chain_ethereum");
+      const ethereum = await caller().liveData.registryFleets({ chain: "ethereum" });
+      expect(ethereum.fleets.map(fleet => [fleet.chain, fleet.kind, fleet.count])).toEqual([
+        ["ethereum", "wallet", 90],
+        ["ethereum", "platform_host", 60],
+      ]);
+      expect(ethereum.recorded).toBe(153);
+      expect(ethereum.groups).toBe(2);
+      expect(ethereum.walletGroups).toBe(1);
+      expect(ethereum.fleets.every(fleet => /^ethereum-fleet-[0-9a-f]{16}$/.test(fleet.id))).toBe(true);
+      // The other chains' switches are off, so they answer nothing, and none of their wallets or hosts is among Ethereum's groups.
+      expect((await caller().liveData.registryFleets({ chain: "arc" })).fleets).toEqual([]);
+      expect((await caller().liveData.registryFleets({ chain: "base" })).fleets).toEqual([]);
+      expect(ethereum.fleets.some(fleet => fleet.wallet === wallet(1) || fleet.wallet === wallet(7) || fleet.name === "busy.example.app" || fleet.name === "base-host.example.app")).toBe(false);
+      // With all three on, each chain answers from its own rows only.
+      features("chain_arc,chain_base,chain_ethereum");
+      const arc = await caller().liveData.registryFleets({ chain: "arc" });
+      expect(arc.fleets.length).toBeGreaterThan(0);
+      expect(arc.fleets.every(fleet => fleet.chain === "arc")).toBe(true);
+      expect(arc.fleets.some(fleet => fleet.wallet === wallet(9) || fleet.name === "eth-host.example.app")).toBe(false);
+      expect((await caller().liveData.registryFleets({ chain: "base" })).fleets.map(fleet => fleet.count)).toEqual([70, 55]);
+      expect((await caller().liveData.registryFleets({ chain: "ethereum" })).fleets.map(fleet => fleet.count)).toEqual([90, 60]);
       features(undefined);
     });
   });

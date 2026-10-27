@@ -85,6 +85,11 @@ export function ChainTabs({ bnbProfile }: Props) {
               Open the Base page <span aria-hidden="true">&rarr;</span>
             </Link>
           )}
+          {regions.includes("ethereum") && (
+            <Link href="/chains/ethereum" className={PAGE_LINK_CLASS}>
+              Open the Ethereum page <span aria-hidden="true">&rarr;</span>
+            </Link>
+          )}
         </nav>
       </div>
 

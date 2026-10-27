@@ -47,7 +47,7 @@ export function encodeTransferWithAuthorization(z: Authorization, signature: str
   );
 }
 
-export type Call3 = { target: string; allowFailure: boolean; callData: Uint8Array };
+type Call3 = { target: string; allowFailure: boolean; callData: Uint8Array };
 
 export function encodeAggregate3(calls: Call3[]): Uint8Array {
   const tuples = calls.map(call => concatBytes(addressWord(call.target), word(call.allowFailure ? 1 : 0), word(3 * 32), padded(call.callData)));
@@ -60,7 +60,7 @@ export function encodeAggregate3(calls: Call3[]): Uint8Array {
   return concatBytes(AGGREGATE3, word(32), word(calls.length), ...offsets, ...tuples);
 }
 
-export type CallResult = { success: boolean; returnData: Uint8Array };
+type CallResult = { success: boolean; returnData: Uint8Array };
 
 const MAX_RESULTS = 16;
 
@@ -136,7 +136,7 @@ export function refusalWords(reason: string): string {
 }
 
 /** ok: the wallet's code accepted the signature and the transfer would settle. ok false: it would not, with why. null: the chain cannot say. */
-export type ContractVerdict = { ok: true } | { ok: false; why: string } | null;
+type ContractVerdict = { ok: true } | { ok: false; why: string } | null;
 
 export async function checkContractSignature(rpc: Rpc, input: { chainId: number; usdc: string; authorization: Authorization; signature: string; nowSeconds: number }): Promise<ContractVerdict> {
   try {

@@ -44,6 +44,8 @@ export async function runApprovedRobinhoodRegistrySource(
       // The forward walk seeds from the ledger high-water so its anchor and
       // the public "as of block N" label are the same fact.
       activityHighWaterBlock: mode === "activity" ? await readAgentDirectoryActivityHighWater(source.id) : null,
+      // An unattended run does not wait out a throttle for minutes: its tick has 150 seconds, and the next one starts from the same cursor.
+      retry: trigger === "scheduled" ? "short" : "patient",
     });
     for (const entry of snapshot.observations) {
       await persistErc8004RegistryObservation({ source, runId, candidate: entry.candidate, observation: entry.observation });

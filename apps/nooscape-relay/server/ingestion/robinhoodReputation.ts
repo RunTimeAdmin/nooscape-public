@@ -11,7 +11,6 @@ import {
   robinhoodForwardWindowBounds,
   ROBINHOOD_CHAIN_ID_HEX,
   ROBINHOOD_FORWARD_FINALITY_MARGIN_BLOCKS,
-  ROBINHOOD_FORWARD_WINDOW_BLOCKS,
   ROBINHOOD_MAX_BACKFILL_EVENTS,
   ROBINHOOD_MAX_BACKFILL_SUBWINDOW_EVENTS,
   RobinhoodRegistryReorgError,
@@ -461,7 +460,7 @@ export function parseRobinhoodReputationLogs(
   return { discoveredCount: logs.length, rejectedCount, events };
 }
 
-export type RobinhoodReputationCursor =
+type RobinhoodReputationCursor =
   | { mode: "backward-seed" }
   | { mode: "backward"; toBlock: number }
   | { mode: "forward-seed" }
@@ -523,7 +522,7 @@ export function robinhoodReputationBackwardCursorAfter(fromBlock: number): strin
   return fromBlock > 1 ? `rb:${fromBlock - 1}` : "rb:done";
 }
 
-export type RobinhoodReputationFetchResult = {
+type RobinhoodReputationFetchResult = {
   discoveredCount: number;
   rejectedCount: number;
   events: Erc8004ReputationEvent[];

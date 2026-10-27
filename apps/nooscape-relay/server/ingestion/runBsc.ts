@@ -13,8 +13,6 @@ import type { Erc8004IngestionResult } from "./types";
  * failure, the listing refresh, the manual_only source) is there. This file gives the BNB Chain's entry its long-standing
  * names, and its behaviour is the one the pass had before the importer was made generic; the BNB tests hold that unchanged.
  */
-export const BSC_RUN_BUDGET: Erc8004RunBudget = BSC_CHAIN.budget;
-
 type RpcCall = (method: string, params: unknown[]) => Promise<unknown>;
 
 export function runApprovedBscRegistrySource(

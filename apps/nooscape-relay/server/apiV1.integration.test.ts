@@ -6,7 +6,8 @@ import { createConnection, createPool } from "mysql2/promise";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../drizzle/schema";
-import { problems, schemaOf } from "./apiV1Check";
+import { API_CHAINS } from "./apiChains";
+import { problems, schemaOf } from "./apiV1Testing";
 
 /**
  * The REST API against a real database (docs/data-access-2026-10-19.md): what it serves is what the site's own reads serve. A hidden
@@ -236,5 +237,93 @@ describe.skipIf(!dbReachable)("the REST API against a real database", { timeout:
     const none = await get("/api/v1/agents/search?q=zzzznothingzzzz");
     expect(none.status).toBe(200);
     expect(none.json.data).toMatchObject({ results: [], matched_total: 0 });
+  });
+
+  // The stats read the site's own chain figures, so the same rows give the same counts. Each read below drops the shared read cache
+  // first, as an operator's hide or a paused source does, so a change made here shows on the very next read.
+  const stats = async () => {
+    const { invalidateDirectoryReads } = await import("./readCache");
+    invalidateDirectoryReads();
+    const answer = await get("/api/v1/stats");
+    expect(answer.status).toBe(200);
+    expect(problems(schemaOf("StatsResponse"), answer.json)).toEqual([]);
+    const rows = Object.fromEntries((answer.json.data.chains as Array<{ chain: string }>).map(row => [row.chain, row])) as Record<string, Record<string, any>>;
+    return { json: answer.json, rows };
+  };
+
+  it("counts the entries the site's chain tabs count and no others: not a hidden one, one from a paused source or a locator protocol", async () => {
+    const { json, rows } = await stats();
+    expect(json.data.chains.map((row: { chain: string }) => row.chain)).toEqual(["robinhood", "bnb", "solana"]);
+    // Nine rows are seeded. The visible ones on a chain are Alice Agent, Bnb Alice, Solana Alice and the two Said entries.
+    expect(rows.robinhood).toMatchObject({ indexed: true, acknowledged: 1, ratings_recorded: null, registrations_on_chain: null, last_read_at: null });
+    expect(rows.robinhood!.registries).toEqual([{ registry: "erc8004", address: API_CHAINS.robinhood.registry, acknowledged: 1 }]);
+    expect(rows.bnb).toMatchObject({ indexed: true, acknowledged: 1, chain_id: 56 });
+    expect(rows.solana).toMatchObject({ indexed: true, acknowledged: 3, chain_id: null, ratings_recorded: null });
+    // Largest first, and the registry whose only entry is hidden is not listed with a zero.
+    expect(rows.solana!.registries).toEqual([
+      { registry: "solana_said", address: null, acknowledged: 2 },
+      { registry: "solana_8004", address: null, acknowledged: 1 },
+    ]);
+    expect(json.data.totals).toEqual({ acknowledged: 5 });
+    // The same figures as the site's own read of them.
+    const { appRouter } = await import("./routers");
+    const site = (await appRouter.createCaller({ req: {}, res: {}, user: null } as never).liveData.chainStats()).chains;
+    expect(site.map(stat => stat.chain).sort()).toEqual(["bnb", "robinhood", "solana"]);
+    for (const stat of site) {
+      expect(rows[stat.chain], stat.chain).toMatchObject({ indexed: stat.indexed, acknowledged: stat.acknowledged, ratings_recorded: stat.feedbackEvents, last_read_at: stat.asOf });
+      expect(rows[stat.chain]!.registries.map((registry: { registry: string; acknowledged: number }) => [registry.registry, registry.acknowledged]), stat.chain).toEqual(stat.registries.map(registry => [registry.protocol, registry.count]));
+    }
+  });
+
+  it("takes the ratings, the registry's registrations, the last read and the entries first seen in a day from the rows that give the site's tabs theirs", async () => {
+    // Solana's ratings are the 8004 registry's own counters on the visible accounts.
+    await writer.update(schema.agentDirectoryEntries).set({ feedbackCount: 5 }).where(eq(schema.agentDirectoryEntries.id, ids["Solana Alice"]!));
+    // BNB Chain's registrations are the registry rows its pass stored, listed or held out.
+    for (const [index, listing] of [1, 1, 2, 0].entries()) {
+      await writer.insert(schema.agentDirectoryRegistryRows).values({ id: `apiv1-bnb-row-${index}`, sourceId: "src-bnb", externalKey: `eip155:56:${REGISTRY}:${100 + index}`, displayName: `Registration ${index}`, protocol: "erc8004_bsc", listing });
+    }
+    // A chain was last read when its newest active source last succeeded: a paused source's time is not the chain's.
+    const solanaOlder = new Date("2026-10-18T10:00:00Z");
+    const solanaNewer = new Date("2026-10-19T10:00:00Z");
+    const robinhoodRead = new Date("2026-10-18T09:00:00Z");
+    await writer.update(schema.ingestionSources).set({ lastSuccessfulAt: solanaOlder }).where(eq(schema.ingestionSources.id, "src-8004"));
+    await writer.update(schema.ingestionSources).set({ lastSuccessfulAt: solanaNewer }).where(eq(schema.ingestionSources.id, "src-said"));
+    await writer.update(schema.ingestionSources).set({ lastSuccessfulAt: robinhoodRead }).where(eq(schema.ingestionSources.id, "src-rh"));
+    await writer.update(schema.ingestionSources).set({ lastSuccessfulAt: new Date("2026-10-20T09:00:00Z") }).where(eq(schema.ingestionSources.id, "src-paused"));
+    // Said Bob was first seen three days ago: it is listed, and it is not new in the last day.
+    await writer.update(schema.agentDirectoryEntries).set({ firstSeenAt: new Date(Date.now() - 3 * 24 * 3_600_000) }).where(eq(schema.agentDirectoryEntries.id, ids["Said Bob"]!));
+    const { rows } = await stats();
+    expect(rows.solana).toMatchObject({ acknowledged: 3, ratings_recorded: 5, new_in_24h: 2, last_read_at: solanaNewer.toISOString() });
+    expect(rows.bnb).toMatchObject({ acknowledged: 1, registrations_on_chain: 4, new_in_24h: 1 });
+    expect(rows.robinhood).toMatchObject({ acknowledged: 1, registrations_on_chain: null, new_in_24h: 1, last_read_at: robinhoodRead.toISOString() });
+  });
+
+  it("shows an operator's hide and a paused source on the very next read, and reports a chain with no active source as not indexed and not zero", async () => {
+    await writer.update(schema.agentDirectoryEntries).set({ hidden: true }).where(eq(schema.agentDirectoryEntries.id, ids["Alice Agent"]!));
+    let read = await stats();
+    expect(read.rows.robinhood).toMatchObject({ indexed: true, acknowledged: 0, new_in_24h: 0, registries: [] });
+    expect(read.json.data.totals).toEqual({ acknowledged: 4 });
+
+    await writer.update(schema.ingestionSources).set({ state: "paused" }).where(eq(schema.ingestionSources.id, "src-rh"));
+    read = await stats();
+    expect(read.rows.robinhood).toEqual({
+      chain: "robinhood",
+      label: "Robinhood Chain",
+      chain_id: 4663,
+      indexed: false,
+      acknowledged: null,
+      ratings_recorded: null,
+      registrations_on_chain: null,
+      new_in_24h: null,
+      registries: [],
+      last_read_at: null,
+    });
+    expect(read.json.data.totals).toEqual({ acknowledged: 4 });
+
+    await writer.update(schema.ingestionSources).set({ state: "active" }).where(eq(schema.ingestionSources.id, "src-rh"));
+    await writer.update(schema.agentDirectoryEntries).set({ hidden: false }).where(eq(schema.agentDirectoryEntries.id, ids["Alice Agent"]!));
+    read = await stats();
+    expect(read.rows.robinhood).toMatchObject({ indexed: true, acknowledged: 1 });
+    expect(read.json.data.totals).toEqual({ acknowledged: 5 });
   });
 });

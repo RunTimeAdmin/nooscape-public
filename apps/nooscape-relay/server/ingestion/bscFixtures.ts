@@ -9,7 +9,7 @@
  * JSON with no name, a percent-encoded inline JSON, a URI past the 8 KiB
  * derived-view bound, and agent 0.
  */
-export type BscFixtureExpected = {
+type BscFixtureExpected = {
   agentId: string;
   owner: string;
   blockNumber: number;
@@ -21,7 +21,7 @@ export type BscFixtureExpected = {
   inlineName: string | null;
   truncated: boolean;
 };
-export type BscFixtureLog = Record<string, unknown>;
+type BscFixtureLog = Record<string, unknown>;
 
 export const BSC_FIXTURE_REGISTERED: Record<string, { log: BscFixtureLog; expected: BscFixtureExpected }> = {
  "other_scheme": {

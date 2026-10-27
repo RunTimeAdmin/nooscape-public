@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import { apiDeliveries, apiEventCursors, apiKeys, apiWatches, apiWebhooks } from "../drizzle/schema";
 import { getDb, requireDb } from "./db";
+import { isMissingTable } from "./driverErrors";
 
 /**
  * Where webhooks and watchlists are kept (docs/data-access-2026-10-19.md, stage D5). The tables are a manual migration (0045); until they
@@ -73,14 +73,6 @@ export type WebhookStore = {
   getCursor: (name: string) => Promise<string | null>;
   setCursor: (name: string, position: string) => Promise<void>;
 };
-
-function driverErrorHas(error: unknown, code: string): boolean {
-  for (let depth = 0, cause: unknown = error; cause && typeof cause === "object" && depth < 4; depth += 1) {
-    if ((cause as { code?: unknown }).code === code) return true;
-    cause = (cause as { cause?: unknown }).cause;
-  }
-  return false;
-}
 
 const affected = (result: unknown) => Number((result as [{ affectedRows?: number }])[0]?.affectedRows ?? 0);
 
@@ -254,9 +246,5 @@ export const dbWebhookStore: WebhookStore = {
   },
 };
 
-export const newDeliveryId = () => randomUUID();
-
 /** Runs a store step and treats a missing table as "not available" for the caller to turn into its own answer. */
-export function isMissingTable(error: unknown): boolean {
-  return driverErrorHas(error, "ER_NO_SUCH_TABLE");
-}
+export { isMissingTable };

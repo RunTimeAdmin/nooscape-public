@@ -18,7 +18,8 @@ export async function setupVite(app: Express, server: Server) {
   };
 
   const vite = await createViteServer({
-    ...viteConfig,
+    // The config is a function of the command, so it is called the way Vite would; spreading the function itself adds no options at all.
+    ...viteConfig({ command: "serve", mode: "development" }),
     configFile: false,
     server: serverOptions,
     appType: "custom",

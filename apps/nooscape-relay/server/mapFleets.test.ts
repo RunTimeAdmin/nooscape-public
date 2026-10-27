@@ -383,6 +383,25 @@ describe("the words around a light", () => {
     expect(new Set(shapes).size).toBe(5);
   });
 
+  it("words an Ethereum group as a formation on the Ethereum page, with the facts Arc's groups state, and draws it as a pentagon", () => {
+    const ethereum = (kind: MapFleet["kind"], overrides: Partial<MapFleet> = {}): MapFleet => fleet(kind, { chain: "ethereum", count: 10_000, ...overrides });
+    expect(fleetShape(ethereum("platform_host"))).toBe("pentagon");
+    expect(fleetKindLabel(ethereum("platform_host"))).toBe("Same host");
+    expect(fleetFact(ethereum("wallet"))).toBe("10,000 registrations on Ethereum name the same registering wallet.");
+    expect(fleetFact(ethereum("shared_link"))).toBe("10,000 registrations on Ethereum record exactly the same profile link.");
+    expect(fleetFact(ethereum("platform_host", { name: "run.example.app" }))).toBe("10,000 registrations on Ethereum point their profile link at run.example.app.");
+    expect(fleetFact(ethereum("platform_host"))).toBe("10,000 registrations on Ethereum point their profile link at the same host.");
+    expect(fleetNotProved(ethereum("platform_host"))).toBe(FLEET_NOT_PROVED.platform_host);
+    // Like an Arc or Base group, an Ethereum group is a formation on a page and not a light on the map, so it shares Arc's note.
+    expect(fleetOverlapNote(ethereum("wallet"))).toBe(ARC_OVERLAP_NOTE);
+    const words = MAP_FLEET_KINDS.map(kind => fleetFact(ethereum(kind))).join(" ");
+    expect(words).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
+    expect(words).not.toMatch(new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`));
+    // The shapes of the six chains are six, so a group is never told from another by colour alone.
+    const shapes = [ethereum("wallet"), fleet("wallet", { chain: "base" }), fleet("wallet", { chain: "arc" }), owner(), fleet("wallet", { chain: "robinhood" }), fleet("wallet")].map(fleetShape);
+    expect(new Set(shapes).size).toBe(6);
+  });
+
   it("captions the Arc lights with how many are drawn of how many groups there are, and says what a dome is", () => {
     expect(ARC_LIGHTS_LIMIT).toBe(8);
     expect(arcLightsCaption({ groups: 11 }, 8)).toBe(

@@ -5,7 +5,7 @@ import { listedChainLabel, listedChainOf } from "@shared/chains";
 import { SITE_ORIGIN, type PageMeta } from "@shared/owlsCatch";
 import { injectHead } from "./catchPage";
 import { isCircuitOpenError } from "./dbBreaker";
-import { getAgentDirectoryEntry, listLiveAtlasRecords } from "./db";
+import { listLiveAtlasRecords, readAgentDirectoryHeadFacts } from "./db";
 import { isClientRoutePath } from "./clientRoutes";
 import { sanitizePublicText } from "./publicText";
 
@@ -75,6 +75,14 @@ export const ROUTE_HEADS: Record<string, Head> = {
     image: {
       file: "nooscape-card-chain-base.png",
       alt: `Nooscape, World 05, Base: three platforms, same host, same profile link and same wallet, each with cross formations, beside the words The open shore, A busy registry, read in groups, the note Illustration, not agent activity, and the line ${PROMISES}`,
+    },
+  },
+  "/chains/ethereum": {
+    title: "Ethereum registry groups",
+    description: "Explore the groups of Ethereum registrations that share a wallet, a link or a host. A group is not an agent, and a registration is not an endorsement.",
+    image: {
+      file: "nooscape-card-chain-ethereum.png",
+      alt: `Nooscape, World 06, Ethereum: three platforms, same host, same profile link and same wallet, each with pentagon formations, beside the words The pale spire, A long ledger, read in groups, the note Illustration, not agent activity, and the line ${PROMISES}`,
     },
   },
   "/field/arc-registry-2026-10-20": {
@@ -195,7 +203,7 @@ export function agentMeta(id: string, facts: AgentHeadFacts | null): PageMeta {
   return { title: `${facts.name} | Nooscape`, heading: facts.name, description, url, robots: facts.reviewed ? INDEXED : NOT_INDEXED };
 }
 
-export type RouteHeadDeps = { readAgent: (id: string) => Promise<AgentHeadFacts | null> };
+type RouteHeadDeps = { readAgent: (id: string) => Promise<AgentHeadFacts | null> };
 
 /** The column an entry's id is held in is 36 characters wide, so a longer id cannot be an entry. */
 const ENTRY_ID_MAX_CHARS = 36;
@@ -210,7 +218,7 @@ const chainLabelOf = (protocol: string) => {
 /** An id is looked up as a directory entry first (one row by its key), then as a reviewed record (the live records, which is the heavier read). */
 async function readAgentFromDatabase(id: string): Promise<AgentHeadFacts | null> {
   if (id.length <= ENTRY_ID_MAX_CHARS) {
-    const entry = await getAgentDirectoryEntry(id);
+    const entry = await readAgentDirectoryHeadFacts(id);
     if (entry) return { name: cleanName(entry.displayName), reviewed: false, chain: chainLabelOf(entry.protocol) };
   }
   const record = (await listLiveAtlasRecords()).find(item => item.agentId === id);
@@ -223,14 +231,23 @@ const AGENT_CACHE_KEYS = 1_000;
 /** The database read behind /agents/:id, held for a minute per id (an unknown id too), so a crawler cannot make it a read per request. */
 export function cachedAgentReader(read: (id: string) => Promise<AgentHeadFacts | null>, now: () => number = Date.now): (id: string) => Promise<AgentHeadFacts | null> {
   const held = new Map<string, { until: number; facts: AgentHeadFacts | null }>();
+  // Requests for an id that arrive while it is being read share that read, so a burst on one fresh id is one read, not one each.
+  const reading = new Map<string, Promise<AgentHeadFacts | null>>();
   return async id => {
     const at = now();
     const hit = held.get(id);
     if (hit && hit.until > at) return hit.facts;
-    const facts = await read(id);
-    if (held.size >= AGENT_CACHE_KEYS) held.clear();
-    held.set(id, { until: at + AGENT_CACHE_MS, facts });
-    return facts;
+    const pending = reading.get(id);
+    if (pending) return pending;
+    const started = read(id)
+      .then(facts => {
+        if (held.size >= AGENT_CACHE_KEYS) held.clear();
+        held.set(id, { until: at + AGENT_CACHE_MS, facts });
+        return facts;
+      })
+      .finally(() => reading.delete(id));
+    reading.set(id, started);
+    return started;
   };
 }
 

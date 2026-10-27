@@ -11,7 +11,7 @@
 
 /** The two things this code ever asks a wallet. A test fails if the client names any other wallet method. */
 export const WALLET_METHODS = ["eth_requestAccounts", "personal_sign"] as const;
-export type WalletMethod = (typeof WALLET_METHODS)[number];
+type WalletMethod = (typeof WALLET_METHODS)[number];
 
 /** The part of an EIP-1193 provider this code uses. */
 export type Eip1193Provider = { request(args: { method: string; params?: unknown[] }): Promise<unknown> };
@@ -24,7 +24,7 @@ export type WalletWindow = EventTarget & { ethereum?: unknown };
 const isProvider = (value: unknown): value is Eip1193Provider => typeof value === "object" && value !== null && typeof (value as { request?: unknown }).request === "function";
 
 /** How long to wait for wallets to announce themselves. They answer at once; the wait is for a slow extension. */
-export const DISCOVERY_WAIT_MS = 300;
+const DISCOVERY_WAIT_MS = 300;
 
 /**
  * The wallets in this page. A wallet that follows EIP-6963 announces itself when asked, with a name; a page with only the older

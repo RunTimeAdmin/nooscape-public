@@ -21,7 +21,7 @@ export class SolanaRpcValidationError extends Error {
 }
 
 /** HTTP-level failure from the RPC edge; carries the status for transient classification. */
-export class SolanaRpcHttpError extends SolanaRpcValidationError {
+class SolanaRpcHttpError extends SolanaRpcValidationError {
   readonly status: number;
 
   constructor(status: number, message: string) {
@@ -32,7 +32,7 @@ export class SolanaRpcHttpError extends SolanaRpcValidationError {
 }
 
 /** Response above the transport cap — the run fails instead of trusting a truncated read. */
-export class SolanaRpcResponseTooLargeError extends SolanaRpcValidationError {
+class SolanaRpcResponseTooLargeError extends SolanaRpcValidationError {
   constructor(message: string) {
     super(message);
     this.name = "SolanaRpcResponseTooLargeError";
@@ -59,7 +59,7 @@ const RPC_RETRY_BACKOFF_MS = [1_000, 3_000, 8_000];
  */
 export const SOLANA_RPC_PACING_MS = 1_200;
 
-export type SolanaJsonRpcResponse = {
+type SolanaJsonRpcResponse = {
   result?: unknown;
   error?: { code?: number; message?: string } | null;
 };
@@ -71,7 +71,7 @@ export type SolanaJsonRpcResponse = {
  */
 export const SOLANA_MAX_TRANSACTION_VERSION = 1;
 /** The JSON-RPC error code for a transaction whose version is newer than the request allows. */
-export const SOLANA_UNSUPPORTED_TRANSACTION_VERSION_CODE = -32015;
+const SOLANA_UNSUPPORTED_TRANSACTION_VERSION_CODE = -32015;
 
 /** The getTransaction params the attribution walks send for one signature. */
 export const getTransactionParams = (signature: string): unknown[] => [signature, { encoding: "json", maxSupportedTransactionVersion: SOLANA_MAX_TRANSACTION_VERSION }];

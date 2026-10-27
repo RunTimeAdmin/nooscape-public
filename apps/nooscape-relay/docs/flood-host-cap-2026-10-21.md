@@ -205,7 +205,7 @@ OPTIMIZE TABLE agent_directory_chain_activity;
 Then run the size query, and look at the database list in hPanel:
 
 ```sql
-SELECT table_name, ROUND((data_length + index_length) / 1048576) AS mb, table_rows FROM information_schema.tables WHERE table_schema = 'u373211336_nooscape' ORDER BY (data_length + index_length) DESC LIMIT 6;
+SELECT table_name, ROUND((data_length + index_length) / 1048576) AS mb, table_rows FROM information_schema.tables WHERE table_schema = 'app_database' ORDER BY (data_length + index_length) DESC LIMIT 6;
 ```
 
 To clear another host or keep another number, change `'centralcity.ai'` and the `1999` (the cap minus one) in A and B. Arc's source key is

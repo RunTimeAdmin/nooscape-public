@@ -154,14 +154,17 @@ export async function keepWithinHostCap<T extends { host: string | null; blockNu
   if (hosts.length === 0) return { kept: items, counted: 0 };
   const db = requireDb(await getDb());
 
-  // Room left under the cap for each host. The count stops at the cap, so a host with hundreds of thousands of rows costs the same
-  // index range as one at the cap.
-  const room = new Map<string, number>();
-  for (const host of hosts) {
-    const [rows] = (await db.execute(
-      sql`SELECT COUNT(*) AS total FROM (SELECT 1 FROM ${ROWS} WHERE sourceId = ${source.id} AND locatorHost = ${host} LIMIT ${sql.raw(String(cap))}) AS capped`
-    )) as unknown as [Array<{ total: number | string }>];
-    room.set(host, Math.max(0, cap - Number(rows[0]?.total ?? 0)));
+  // Room left under the cap for each host, from one grouped count for every 1,000 hosts of the window (index-only on (sourceId, locatorHost)).
+  // A host stores at most its cap, so its count is about that; a host stored before the cap existed costs its own index range, a few
+  // milliseconds for the largest now (28,000 rows). One query a host cost 2,351 sequential round trips for a window of 2,351 hosts.
+  const room = new Map<string, number>(hosts.map(host => [host, cap]));
+  for (let index = 0; index < hosts.length; index += 1_000) {
+    const counts = await db
+      .select({ host: agentDirectoryRegistryRows.locatorHost, total: sql<number>`count(*)` })
+      .from(agentDirectoryRegistryRows)
+      .where(and(eq(agentDirectoryRegistryRows.sourceId, source.id), inArray(agentDirectoryRegistryRows.locatorHost, hosts.slice(index, index + 1_000))))
+      .groupBy(agentDirectoryRegistryRows.locatorHost);
+    for (const row of counts) if (row.host !== null) room.set(row.host, Math.max(0, cap - Number(row.total)));
   }
 
   const beyond: T[] = [];
@@ -221,7 +224,7 @@ export async function keepStoredTokens<T extends { externalKey: string }>(source
   return events.filter(event => stored.has(event.externalKey));
 }
 
-export type RegistryUriUpdate = {
+type RegistryUriUpdate = {
   externalKey: string;
   locatorHost: string | null;
   profileUriHash: string;
@@ -321,7 +324,7 @@ async function repend(db: Executor, sourceId: string, column: "profileUriHash" |
 }
 
 /** True when any row of the source is waiting for classification. */
-export async function hasPendingRegistryRows(sourceId: string): Promise<boolean> {
+async function hasPendingRegistryRows(sourceId: string): Promise<boolean> {
   const db = requireDb(await getDb());
   const [row] = await db
     .select({ id: agentDirectoryRegistryRows.id })
@@ -368,7 +371,7 @@ export async function classifyAgentRegistryListing(sourceId: string, rules: Regi
   `);
 }
 
-export type RegistryPublishResult = { inserted: number; refreshed: number; removed: number };
+type RegistryPublishResult = { inserted: number; refreshed: number; removed: number };
 
 /**
  * Makes agent_directory_entries agree with the listed rows: listed rows missing
@@ -449,7 +452,7 @@ export async function publishAgentRegistryListing(sourceId: string, options: { i
   return { inserted, refreshed, removed };
 }
 
-export type RegistryRefreshResult = { classified: boolean; published: RegistryPublishResult | null };
+type RegistryRefreshResult = { classified: boolean; published: RegistryPublishResult | null };
 
 /**
  * One refresh after a chain pass: classify when anything is new, changed, or
@@ -477,7 +480,7 @@ export async function refreshAgentRegistryListing(
   }
 }
 
-export type AgentRegistryProfile = {
+type AgentRegistryProfile = {
   /** Every registration the chain pass has stored for the source. */
   recorded: number;
   /** Registrations that pass the rules. */

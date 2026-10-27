@@ -66,7 +66,7 @@ export type PriorAttempt = { status: "resolved" | "no_name" | "failed"; attempts
 /** A failed or empty read is tried again no sooner than this after the last try, so five tries span a day and a bad hour is not a verdict. */
 export const NAME_RETRY_AFTER_MS = 6 * 60 * 60 * 1000;
 
-export type NameAttemptLimits = { failed: number; noName: number };
+type NameAttemptLimits = { failed: number; noName: number };
 
 /**
  * The records to read this run, in agent order and at most `limit`: those never tried, and those whose last try is old enough
@@ -124,7 +124,7 @@ export const ENTRY_PLACEHOLDER_PATTERN = "^Agent #[0-9]+$";
 export const entryNameNote = (day: string) => ` Its name was read from its registration link on ${day}; it is the registrant's own claim.`;
 
 /** What a registration link read from the chain is, for the entries step. */
-export type EntryUriFacts =
+type EntryUriFacts =
   | { kind: "empty" | "other"; uriHash: string }
   | { kind: "inline"; uriHash: string; name: string | null }
   | { kind: "web" | "ipfs"; uriHash: string; uri: string };

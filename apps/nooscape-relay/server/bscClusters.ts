@@ -28,7 +28,7 @@ export type ClusterKind = "wallet" | "shared_link" | "platform_host" | "template
  * What a link read from the chain gives the evidence of a listed entry. The registration file behind a web or ipfs link is read
  * later by its own step (bscRegistrationFiles.ts), which sets "fetched", or one of the statuses of a link that could not be read.
  */
-export type EvidenceFacts = {
+type EvidenceFacts = {
   /** "inline": decoded from the link itself. "link_not_read": a web or ipfs link, not read yet. "unreadable": inline JSON that does not parse. */
   readStatus: "inline" | "link_not_read" | "unreadable";
   templateKey: string | null;
@@ -60,7 +60,7 @@ export function evidenceFromFile(text: string, agentId: string, profileUriHash: 
 
 export type EvidenceRow = { externalKey: string; registrant: string; readStatus: string; templateKey: string | null };
 
-export type EntryG1 = {
+type EntryG1 = {
   g1: "independent" | "template_group" | "wallet_fleet" | "wallet_fleet_and_template_group" | "unread";
   templateSize: number;
   walletRegistrations: number;

@@ -34,7 +34,7 @@ export const EVIDENCE_FROM = "reviewed";
 /** How long each step of the fog takes to clear. */
 export const FOG_STAGE_MS = 600;
 
-export type FogSplit = { fog: readonly FunnelStep[]; left: readonly FunnelStep[] };
+type FogSplit = { fog: readonly FunnelStep[]; left: readonly FunnelStep[] };
 
 /** The fog and what is left of it, or null when the funnel cannot say: no evidence step, nothing before it, or its count not measured yet. */
 export function fogSplit(steps: readonly FunnelStep[]): FogSplit | null {
@@ -43,7 +43,7 @@ export function fogSplit(steps: readonly FunnelStep[]): FogSplit | null {
   return { fog: steps.slice(0, at), left: steps.slice(at) };
 }
 
-export type FogRow = {
+type FogRow = {
   key: string;
   value: number | null;
   role: "fog" | "left";

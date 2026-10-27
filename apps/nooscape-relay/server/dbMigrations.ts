@@ -32,17 +32,30 @@ const BASELINE_VERSION = 14;
  * 41: an index on `agent_directory_entries.firstSeenAt`, for the home page's "new in the last day" counts (docs/new-to-the-owl-2026-10-17.md, "The migration (0041) is run by hand").
  * 42: `agent_claim_nonces`, `agent_claims` and `agent_claim_edits`, the owner claim flow (docs/claims-2026-10-18.md, "The migration (0042) is run by hand").
  * 46: the `erc8004_base`, `erc8004_eth` and `erc8004_arc` protocol values on the four tables that carry the protocol list, for the Base, Ethereum and Arc identity passes (docs/multichain-erc8004-2026-10-20.md, "The migration (0046) is run by hand").
+ * 49: drops `ingestion_worker_config`.`tickSeconds`, which the operator console set and nothing read (docs/worker-operations.md). The code no longer names it and runs the same with or without the column, so the operator runs this when it suits.
+ * 51: the `solana_agenc` protocol value on the four tables that carry the protocol list, for the AgenC registry pass (docs/agenc-solana-2026-10-26.md, "The migration (0051) is run by hand"). It restates the whole list, which ends with the 0046 values, so it needs 0046 first.
  */
-export const MANUAL_MIGRATIONS: readonly number[] = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+export const MANUAL_MIGRATIONS: readonly number[] = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 49, 51];
+
+/**
+ * Versions an operator recorded by hand under a name other than their file's, and left so. The runner counts a recorded version as applied and
+ * skips its file, so a recorded name that is not the file's means the file never ran; every difference but these stops the boot.
+ *
+ * 47: `0047_base_scheduled_flip`, the Base flip the operator applied by hand on 20 October 2026, whose file was never merged. The host cap's
+ * `0047_registry_overflow_counts` was skipped for it and its table created by hand (docs/flood-host-cap-2026-10-21.md, "What went wrong at the deploy").
+ */
+const RECORDED_UNDER_ANOTHER_NAME: Readonly<Record<number, string>> = { 47: "0047_base_scheduled_flip" };
 
 const MIGRATIONS_TABLE = "nooscape_schema_migrations";
+
+const withoutExtension = (name: string) => name.replace(/\.sql$/i, "");
 
 /** Default migrations folder. The server runs with the app root as cwd. */
 function defaultMigrationsDir() {
   return path.resolve(process.cwd(), "drizzle");
 }
 
-export interface MigrationFile {
+interface MigrationFile {
   version: number;
   /** Full file name including the version prefix, e.g. "0015_directory_entry_hidden.sql". */
   name: string;
@@ -112,7 +125,8 @@ export function migrationLockName(databaseUrl: string): string {
  * insert. Returns the file names applied this boot (empty when current).
  * Throws on the first failure so the caller can refuse to serve traffic
  * against a stale schema — a half-applied migration fails the boot loudly
- * instead of leaving the API silently failing closed. The manual migrations
+ * instead of leaving the API silently failing closed. A version that is recorded under another file's name fails it too (the file would be
+ * skipped as applied and never run), except the one reviewed case in RECORDED_UNDER_ANOTHER_NAME. The manual migrations
  * (MANUAL_MIGRATIONS) are left for an operator and are never applied here.
  */
 export async function applyPendingMigrations(databaseUrl: string, migrationsDir = defaultMigrationsDir(), lockWaitSeconds = MIGRATION_LOCK_WAIT_SECONDS): Promise<string[]> {
@@ -134,13 +148,29 @@ export async function applyPendingMigrations(databaseUrl: string, migrationsDir 
         ` PRIMARY KEY (\`version\`)` +
         ")"
     );
-    const [rows] = (await connection.query(`SELECT \`version\` FROM \`${MIGRATIONS_TABLE}\``)) as [Array<{ version: number }>, unknown];
-    const appliedRows = (Array.isArray(rows) ? rows : []) as Array<{ version: number }>;
+    const [rows] = (await connection.query(`SELECT \`version\`, \`name\` FROM \`${MIGRATIONS_TABLE}\``)) as [Array<{ version: number; name?: string }>, unknown];
+    const appliedRows = (Array.isArray(rows) ? rows : []) as Array<{ version: number; name?: string }>;
     const applied = new Set<number>();
+    const recordedAs = new Map<number, string>();
     for (const row of appliedRows) {
       applied.add(Number(row.version));
+      if (typeof row.name === "string") recordedAs.set(Number(row.version), row.name);
     }
     const files = await collectMigrationFiles(migrationsDir);
+    // A version recorded under another file's name would be skipped as applied and its file would never run. Nothing is applied until that is fixed.
+    const skipped = files.filter(file => {
+      const recorded = recordedAs.get(file.version);
+      if (recorded === undefined || file.version <= BASELINE_VERSION || MANUAL_MIGRATIONS.includes(file.version)) return false;
+      const recordedName = withoutExtension(recorded);
+      return recordedName !== withoutExtension(file.name) && recordedName !== RECORDED_UNDER_ANOTHER_NAME[file.version];
+    });
+    if (skipped.length > 0) {
+      const lines = skipped.map(file => `version ${file.version} is recorded as "${recordedAs.get(file.version)}" and its file is "${file.name}"`);
+      throw new Error(
+        `The migration log disagrees with the migration files: ${lines.join("; ")}. A version that is recorded counts as applied, so that file would never run. ` +
+          "Run the file by hand and correct the log row, or rename the file, and start again."
+      );
+    }
     if (applied.size === 0) {
       // First boot with this runner: stamp the hand-applied history so the
       // bookkeeping table reflects the full schema story.

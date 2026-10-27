@@ -85,6 +85,12 @@ const REQUEST_TIMEOUT_MS = 20_000;
  */
 const TRANSIENT_RPC_HTTP_STATUSES = new Set([403, 429, 500, 502, 503, 504]);
 const RPC_RETRY_BACKOFF_MS = [1_500, 3_500, 10_000, 30_000, 60_000];
+/**
+ * The waits of the scheduled walk: 5 seconds in all, where the manual adapters wait out 105. A tick has 150 seconds in all and its later steps
+ * skip a tick that has run 90 to 100, so a throttle that does not clear in a few seconds ends the run, which keeps its cursor, and the next
+ * tick tries again from the same place.
+ */
+export const SCHEDULED_RPC_RETRY_BACKOFF_MS: readonly number[] = [1_500, 3_500];
 
 export class RobinhoodRegistryValidationError extends Error {
   constructor(message: string) {
@@ -517,7 +523,7 @@ export function parseRobinhoodRegisteredLogs(
   };
 }
 
-export type RobinhoodBackfillCursor = { mode: "seed" } | { mode: "walk"; toBlock: number } | { mode: "done" };
+type RobinhoodBackfillCursor = { mode: "seed" } | { mode: "walk"; toBlock: number } | { mode: "done" };
 
 /**
  * Parses the persisted ERC-8004 backfill position: `null` seeds the walk just
@@ -541,7 +547,7 @@ export function robinhoodBackfillCursorAfter(fromBlock: number): string {
   return fromBlock > 1 ? `bf:${fromBlock - 1}` : "bf:done";
 }
 
-export type RobinhoodRegistrantCursor = { mode: "seed" } | { mode: "walk"; toBlock: number } | { mode: "done" };
+type RobinhoodRegistrantCursor = { mode: "seed" } | { mode: "walk"; toBlock: number } | { mode: "done" };
 
 /**
  * Parses the persisted ERC-8004 registrant-walk position: `null` or a finished
@@ -567,7 +573,7 @@ export function robinhoodRegistrantCursorAfter(fromBlock: number): string {
   return fromBlock > 1 ? `rb:${fromBlock - 1}` : "rb:done";
 }
 
-export type RobinhoodActivityCursor = { mode: "seed" } | { mode: "walk"; toBlock: number } | { mode: "done" };
+type RobinhoodActivityCursor = { mode: "seed" } | { mode: "walk"; toBlock: number } | { mode: "done" };
 
 /**
  * Parses the persisted ERC-8004 activity-walk position: `ac:done` marks the
@@ -598,7 +604,7 @@ export function robinhoodActivityCursorAfter(fromBlock: number): string {
   return fromBlock > 1 ? `ac:${fromBlock - 1}` : "ac:done";
 }
 
-export type RobinhoodForwardCursor = { mode: "seed" } | { mode: "anchor"; block: number; blockHash: string };
+type RobinhoodForwardCursor = { mode: "seed" } | { mode: "anchor"; block: number; blockHash: string };
 
 /**
  * Parses the persisted forward-walk position: `ac:done` seeds the walk at the
@@ -768,26 +774,32 @@ export function splitBackfillWindow(fromBlock: number, toBlock: number): { fromB
 
 type JsonRpcResponse = { result?: unknown; error?: { code?: unknown; message?: unknown } };
 
-export async function callRobinhoodRpc(body: Record<string, unknown>, countAttempt?: () => void): Promise<JsonRpcResponse> {
+export async function callRobinhoodRpc(
+  body: Record<string, unknown>,
+  countAttempt?: () => void,
+  backoffMs: readonly number[] = RPC_RETRY_BACKOFF_MS
+): Promise<JsonRpcResponse> {
   // The Cloudflare-fronted edge throttles rapid bursts with transient 403/429
   // and intermittently blocks the calling IP for minutes, so the bounded
   // ladder waits a block out (~2 minutes across five steps) before the run
-  // fails; only the manual Robinhood adapters invoke this wrapper, so the
-  // longer waits never stall the scheduled worker. Every wire attempt is
-  // reported back so the run's request count stays honest.
+  // fails. That is for the manual Robinhood adapters, which have no tick to
+  // hold up; the scheduled walk passes SCHEDULED_RPC_RETRY_BACKOFF_MS, so a
+  // block that outlasts a few seconds ends its run and the next tick tries
+  // again. Every wire attempt is reported back so the run's request count
+  // stays honest.
   for (let attempt = 0; ; attempt += 1) {
     countAttempt?.();
     try {
       return await callRobinhoodRpcOnce(body);
     } catch (error) {
       if (
-        attempt >= RPC_RETRY_BACKOFF_MS.length ||
+        attempt >= backoffMs.length ||
         !(error instanceof RobinhoodRegistryHttpError) ||
         !TRANSIENT_RPC_HTTP_STATUSES.has(error.status)
       ) {
         throw error;
       }
-      await new Promise(resolve => setTimeout(resolve, RPC_RETRY_BACKOFF_MS[attempt]));
+      await new Promise(resolve => setTimeout(resolve, backoffMs[attempt]));
     }
   }
 }
@@ -848,10 +860,11 @@ export async function callRobinhoodRpcOnce(body: Record<string, unknown>): Promi
  * a successful window. Hash case is normalized so comparisons are exact.
  * Shared with the reputation adapter's forward walk.
  */
-export async function fetchRobinhoodBlockHash(blockNumber: number, countAttempt?: () => void): Promise<string> {
+export async function fetchRobinhoodBlockHash(blockNumber: number, countAttempt?: () => void, backoffMs?: readonly number[]): Promise<string> {
   const response = await callRobinhoodRpc(
     { method: "eth_getBlockByNumber", params: [`0x${blockNumber.toString(16)}`, false] },
-    countAttempt
+    countAttempt,
+    backoffMs
   );
   if (response.error || typeof response.result !== "object" || response.result === null) {
     throw new RobinhoodRegistryValidationError(`Robinhood Chain RPC did not return block ${blockNumber} for the forward-walk anchor.`);
@@ -891,6 +904,8 @@ export async function fetchRobinhoodRegistry(
     mode?: "observe" | "backfill" | "registrants" | "activity";
     /** The activity ledger's high-water block — the forward walk's seed anchor. */
     activityHighWaterBlock?: number | null;
+    /** How long a throttled call is waited out: "patient" (the default) for an operator's run, "short" for the scheduled walk. */
+    retry?: "patient" | "short";
   } = {}
 ) {
   if (source.protocol !== "erc8004" || source.sourceKey !== "robinhood-erc8004-identity-registry") {
@@ -907,12 +922,13 @@ export async function fetchRobinhoodRegistry(
   const countRpcAttempt = () => {
     requestCount += 1;
   };
-  const chain = await callRobinhoodRpc({ method: "eth_chainId", params: [] }, countRpcAttempt);
+  const backoffMs = options.retry === "short" ? SCHEDULED_RPC_RETRY_BACKOFF_MS : RPC_RETRY_BACKOFF_MS;
+  const chain = await callRobinhoodRpc({ method: "eth_chainId", params: [] }, countRpcAttempt, backoffMs);
   if (chain.error || chain.result !== ROBINHOOD_CHAIN_ID_HEX) {
     throw new RobinhoodRegistryValidationError("Robinhood Chain RPC did not confirm the approved chain id 4663.");
   }
 
-  const headResponse = await callRobinhoodRpc({ method: "eth_blockNumber", params: [] }, countRpcAttempt);
+  const headResponse = await callRobinhoodRpc({ method: "eth_blockNumber", params: [] }, countRpcAttempt, backoffMs);
   const headBlock = typeof headResponse.result === "string" ? Number.parseInt(headResponse.result.slice(2), 16) : Number.NaN;
   if (!Number.isSafeInteger(headBlock)) throw new RobinhoodRegistryValidationError("Robinhood Chain RPC did not return a valid head block.");
 
@@ -962,7 +978,8 @@ export async function fetchRobinhoodRegistry(
           },
         ],
       },
-      countRpcAttempt
+      countRpcAttempt,
+      backoffMs
     );
     if (logsResponse.error) {
       // The public node enforces its own window caps (block range per filter
@@ -1004,11 +1021,11 @@ export async function fetchRobinhoodRegistry(
         );
       }
       anchorBlock = highWater;
-      anchorHash = await fetchRobinhoodBlockHash(anchorBlock, countRpcAttempt);
+      anchorHash = await fetchRobinhoodBlockHash(anchorBlock, countRpcAttempt, backoffMs);
     } else {
       anchorBlock = forwardCursor.block;
       anchorHash = forwardCursor.blockHash;
-      const liveHash = await fetchRobinhoodBlockHash(anchorBlock, countRpcAttempt);
+      const liveHash = await fetchRobinhoodBlockHash(anchorBlock, countRpcAttempt, backoffMs);
       if (liveHash !== anchorHash) {
         throw new RobinhoodRegistryReorgError(
           `Forward-walk anchor reorg: block ${anchorBlock} now hashes to ${liveHash}, not the anchored ${anchorHash}. ` +
@@ -1080,7 +1097,7 @@ export async function fetchRobinhoodRegistry(
       backfillEventLimit: eventLimit,
     });
     const activitySnapshot = parseRobinhoodActivityLogs(activityLogs, scannedWindow, { activityEventLimit: eventLimit });
-    const topHash = await fetchRobinhoodBlockHash(scannedTo, countRpcAttempt);
+    const topHash = await fetchRobinhoodBlockHash(scannedTo, countRpcAttempt, backoffMs);
     return {
       discoveredCount: registeredSnapshot.discoveredCount + activitySnapshot.discoveredCount,
       rejectedCount: registeredSnapshot.rejectedCount + activitySnapshot.rejectedCount,

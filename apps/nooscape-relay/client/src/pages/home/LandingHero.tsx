@@ -1,15 +1,14 @@
 import { Link } from "wouter";
 import { Term } from "@/components/Term";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentConstellation } from "@/components/home/AgentConstellation";
 import { CheckCard } from "@/components/home/CheckCard";
 import { bubbleFacts } from "@/components/home/landingFacts";
 import { ScanStatusLine } from "@/components/home/ScanStatusLine";
-import { acknowledgedLegendEntries, acknowledgedRecords, CHAIN_STYLE, currentSelection, fleetRecords, isAcknowledged, isFleet, layoutNodes, legendEntries, markerPath, statusLines, type AcknowledgedSample, type ConstellationRecord, type EvidenceState } from "@/components/home/constellationModel";
+import { acknowledgedLegendEntries, acknowledgedRecords, CHAIN_STYLE, currentSelection, fleetRecords, isAcknowledged, isFleet, layoutNodes, legendEntries, linkedPinId, markerPath, statusLines, type AcknowledgedSample, type ConstellationRecord, type EvidenceState } from "@/components/home/constellationModel";
 import { sweepLine } from "@/components/home/sweepModel";
 import { setOwlFacts } from "@/components/owl/owlFacts";
 import { useOwl } from "@/contexts/OwlContext";
-import type { ChainStat } from "@shared/chains";
 import { arcLightsCaption, fleetShape, fleetsCaption, robinhoodLightsCaption, solanaLightsCaption, type MapFleets, type RegistryFleets } from "@shared/mapFleets";
 import { tierExplanations } from "@/lib/evidenceExplain";
 import { trpc } from "@/lib/trpc";
@@ -24,6 +23,8 @@ type Props = {
   fleets?: MapFleets | null;
   /** The groups of Arc registrations that share one wallet, host or profile link, from `liveData.registryFleets`, while Arc's switch is on: each of the largest is drawn as one large dome with its count. */
   arcFleets?: RegistryFleets | null;
+  /** The agent a link named (?agent=): pinned on the map once, when the map has it. */
+  linkedAgentId?: string | null;
 };
 
 /** The parts of the evidence envelope the card reads. */
@@ -38,7 +39,7 @@ type EnvelopeFacts = {
  * The only other dots are the hollow ones: entries from `liveData.mapAcknowledged` that the directory lists and Nooscape has
  * not reviewed. Nothing else is drawn.
  */
-export default function LandingHero({ records, status, acknowledged = null, fleets = null, arcFleets = null }: Props) {
+export default function LandingHero({ records, status, acknowledged = null, fleets = null, arcFleets = null, linkedAgentId = null }: Props) {
   const { enabled: owlOn } = useOwl();
   const entries = useMemo(() => acknowledgedRecords(acknowledged), [acknowledged]);
   const lights = useMemo(() => fleetRecords(fleets, arcFleets), [fleets, arcFleets]);
@@ -47,9 +48,18 @@ export default function LandingHero({ records, status, acknowledged = null, flee
     const reviewed = new Set(records.map(candidate => candidate.agentId));
     return [...records, ...entries.filter(entry => !reviewed.has(entry.agentId)), ...lights];
   }, [records, entries, lights]);
-  const nodes = useMemo(() => layoutNodes(everything), [everything]);
+  // This copy is for the selection, the legend and the counts, which read no position; the map lays itself out for its own size.
+  const nodes = useMemo(() => layoutNodes(everything, 1.6, { place: false }), [everything]);
   const [scannedId, setScannedId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
+  // A link that names an agent pins it as soon as the map has it, and only that once: the pin is the reader's after that.
+  const linkUsed = useRef(false);
+  useEffect(() => {
+    const linked = linkedPinId(nodes, linkedAgentId, linkUsed.current);
+    if (linked === null) return;
+    linkUsed.current = true;
+    setPinnedId(linked);
+  }, [nodes, linkedAgentId]);
   // The card shows the pinned record, else the one under the scan, else the one the map opens on, so it is never empty.
   const selection = useMemo(() => currentSelection(nodes, pinnedId, scannedId), [nodes, pinnedId, scannedId]);
   const node = selection.node;

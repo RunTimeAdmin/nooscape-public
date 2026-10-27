@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, type RefObject } from "react";
 import type { NoosphereSample } from "@shared/noosphere";
+import { onPageCoverChange, pageCovered } from "@/lib/pageCover";
 import { markerPath, type MarkerShape } from "./constellationModel";
 import {
   activeSweep,
@@ -309,7 +310,7 @@ function mountNoosphere({ canvas, host, sky, sample, budget, reduced, coarse, ho
 
   let onScreen = true;
   const sync = () => {
-    const shouldRun = onScreen && !document.hidden && !reduced;
+    const shouldRun = onScreen && !document.hidden && !reduced && !pageCovered();
     if (shouldRun && !running) {
       running = true;
       last = performance.now();
@@ -332,6 +333,7 @@ function mountNoosphere({ canvas, host, sky, sample, budget, reduced, coarse, ho
   });
   visibility?.observe(host);
   document.addEventListener("visibilitychange", sync);
+  const uncover = onPageCoverChange(sync);
   measure();
   sync();
 
@@ -341,6 +343,7 @@ function mountNoosphere({ canvas, host, sky, sample, budget, reduced, coarse, ho
     cancelAnimationFrame(measureFrame);
     window.removeEventListener("pointermove", onPointer);
     document.removeEventListener("visibilitychange", sync);
+    uncover();
     resize?.disconnect();
     visibility?.disconnect();
     onSighted(null);

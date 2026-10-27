@@ -10,7 +10,7 @@ export type PublisherValidation = {
   statusChangedAt: string | null;
 };
 
-export type SignedEvidenceEntry = {
+type SignedEvidenceEntry = {
   id: string;
   observedAt: string;
   event: string;
@@ -38,7 +38,7 @@ let signer: EvidenceSigner | undefined;
  * The generated key is deliberately a local-development fallback only; production
  * deployment validation requires NOOSCAPE_EVIDENCE_SIGNING_PRIVATE_KEY to be set.
  */
-export function getEvidenceSigner(): EvidenceSigner {
+function getEvidenceSigner(): EvidenceSigner {
   if (signer) return signer;
 
   const encodedPrivateKey = ENV.nooscapeEvidenceSigningPrivateKey;
@@ -68,7 +68,7 @@ export function getEvidenceSigner(): EvidenceSigner {
 
 export type RelayKeyStatus = "active" | "retired" | "revoked" | "unknown";
 
-export type RelayKeyEntry = {
+type RelayKeyEntry = {
   keyId: string;
   publicKeyPem: string;
   status: Exclude<RelayKeyStatus, "unknown">;

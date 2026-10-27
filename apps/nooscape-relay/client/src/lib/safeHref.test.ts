@@ -34,7 +34,7 @@ describe("the pages that show a stored locator", () => {
   const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
   it("link to it only through safeHttpsHref", () => {
-    for (const file of ["../pages/Home.tsx", "../pages/EcosystemContext.tsx"]) {
+    for (const file of ["../pages/home/DeepSpace.tsx", "../pages/EcosystemContext.tsx"]) {
       const source = read(file);
       expect(source, file).toContain("safeHttpsHref(");
       const lines = source.split("\n").filter(line => /href=\{[^}]*locator/i.test(line));

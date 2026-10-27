@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   runRobinhoodNames: vi.fn(async (_options?: { tickStartedAt?: number }) => ({ state: "completed" })),
   runBscRegistrationFiles: vi.fn(async (_options?: { tickStartedAt?: number }) => ({ state: "completed" })),
   runSaidNames: vi.fn(async (_options?: { tickStartedAt?: number }) => ({ state: "completed" })),
+  runChainNames: vi.fn(async (_options?: { tickStartedAt?: number }) => ({ state: "completed" })),
   recheckClaims: vi.fn(async () => ({ checked: 0, revoked: 0, unavailable: 0, stoppedBy: "done" as const })),
   runApprovedA2aSource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
   runApprovedAgenstrySource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
@@ -48,6 +49,7 @@ vi.mock("../bscRatersRun", () => ({ runBscRaters: mocks.runBscRaters }));
 vi.mock("../robinhoodNames", () => ({ runRobinhoodNames: mocks.runRobinhoodNames }));
 vi.mock("../bscRegistrationFiles", () => ({ runBscRegistrationFiles: mocks.runBscRegistrationFiles }));
 vi.mock("../saidNames", () => ({ runSaidNames: mocks.runSaidNames }));
+vi.mock("../chainNames", () => ({ runChainNames: mocks.runChainNames }));
 vi.mock("../claims", () => ({ recheckClaims: mocks.recheckClaims }));
 vi.mock("./runA2a", () => ({ runApprovedA2aSource: mocks.runApprovedA2aSource }));
 vi.mock("./runAgenstry", () => ({ runApprovedAgenstrySource: mocks.runApprovedAgenstrySource }));
@@ -142,6 +144,23 @@ describe("runRateLimitedIngestionTick", () => {
       // zero, and the claimed sources still run to completion.
       expect(result).toMatchObject({ state: "completed", expiredPublisherKeys: 0, completedSourceIds: ["src-8004"] });
       expect(errorLog).toHaveBeenCalledOnce();
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  it("logs a failed publisher-key expiry on one line and at most 500 characters, as the other best-effort steps do", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // A driver message can carry a statement with its line breaks and its parameters.
+      const message = "Failed query: update publisher_keys" + String.fromCharCode(10) + "set state = ?" + String.fromCharCode(13, 10) + "params: " + "k".repeat(2_000);
+      mocks.expireDuePublisherKeys.mockRejectedValueOnce(new Error(message));
+      await runRateLimitedIngestionTick();
+      const line = JSON.parse(String(errorLog.mock.calls[0]![0])) as { event: string; message: string };
+      expect(line.event).toBe("nooscape_publisher_key_expiry_failed");
+      expect(line.message).toHaveLength(500);
+      expect(/[\r\n]+/.test(line.message)).toBe(false);
+      expect(line.message.startsWith("Failed query: update publisher_keys set state = ? params: kkk")).toBe(true);
     } finally {
       errorLog.mockRestore();
     }
@@ -328,6 +347,50 @@ describe("runRateLimitedIngestionTick", () => {
       mocks.claimDueIngestionSources.mockResolvedValueOnce({ config: {}, sources: [s8004], reason: "due" });
       await runRateLimitedIngestionTick();
       expect(mocks.runSaidNames).toHaveBeenCalledTimes(1);
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  it("runs the Base, Arc and Ethereum name step after the SAID names, on a tick that claimed sources, never on a paused or held-back one, and never lets it fail the tick or be stopped by the steps before it", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const s8004 = scheduledSource("src-8004", "solana_8004");
+      const order: string[] = [];
+      mocks.runSaidNames.mockImplementationOnce(async () => {
+        order.push("said");
+        return { state: "completed" };
+      });
+      mocks.runChainNames.mockImplementationOnce(async () => {
+        order.push("chain-names");
+        return { state: "completed" };
+      });
+      mocks.recheckClaims.mockImplementationOnce(async () => {
+        order.push("claims");
+        return { checked: 0, revoked: 0, unavailable: 0, stoppedBy: "done" as const };
+      });
+      mocks.claimDueIngestionSources.mockResolvedValueOnce({ config: {}, sources: [s8004], reason: "due" });
+      await runRateLimitedIngestionTick();
+      expect(order).toEqual(["said", "chain-names", "claims"]);
+      expect(mocks.runChainNames).toHaveBeenCalledTimes(1);
+      expect(mocks.runChainNames).toHaveBeenCalledWith({ tickStartedAt: expect.any(Number) });
+      for (const reason of ["paused", "rate_limited"] as const) {
+        mocks.claimDueIngestionSources.mockResolvedValueOnce({ config: {}, sources: [], reason });
+        await runRateLimitedIngestionTick();
+      }
+      expect(mocks.runChainNames).toHaveBeenCalledTimes(1);
+      mocks.runChainNames.mockRejectedValueOnce(new Error("chain names down\nsomething"));
+      mocks.claimDueIngestionSources.mockResolvedValueOnce({ config: {}, sources: [s8004], reason: "due" });
+      const result = await runRateLimitedIngestionTick();
+      expect(result).toEqual({ state: "completed", attemptedSourceIds: ["src-8004"], completedSourceIds: ["src-8004"], failedSourceIds: [], expiredPublisherKeys: 0 });
+      expect(JSON.parse(String(errorLog.mock.calls[0]![0]))).toEqual({ event: "nooscape_chain_names_failed", message: "chain names down something" });
+      // The step after it still ran, and a step before it that throws does not keep it from running.
+      expect(mocks.recheckClaims).toHaveBeenCalledTimes(2);
+      mocks.runSaidNames.mockRejectedValueOnce(new Error("said names down"));
+      mocks.runChainNames.mockClear();
+      mocks.claimDueIngestionSources.mockResolvedValueOnce({ config: {}, sources: [s8004], reason: "due" });
+      await runRateLimitedIngestionTick();
+      expect(mocks.runChainNames).toHaveBeenCalledTimes(1);
     } finally {
       errorLog.mockRestore();
     }

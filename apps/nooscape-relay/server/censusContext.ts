@@ -1,7 +1,7 @@
 import { getLatestCensusObservation } from "./db";
 import { storageReadText } from "./storage";
 
-export type EcosystemMetric = {
+type EcosystemMetric = {
   label: string;
   value: number;
   detail: string;

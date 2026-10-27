@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, gte, inArray, like, lt, sql } from "drizzle-orm";
 import { apiPayments } from "../drizzle/schema";
 import { getDb, requireDb } from "./db";
+import { driverErrorHas } from "./driverErrors";
 
 /**
  * The record of what callers paid (docs/data-access-2026-10-19.md, stage D4): one row for each USDC authorization signed for an API
@@ -18,7 +19,7 @@ import { getDb, requireDb } from "./db";
  * repeated write cannot undo a result.
  */
 
-export type PaymentStatus = "settling" | "open" | "paid" | "refused" | "closed";
+type PaymentStatus = "settling" | "open" | "paid" | "refused" | "closed";
 
 export type PaymentRow = {
   id: string;
@@ -43,7 +44,7 @@ export type PaymentRow = {
 
 export type NewPayment = Pick<PaymentRow, "paymentId" | "network" | "endpoint" | "payer" | "nonce" | "amount" | "validBefore" | "subjectHash">;
 
-export type PaymentChange = { status: "open" | "paid" | "refused"; transaction?: string | null; reason?: string | null };
+type PaymentChange = { status: "open" | "paid" | "refused"; transaction?: string | null; reason?: string | null };
 
 export type PaymentSummary = { status: string; count: number; amount: number };
 
@@ -74,14 +75,6 @@ export type PaymentLedger = {
   /** How many payments, and how much, on one network by status, since a date. */
   summary: (network: string, since: Date) => Promise<PaymentSummary[]>;
 };
-
-function driverErrorHas(error: unknown, code: string): boolean {
-  for (let depth = 0, cause: unknown = error; cause && typeof cause === "object" && depth < 4; depth += 1) {
-    if ((cause as { code?: unknown }).code === code) return true;
-    cause = (cause as { cause?: unknown }).cause;
-  }
-  return false;
-}
 
 const affected = (result: unknown) => Number((result as [{ affectedRows?: number }])[0]?.affectedRows ?? 0);
 

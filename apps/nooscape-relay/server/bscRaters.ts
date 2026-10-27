@@ -46,7 +46,7 @@ export function liveFeedback(events: readonly FeedbackEvent[]): FeedbackEvent[] 
   return events.filter(event => event.kind === "feedback" && !(event.feedbackIndex !== null && revoked.has(`${event.agentId}:${event.client}:${event.feedbackIndex}`)));
 }
 
-export type RaterStats = {
+type RaterStats = {
   client: string;
   events: number;
   /** Distinct agents the rater rated. */
@@ -118,7 +118,7 @@ export function linkOf(client: string, agent: AgentFacts | undefined, facts: Pic
   return null;
 }
 
-export type AgentRaterResult = {
+type AgentRaterResult = {
   agentId: number;
   /** Ratings that stand. */
   rawEvents: number;

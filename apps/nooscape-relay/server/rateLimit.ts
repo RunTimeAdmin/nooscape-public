@@ -31,7 +31,7 @@ const FULL_TABLE_SWEEP_MS = 1000;
 const buckets = new Map<string, Bucket>();
 let lastSweepAt = 0;
 
-export type RateLimitVerdict = {
+type RateLimitVerdict = {
   allowed: boolean;
   retryAfterMs: number;
   remaining: number;
@@ -82,6 +82,16 @@ export function sweepExpiredRateLimits(now = Date.now()) {
   });
 }
 
+/** Whether a window still has room, without taking a place in it. The answer is the one `consumeRateLimit` would give, bar the count. */
+export function peekRateLimit(key: string, limit: number, windowMs: number, now = Date.now()): RateLimitVerdict {
+  let bucket = buckets.get(key);
+  // A full table counts a client it has no room for in a shared window; the peek looks where the count would go.
+  if (!bucket && buckets.size >= MAX_TRACKED_KEYS) bucket = buckets.get(`overflow|${limit}|${windowMs}`);
+  if (!bucket || now - bucket.startedAt >= windowMs) return { allowed: true, retryAfterMs: 0, remaining: limit };
+  if (bucket.count >= limit) return { allowed: false, retryAfterMs: windowMs - (now - bucket.startedAt), remaining: 0 };
+  return { allowed: true, retryAfterMs: 0, remaining: Math.max(limit - bucket.count, 0) };
+}
+
 export function consumeRateLimit(
   key: string,
   limit: number,
@@ -123,15 +133,20 @@ export function clientKeyFrom(request: {
   return clientBucketKey(request.ip);
 }
 
+/** Whole seconds a refused caller is told to wait: never under one, since a Retry-After of 0 invites an immediate retry. */
+export function retryAfterSeconds(retryAfterMs: number): number {
+  return Math.max(Math.ceil(retryAfterMs / 1000), 1);
+}
+
 /** Express middleware applying a fixed-window limit per client key. */
 export function rateLimitExpress(name: string, limit: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction) => {
     const clientKey = clientKeyFrom(req);
     const verdict = consumeRateLimit(`${name}:${clientKey}`, limit, windowMs);
     if (!verdict.allowed) {
-      const retryAfterSeconds = Math.max(Math.ceil(verdict.retryAfterMs / 1000), 1);
-      console.warn(`[RateLimit] ${name} limit reached for ${clientKey} (retry in ${retryAfterSeconds}s)`);
-      res.set("Retry-After", String(retryAfterSeconds));
+      const seconds = retryAfterSeconds(verdict.retryAfterMs);
+      console.warn(`[RateLimit] ${name} limit reached for ${clientKey} (retry in ${seconds}s)`);
+      res.set("Retry-After", String(seconds));
       res.status(429).json({ error: "Too many requests. Try again later." });
       return;
     }

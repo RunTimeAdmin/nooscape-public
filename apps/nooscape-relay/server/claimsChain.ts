@@ -56,7 +56,7 @@ export const CLAIM_CHAIN_READS_PER_MINUTE = 60;
  * refuses (as an outage, "try again") rather than queue when it is spent. The worker's daily check does not take it: it is bounded by
  * the 25 claims a run, and it must not be starved by visitors, or starve them.
  */
-export function makeCallChain(options: { admit: boolean }): EvmCall {
+function makeCallChain(options: { admit: boolean }): EvmCall {
   return async (chainId, method, params) => {
     try {
       if (options.admit && !consumeRateLimit(`claim-chain:${chainId}`, CLAIM_CHAIN_READS_PER_MINUTE, 60_000).allowed) throw new ChainUnavailableError();
@@ -89,7 +89,7 @@ export const callChain: EvmCall = makeCallChain({ admit: true });
 /** For the worker's daily check. */
 export const callChainForWorker: EvmCall = makeCallChain({ admit: false });
 
-export type OwnerRead = { status: "owner"; owner: string } | { status: "none" };
+type OwnerRead = { status: "owner"; owner: string } | { status: "none" };
 
 /**
  * The lower-case address the registry says owns the agent now, or `none` when the token does not exist (the call reverted) or the

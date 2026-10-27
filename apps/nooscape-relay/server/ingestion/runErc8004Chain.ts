@@ -1,5 +1,6 @@
 import { applyAgentRegistryUriUpdates, insertAgentRegistryRows, keepStoredTokens, keepWithinHostCap, refreshAgentRegistryListing } from "../agentRegistryRows";
 import { applyAgentDirectoryActivityWindow } from "../db";
+import { describeFailure } from "../driverErrors";
 import type { IngestionSource } from "../../drizzle/schema";
 import { assertPublicHostname } from "./a2a";
 import {
@@ -35,6 +36,10 @@ import type { Erc8004IngestionResult } from "./types";
  * later window updated), then the ledger (INSERT-IGNORE, with an incremental rollup onto the registry rows), then the URI facts.
  * Every write is idempotent, so a retry after any failure is safe. The cursor advances only past windows that were fully applied.
  *
+ * A window the node refuses as too large (its own limit, or the response cap in erc8004Rpc.ts) goes back to the front of the queue as its
+ * two halves, and each half is fetched and applied as a window of its own, so the response cap, the log bound and the cursor all hold per
+ * half. A half that is still refused splits again, down to MIN_SPLIT_WIDTH.
+ *
  * Registrations go to the registry rows table, not the directory: a registry can hold hundreds of thousands, mostly templates
  * and platform issuers. After the windows, a listing refresh classifies the rows against the published rules and, once the walk
  * has caught up with the finalized head, publishes the listed subset into the directory (agentRegistryRows.ts). A refresh
@@ -52,8 +57,11 @@ import type { Erc8004IngestionResult } from "./types";
 type Budget = Erc8004RunBudget;
 type RpcCall = (method: string, params: unknown[]) => Promise<unknown>;
 
-/** The narrowest window a result-size rejection may split down to before the run fails. */
-const MIN_SPLIT_WIDTH = 1_000;
+/**
+ * The narrowest window a result-size rejection may split down to before the run fails. Ten blocks of the densest stretch measured on
+ * Base (64 events a block, 22 October 2026) is 640 events, far inside the response cap.
+ */
+const MIN_SPLIT_WIDTH = 10;
 
 const hex = (value: number) => `0x${value.toString(16)}`;
 
@@ -67,24 +75,18 @@ function parseBlockNumber(chain: Erc8004Chain, result: unknown, label: string): 
   return parsed;
 }
 
-/** One window's raw logs. A result-size rejection halves the window; a block-range rejection is a planner bug and propagates. */
+/** One window's raw logs. */
 async function fetchWindowLogs(chain: Erc8004Chain, rpc: RpcCall, window: ChainWindow): Promise<unknown[]> {
-  try {
-    const logs = await rpc("eth_getLogs", [
-      { address: chain.identityRegistry, fromBlock: hex(window.from), toBlock: hex(window.to), topics: ERC8004_IDENTITY_TOPIC_FILTER },
-    ]);
-    if (!Array.isArray(logs)) throw validationError(chain, `${chain.chainLabel} identity log response must be an array.`);
-    return logs;
-  } catch (error) {
-    if (error instanceof Erc8004RpcRangeError && error.reason === "result_size" && window.to - window.from + 1 > MIN_SPLIT_WIDTH) {
-      const middle = Math.floor((window.from + window.to) / 2);
-      const first = await fetchWindowLogs(chain, rpc, { from: window.from, to: middle });
-      const second = await fetchWindowLogs(chain, rpc, { from: middle + 1, to: window.to });
-      return first.concat(second);
-    }
-    throw error;
-  }
+  const logs = await rpc("eth_getLogs", [
+    { address: chain.identityRegistry, fromBlock: hex(window.from), toBlock: hex(window.to), topics: ERC8004_IDENTITY_TOPIC_FILTER },
+  ]);
+  if (!Array.isArray(logs)) throw validationError(chain, `${chain.chainLabel} identity log response must be an array.`);
+  return logs;
 }
+
+/** A result-size refusal of a window wide enough to halve. A block-range refusal is a planner bug and is not split. */
+const refusedAsTooLarge = (reason: unknown, window: ChainWindow) =>
+  reason instanceof Erc8004RpcRangeError && reason.reason === "result_size" && window.to - window.from + 1 > MIN_SPLIT_WIDTH;
 
 /** A refresh failure never fails a run whose windows are already applied; the next run refreshes again. */
 async function refreshListing(chain: Erc8004Chain, source: IngestionSource, options: { classify: boolean; publish: boolean }) {
@@ -195,71 +197,87 @@ export async function runApprovedErc8004ChainSource(
     let stopReason: Error | null = null;
     const bounds = (window: ChainWindow) => ({ fromBlock: window.from, toBlock: window.to });
 
-    outer: for (let index = 0; index < windows.length; index += budget.concurrency) {
+    outer: while (windows.length > 0) {
       if (now() - startedAt > budget.maxElapsedMs || acceptedCount >= budget.maxEvents) break;
-      const batch = windows.slice(index, index + budget.concurrency);
+      const batch = windows.splice(0, budget.concurrency);
       const fetched = await Promise.allSettled(batch.map(window => fetchWindowLogs(chain, rpc, window)));
       for (let offset = 0; offset < batch.length; offset += 1) {
         const window = batch[offset]!;
         const outcome = fetched[offset]!;
         if (outcome.status === "rejected") {
+          if (refusedAsTooLarge(outcome.reason, window)) {
+            // Its two halves go back ahead of the windows fetched after it, which are read again, so the order stays the chain's.
+            console.warn(`[${chain.logTag}] blocks ${window.from} to ${window.to} were too large for one read and are read in halves.`);
+            const middle = Math.floor((window.from + window.to) / 2);
+            windows.unshift({ from: window.from, to: middle }, { from: middle + 1, to: window.to }, ...batch.slice(offset + 1));
+            continue outer;
+          }
           stopReason = outcome.reason instanceof Error ? outcome.reason : new Error(`${label} window fetch failed.`);
           break outer;
         }
         if (now() - startedAt > budget.maxElapsedMs || acceptedCount >= budget.maxEvents) break outer;
 
-        const parsed = parseWindowLogs(chain, outcome.value, bounds(window));
-        let drafts = parsed.registrations.map(registration => ({ draft: directoryDraft(chain, registration), blockNumber: registration.blockNumber }));
-        // A chain with a host cap stores no more than the cap of rows for one host: the rest are counted (agentRegistryRows.ts).
-        if (chain.hostRowCap !== undefined && drafts.length > 0) {
-          const { kept } = await keepWithinHostCap(
-            source,
-            drafts.map(({ draft, blockNumber }) => ({ draft, blockNumber, host: draft.locatorHost, externalKey: draft.externalKey })),
-            chain.hostRowCap
-          );
-          drafts = kept;
-        }
-        if (drafts.length > 0) {
-          await insertAgentRegistryRows({ source, runId, drafts: drafts.map(({ draft }) => draft) });
-        }
-        // The events of a token that was counted and not stored have no row to roll up onto, so they are dropped with it.
-        let activity = parsed.activity;
-        let uriUpdates = parsed.uriUpdates;
-        if (chain.hostRowCap !== undefined) {
-          activity = await keepStoredTokens(source.id, activity);
-          const stored = new Set(activity.map(event => event.externalKey));
-          uriUpdates = uriUpdates.filter(update => stored.has(update.externalKey));
-        }
-        if (activity.length > 0) {
-          await applyAgentDirectoryActivityWindow({
-            source,
-            activity,
-            handoutBlockWindow: chain.handoutBlockWindow,
-            incrementalRollup: true,
-            rollupTarget: "registry",
+        try {
+          const parsed = parseWindowLogs(chain, outcome.value, bounds(window));
+          let drafts = parsed.registrations.map(registration => ({ draft: directoryDraft(chain, registration), blockNumber: registration.blockNumber }));
+          // A chain with a host cap stores no more than the cap of rows for one host: the rest are counted (agentRegistryRows.ts).
+          if (chain.hostRowCap !== undefined && drafts.length > 0) {
+            const { kept } = await keepWithinHostCap(
+              source,
+              drafts.map(({ draft, blockNumber }) => ({ draft, blockNumber, host: draft.locatorHost, externalKey: draft.externalKey })),
+              chain.hostRowCap
+            );
+            drafts = kept;
+          }
+          if (drafts.length > 0) {
+            await insertAgentRegistryRows({ source, runId, drafts: drafts.map(({ draft }) => draft) });
+          }
+          // The events of a token that was counted and not stored have no row to roll up onto, so they are dropped with it.
+          let activity = parsed.activity;
+          let uriUpdates = parsed.uriUpdates;
+          if (chain.hostRowCap !== undefined) {
+            activity = await keepStoredTokens(source.id, activity);
+            const stored = new Set(activity.map(event => event.externalKey));
+            uriUpdates = uriUpdates.filter(update => stored.has(update.externalKey));
+          }
+          if (activity.length > 0) {
+            await applyAgentDirectoryActivityWindow({
+              source,
+              activity,
+              handoutBlockWindow: chain.handoutBlockWindow,
+              incrementalRollup: true,
+              rollupTarget: "registry",
+            });
+          }
+          const updates = uriUpdates.flatMap(update => {
+            if (update.uri === null) return [];
+            const facts = uriFacts(update.uri);
+            return [
+              {
+                externalKey: update.externalKey,
+                locatorHost: facts.locatorHost,
+                profileUriHash: facts.profileUriHash,
+                hasProfileLink: hasProfileLink(facts),
+              },
+            ];
           });
-        }
-        const updates = uriUpdates.flatMap(update => {
-          if (update.uri === null) return [];
-          const facts = uriFacts(update.uri);
-          return [
-            {
-              externalKey: update.externalKey,
-              locatorHost: facts.locatorHost,
-              profileUriHash: facts.profileUriHash,
-              hasProfileLink: hasProfileLink(facts),
-            },
-          ];
-        });
-        // The URI-update step re-evaluates the groups a changed link leaves, so it counts them against the chain's own rules.
-        if (updates.length > 0) await applyAgentRegistryUriUpdates({ source, runId, updates, ...(chain.listingRules ? { rules: chain.listingRules } : {}) });
-        changedRows += drafts.length + updates.length;
+          // The URI-update step re-evaluates the groups a changed link leaves, so it counts them against the chain's own rules.
+          if (updates.length > 0) await applyAgentRegistryUriUpdates({ source, runId, updates, ...(chain.listingRules ? { rules: chain.listingRules } : {}) });
+          changedRows += drafts.length + updates.length;
 
-        discoveredCount += parsed.discoveredCount;
-        acceptedCount += parsed.registrations.length + parsed.activity.length;
-        rejectedCount += parsed.rejectedCount;
-        appliedWindows += 1;
-        nextBlock = window.to + 1;
+          discoveredCount += parsed.discoveredCount;
+          acceptedCount += parsed.registrations.length + parsed.activity.length;
+          rejectedCount += parsed.rejectedCount;
+          appliedWindows += 1;
+          nextBlock = window.to + 1;
+        } catch (error) {
+          // A window that cannot be parsed or applied (a provider fault in its answer, a database error) ends the run at the windows before it, which
+          // are kept, and the next run starts at it: every write is idempotent, so what was written of it is written again. With no window applied
+          // there is nothing to keep, and the run fails with the cursor where it was.
+          if (appliedWindows === 0) throw error;
+          stopReason = new Error(describeFailure(error));
+          break outer;
+        }
       }
     }
 

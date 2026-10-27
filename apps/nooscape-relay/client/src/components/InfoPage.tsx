@@ -12,7 +12,7 @@ export const textClass = "mt-3 max-w-prose text-base leading-7 text-ns-ink-dim";
 export const listClass = "mt-3 max-w-prose list-disc space-y-2 pl-5 text-base leading-7 text-ns-ink-dim";
 
 /** The pages this frame links in its footer. */
-export const INFO_LINKS = [
+const INFO_LINKS = [
   { href: "/disputes", label: "Disputes" },
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },

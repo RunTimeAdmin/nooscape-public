@@ -8,7 +8,7 @@
  * server to decide. The server refuses a wrong-mode run before it records
  * anything, so a stale console can never create a failed run.
  */
-export type ReputationWalkMode = "backfill" | "activity" | "unknown";
+type ReputationWalkMode = "backfill" | "activity" | "unknown";
 
 export function reputationWalkMode(cursor: string | null | undefined): ReputationWalkMode {
   const trimmed = (cursor ?? "").trim();
@@ -28,7 +28,7 @@ export function reputationWalkMode(cursor: string | null | undefined): Reputatio
  * every button, leaving the server to decide. Observe ("Run once") fits every
  * position and is not gated.
  */
-export type IdentityWalkMode = "backfill" | "registrants" | "activity";
+type IdentityWalkMode = "backfill" | "registrants" | "activity";
 
 export function identityWalkModes(cursor: string | null | undefined): IdentityWalkMode[] | "unknown" {
   const trimmed = (cursor ?? "").trim();

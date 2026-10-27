@@ -32,7 +32,7 @@ interface CapturedQuery {
 
 const captured: CapturedQuery[] = [];
 // Scripted answer for `SELECT version FROM nooscape_schema_migrations`.
-let scriptedAppliedVersions: Array<{ version: number }> = [];
+let scriptedAppliedVersions: Array<{ version: number; name?: string }> = [];
 // When set, any query whose SQL contains this fragment rejects, simulating a
 // broken migration statement.
 let failOnSql: string | null = null;
@@ -71,14 +71,14 @@ vi.mock("mysql2/promise", () => ({
   })),
 }));
 
-function resetRun(appliedVersions: Array<number>) {
+function resetRun(appliedVersions: Array<number>, recordedNames: Record<number, string> = {}) {
   captured.length = 0;
   connectionEnded = false;
   failOnSql = null;
   lockAvailable = true;
   lockEvents = [];
   lockArguments = [];
-  scriptedAppliedVersions = appliedVersions.map(version => ({ version }));
+  scriptedAppliedVersions = appliedVersions.map(version => (recordedNames[version] === undefined ? { version } : { version, name: recordedNames[version] }));
 }
 
 function writeFixture(dir: string, name: string, content: string) {
@@ -192,6 +192,77 @@ describe("applyPendingMigrations", () => {
     } finally {
       rmSync(failing, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the names in the migration log", () => {
+  const url = "mysql://test:test@localhost:3306/nooscape_test";
+  const folder = (files: Record<string, string>) => {
+    const dir = mkdtempSync(path.join(process.cwd(), "migration-test-"));
+    for (const [name, sql] of Object.entries(files)) writeFixture(dir, name, sql);
+    return dir;
+  };
+  const withFolder = async (files: Record<string, string>, run: (dir: string) => Promise<void>) => {
+    const dir = folder(files);
+    try {
+      await run(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("stops the boot and applies nothing when a version is recorded under another file's name", async () => {
+    await withFolder(
+      { "0001_seed.sql": "CREATE TABLE `baseline_never_runs` (id int);", "0090_new.sql": "CREATE TABLE `never_runs_90` (id int);", "0091_next.sql": "CREATE TABLE `never_runs_91` (id int);" },
+      async dir => {
+        resetRun([90], { 90: "0090_something_else.sql" });
+        await expect(applyPendingMigrations(url, dir)).rejects.toThrow('version 90 is recorded as "0090_something_else.sql" and its file is "0090_new.sql"');
+        // Not even the later, unrecorded 0091 ran, and the connection and the lock were given back.
+        expect(captured.every(entry => !entry.sql.includes("never_runs"))).toBe(true);
+        expect(connectionEnded).toBe(true);
+        expect(lockEvents).toContain("release");
+      }
+    );
+  });
+
+  it("names every version that disagrees", async () => {
+    await withFolder({ "0090_a.sql": "SELECT 1;", "0091_b.sql": "SELECT 1;" }, async dir => {
+      resetRun([90, 91], { 90: "0090_x.sql", 91: "0091_y.sql" });
+      const error = await applyPendingMigrations(url, dir).then(() => new Error("the boot did not stop"), (reason: unknown) => reason as Error);
+      expect(error.message).toContain('version 90 is recorded as "0090_x.sql"');
+      expect(error.message).toContain('version 91 is recorded as "0091_y.sql"');
+    });
+  });
+
+  it("lets a version through that is recorded under its own file's name, with or without the .sql, and goes on to the next", async () => {
+    await withFolder({ "0090_new.sql": "CREATE TABLE `table_90` (id int);", "0091_next.sql": "CREATE TABLE `table_91` (id int);" }, async dir => {
+      resetRun([90], { 90: "0090_new" });
+      expect(await applyPendingMigrations(url, dir)).toEqual(["0091_next.sql"]);
+      resetRun([90], { 90: "0090_new.sql" });
+      expect(await applyPendingMigrations(url, dir)).toEqual(["0091_next.sql"]);
+    });
+  });
+
+  it("lets version 47 through under the name an operator recorded it by hand, and skips its file as before", async () => {
+    await withFolder({ "0047_registry_overflow_counts.sql": "CREATE TABLE `overflow_never_created` (id int);" }, async dir => {
+      resetRun([47], { 47: "0047_base_scheduled_flip.sql" });
+      expect(await applyPendingMigrations(url, dir)).toEqual([]);
+      expect(captured.every(entry => !entry.sql.includes("overflow_never_created"))).toBe(true);
+    });
+  });
+
+  it("does not look at the names of the baseline or the manual migrations, which an operator records by hand", async () => {
+    await withFolder({ "0005_old.sql": "SELECT 1;", "0043_api_keys.sql": "SELECT 1;" }, async dir => {
+      resetRun([5, 43], { 5: "0005_other.sql", 43: "api_keys_by_hand" });
+      expect(await applyPendingMigrations(url, dir)).toEqual([]);
+    });
+  });
+
+  it("starts from the real folder against the log as production holds it: every version from 15 under its file's name, 47 under the Base flip", async () => {
+    const real = (await collectMigrationFiles(path.resolve(process.cwd(), "drizzle"))).filter(file => file.version > 14);
+    expect(real.some(file => file.version === 47)).toBe(true);
+    resetRun(real.map(file => file.version), Object.fromEntries(real.map(file => [file.version, file.version === 47 ? "0047_base_scheduled_flip.sql" : file.name])));
+    expect(await applyPendingMigrations(url)).toEqual([]);
   });
 });
 
@@ -368,6 +439,36 @@ describe("manual migrations", () => {
     expect(statements.join("\n")).not.toMatch(/\b(DROP|DELETE|INSERT|UPDATE|TRUNCATE|CREATE|ADD)\b/i);
   });
 
+  it("keep the AgenC protocol value out of every boot too: version 51 is on the list, its file is the repository's, and a boot from the real folder never mentions it", async () => {
+    // Taking 51 off the list would make the next boot restate the whole protocol list, the 0046 values with it, before the owner chose.
+    expect(MANUAL_MIGRATIONS).toContain(51);
+    const repoDrizzleDir = path.resolve(process.cwd(), "drizzle");
+    expect((await collectMigrationFiles(repoDrizzleDir)).map(file => file.name)).toContain("0051_solana_agenc_protocol.sql");
+    resetRun([]);
+    const applied = await applyPendingMigrations(url, repoDrizzleDir);
+    expect(applied).not.toContain("0051_solana_agenc_protocol.sql");
+    expect(captured.some(entry => entry.sql.includes("solana_agenc") || entry.params[0] === 51)).toBe(false);
+  });
+
+  it("make the 0051 file do exactly one thing: append the one value, last, to the protocol list of the four tables that carry it", () => {
+    const content = readFileSync(path.resolve(process.cwd(), "drizzle", "0051_solana_agenc_protocol.sql"), "utf8");
+    const statements = splitMigrationStatements(content);
+    expect(statements).toHaveLength(4);
+    // The list 0046 left, in its order. The file restates it whole, so a database that has run 0046 is unchanged but for the new value.
+    const earlier = "'a2a','anp','agntcy','erc8004','erc8004_reputation','catalog','census','solana_registry','solana_8004','usdg_settlement','solana_said','erc8004_bsc','erc8004_base','erc8004_eth','erc8004_arc'";
+    const tables: string[] = [];
+    for (const statement of statements) {
+      const match = /^ALTER TABLE `(\w+)` MODIFY COLUMN `protocol` enum\((.+)\) NOT NULL;?$/s.exec(statement.trim());
+      expect(match, statement.slice(0, 80)).not.toBeNull();
+      tables.push(match![1]!);
+      // Nothing earlier is touched or reordered, and the new value comes after it: nothing is inserted mid-list.
+      expect(match![2]).toBe(`${earlier},'solana_agenc'`);
+    }
+    expect(tables.sort()).toEqual(["agent_directory_entries", "agent_directory_registry_rows", "ingestion_sources", "source_observations"]);
+    // Nothing else: no drop, no data written, no index, no other column.
+    expect(statements.join("\n")).not.toMatch(/\b(DROP|DELETE|INSERT|UPDATE|TRUNCATE|CREATE|ADD)\b/i);
+  });
+
   it("keep the claim tables out of every boot too: version 42 is on the list, its file is the repository's, and a boot from the real folder never mentions the tables", async () => {
     // Taking 42 off the list would make the next boot create the tables, and claims could open before the owner chose.
     expect(MANUAL_MIGRATIONS).toContain(42);
@@ -388,6 +489,29 @@ describe("manual migrations", () => {
  * this test keeps it from drifting again: every migration file needs a journal
  * entry (and vice versa), and every entry needs its snapshot in the id chain.
  */
+describe("manual migration 49", () => {
+  const url = "mysql://test:test@localhost:3306/nooscape_test";
+
+  it("keeps the column drop out of every boot: version 49 is on the list, its file is the repository's, and a boot from the real folder never drops it", async () => {
+    expect(MANUAL_MIGRATIONS).toContain(49);
+    const repoDrizzleDir = path.resolve(process.cwd(), "drizzle");
+    expect((await collectMigrationFiles(repoDrizzleDir)).map(file => file.name)).toContain("0049_drop_worker_tick_seconds.sql");
+    resetRun([]);
+    const applied = await applyPendingMigrations(url, repoDrizzleDir);
+    expect(applied).not.toContain("0049_drop_worker_tick_seconds.sql");
+    expect(captured.some(entry => entry.sql.includes("DROP COLUMN") || entry.params[0] === 49)).toBe(false);
+  });
+
+  it("does one thing: drops the one column, and the code names it nowhere", async () => {
+    const file = (await collectMigrationFiles(path.resolve(process.cwd(), "drizzle"))).find(entry => entry.version === 49)!;
+    const statements = splitMigrationStatements(readFileSync(file.file, "utf8"));
+    expect(statements).toEqual(["ALTER TABLE `ingestion_worker_config` DROP COLUMN `tickSeconds`;"]);
+    for (const source of ["drizzle/schema.ts", "server/db.ts", "server/routers/liveData.ts"]) {
+      expect(readFileSync(path.resolve(process.cwd(), source), "utf8"), source).not.toContain("tickSeconds");
+    }
+  });
+});
+
 describe("migration journal parity", () => {
   const repoDrizzleDir = path.resolve(process.cwd(), "drizzle");
 

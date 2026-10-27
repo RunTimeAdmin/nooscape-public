@@ -35,7 +35,7 @@ export async function runApprovedRobinhoodReputationSource(
 
   // Failure-path request count of 4: chain id, head, implementation slot, and
   // the first (failed) window attempt, the walk's minimum honest call count.
-  return withIngestionRun(source, trigger, 4, async runId => {
+  return withIngestionRun(source, trigger, 4, async () => {
     const snapshot = await fetchRobinhoodReputationRegistry(source, {
       mode,
       // The forward walk seeds from the ledger high-water so its anchor and

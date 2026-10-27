@@ -2,8 +2,9 @@ import express, { Router, type Express, type NextFunction, type Request, type Re
 import { z } from "zod";
 import { CHECK_MIN_TIER, tierAtLeast, type ApiTier } from "@shared/apiKey";
 import { listedChainLabel } from "@shared/chains";
-import { API_CHAINS, agentIdOfKey, apiChainOfProtocol, servedChains, type ApiChain } from "./apiChains";
+import { AGENT_ID_MAX_CHARS, API_CHAINS, agentIdOfKey, apiChainOfProtocol, servedChains, type ApiChain } from "./apiChains";
 import { API_LICENSE } from "./apiLicense";
+import { readStats, statsAnswer, type StatsRead } from "./apiStats";
 import { apiV1SpecFor } from "./apiV1Spec";
 import { isWebhookPath, sharedWebhookService, webhookRoutes, type WebhookService } from "./apiWebhooks";
 import {
@@ -11,8 +12,10 @@ import {
   API_TIERS,
   apiMeter,
   ApiKeyError,
+  BAD_KEY_PER_MINUTE,
   KEY_ADDRESS_PER_MINUTE,
   KEY_PATTERN,
+  keyIsCached,
   readKeyUsage,
   resolveApiKey,
   type ApiKeyRecord,
@@ -22,7 +25,7 @@ import {
 import { checkFlags, checkRequestSchemaFor, CHECK_RESULT_LIMIT, CHECK_STATEMENT, hostOfUrl, type CheckFlagsInput } from "./apiCheck";
 import { findVisibleDirectoryEntriesByKey, getAgentDirectoryEntry, listVisibleDirectoryKeys, MAX_AGENT_ENTRY_ACTIVITY_EVENTS, readAgentCheckFacts, searchAgentDirectory } from "./db";
 import { isCircuitOpenError } from "./dbBreaker";
-import { clientKeyFrom, consumeRateLimit } from "./rateLimit";
+import { clientKeyFrom, consumeRateLimit, peekRateLimit, retryAfterSeconds } from "./rateLimit";
 import { railsOf, usdOf, type Rail, type Reply, type X402Config, type X402Endpoint } from "./x402";
 import { sharedPaymentService, type PayContext, type PaymentService } from "./x402Service";
 import { appRouter } from "./routers";
@@ -30,7 +33,7 @@ import type { TrpcContext } from "./_core/context";
 
 /**
  * The REST API, version 1 (docs/data-access-2026-10-19.md): JSON under /api/v1 that reads the public record and changes none of it,
- * separate from the tRPC the site's own pages use. The public tier needs no key: one agent by chain and registry id, and a search. A free key (stage D2) raises the limit and
+ * separate from the tRPC the site's own pages use. The public tier needs no key: one agent by chain and registry id, a search, and what the directory holds on each chain. A free key (stage D2) raises the limit and
  * unlocks a batch lookup, an agent's history and the key's own usage. Every answer says when it was read (`as_of`), where from
  * (`source`) and under what terms (`license`).
  *
@@ -88,6 +91,8 @@ export type ClaimHistoryRead = {
 /** The keys: who a key is, what a request may do today, and what a key has used. The tables behind it are the database's. */
 export type KeyAccess = {
   resolve: (rawKey: string) => Promise<ApiKeyRecord | null>;
+  /** Whether `resolve` would cost no database read. Absent: it is taken to cost one. */
+  isCached?: (rawKey: string) => boolean;
   consume: (keyId: string, perDay: number, endpoint: string) => Promise<MeterResult>;
   usage: (record: ApiKeyRecord, days: number) => Promise<UsageReport>;
 };
@@ -102,6 +107,8 @@ export type ApiV1Deps = {
   claimHistory: (entryId: string, req: Request) => Promise<ClaimHistoryRead | null>;
   /** The ledger facts a check needs beyond the entry: where the identity ledger stands, and the Solana ledger's transfers. */
   checkFacts: (entryId: string) => Promise<CheckFlagsInput["facts"] | null>;
+  /** What the directory holds on each chain: the figures the site's chain tabs show. Throws when they cannot be read. */
+  stats: (req: Request) => Promise<StatsRead>;
   keys: KeyAccess;
   /** Pay per call (stage D4): null or absent when it is off. */
   payments?: PaymentService | null;
@@ -133,8 +140,15 @@ export const defaultApiV1Deps: ApiV1Deps = {
     }
   },
   checkFacts: readAgentCheckFacts,
+  // Through the public procedures, as the claims are: the same figures as the site's chain tabs, from the counts those reads keep for five
+  // minutes. No cache of its own on top: it would make the answer older than as_of says.
+  stats: req => {
+    const live = callerFor(req).liveData;
+    return readStats({ chainStats: () => live.chainStats(), arrivals: () => live.arrivals(), bnbRegistry: () => live.directoryBscRegistry() });
+  },
   keys: {
     resolve: rawKey => resolveApiKey(rawKey),
+    isCached: rawKey => keyIsCached(rawKey),
     consume: (keyId, perDay, endpoint) => apiMeter.consume(keyId, perDay, endpoint),
     usage: (record, days) => readKeyUsage(record, days),
   },
@@ -148,7 +162,7 @@ const iso = (value: Date | string | null | undefined): string | null => (value ?
 
 const pageUrl = (entryId: string) => `${PAGE_ORIGIN}/agents/${entryId}`;
 
-export type ApiEnvelope<T> = {
+type ApiEnvelope<T> = {
   api_version: "v1";
   as_of: string;
   source: Record<string, unknown>;
@@ -230,7 +244,7 @@ function agentData(chain: ApiChain, externalKey: string, entry: Entry, claim: Cl
 }
 
 /** One agent, from the directory entry the site's own page reads. */
-export function agentAnswer(chain: ApiChain, externalKey: string, entry: Entry, claim: ClaimStateRead | null): ApiEnvelope<Record<string, unknown>> {
+function agentAnswer(chain: ApiChain, externalKey: string, entry: Entry, claim: ClaimStateRead | null): ApiEnvelope<Record<string, unknown>> {
   const source = sourceOf(chain, externalKey, entry);
   return { api_version: "v1", as_of: source.last_seen_at, source, license: API_LICENSE, data: agentData(chain, externalKey, entry, claim) };
 }
@@ -240,7 +254,7 @@ export type ApiErrorCode = "bad_request" | "invalid_key" | "key_required" | "tie
 type ApiProblem = { code: ApiErrorCode; message: string; registries?: string[] };
 
 /** One agent's history: the identity's chain events the directory holds, and the public history of its claims. */
-export function historyAnswer(chain: ApiChain, externalKey: string, entry: Entry, claimHistory: ClaimHistoryRead | null): ApiEnvelope<Record<string, unknown>> {
+function historyAnswer(chain: ApiChain, externalKey: string, entry: Entry, claimHistory: ClaimHistoryRead | null): ApiEnvelope<Record<string, unknown>> {
   const source = sourceOf(chain, externalKey, entry);
   const events = (entry as { activity?: { events: Array<{ kind: string; blockNumber: number; transactionHash: string; logIndex: number; fromAddress: string | null; toAddress: string | null; isHandout?: boolean }> } | null }).activity?.events ?? [];
   return {
@@ -275,13 +289,13 @@ export function historyAnswer(chain: ApiChain, externalKey: string, entry: Entry
   };
 }
 
-export type BatchItem = { chain: string; id: string; status: number; as_of: string | null; source: Record<string, unknown> | null; agent: Record<string, unknown> | null; error: ApiProblem | null };
+type BatchItem = { chain: string; id: string; status: number; as_of: string | null; source: Record<string, unknown> | null; agent: Record<string, unknown> | null; error: ApiProblem | null };
 
-export function batchAnswer(items: BatchItem[], now: Date): ApiEnvelope<Record<string, unknown>> {
+function batchAnswer(items: BatchItem[], now: Date): ApiEnvelope<Record<string, unknown>> {
   return { api_version: "v1", as_of: now.toISOString(), source: { kind: "batch", requested: items.length }, license: API_LICENSE, data: { results: items } };
 }
 
-export function usageAnswer(record: ApiKeyRecord, report: UsageReport, now: Date): Record<string, unknown> {
+function usageAnswer(record: ApiKeyRecord, report: UsageReport, now: Date): Record<string, unknown> {
   const tier = API_TIERS[record.tier];
   return {
     api_version: "v1",
@@ -324,7 +338,7 @@ function checkResult(chain: ApiChain, externalKey: string, entry: Entry, facts: 
 
 export type CheckResult = ReturnType<typeof checkResult>;
 
-export function checkAnswer(subject: { type: "agent" | "wallet" | "url"; value: string; host: string | null }, results: CheckResult[], matchedTotal: number, capped: boolean, now: Date): ApiEnvelope<Record<string, unknown>> {
+function checkAnswer(subject: { type: "agent" | "wallet" | "url"; value: string; host: string | null }, results: CheckResult[], matchedTotal: number, capped: boolean, now: Date): ApiEnvelope<Record<string, unknown>> {
   return {
     api_version: "v1",
     as_of: now.toISOString(),
@@ -334,7 +348,7 @@ export function checkAnswer(subject: { type: "agent" | "wallet" | "url"; value: 
   };
 }
 
-export type SearchQuery = { q?: string; owner?: string; host?: string; chain?: ApiChain; limit: number };
+type SearchQuery = { q?: string; owner?: string; host?: string; chain?: ApiChain; limit: number };
 
 /** A search page: one summary per agent, newest first, each with the address of its own answer. */
 export function searchAnswer(query: SearchQuery, page: SearchPage, keys: Map<string, string>, now: Date, chains: readonly ApiChain[] = servedChains()): ApiEnvelope<Record<string, unknown>> {
@@ -417,6 +431,7 @@ export function indexAnswer(now: Date, pay: X402Config | null = null, unresolved
     endpoints: [
       { method: "GET", path: "/api/v1/agents/{chain}/{id}", summary: "One agent by chain and registry id." },
       { method: "GET", path: "/api/v1/agents/search", summary: "Search agents by name, host, registry key or wallet." },
+      { method: "GET", path: "/api/v1/stats", summary: "What the directory holds on each chain: counts, the registries behind them and when each chain was last read." },
       { method: "POST", path: "/api/v1/agents/batch", summary: "Up to 25 agents in one request. Needs a key." },
       { method: "GET", path: "/api/v1/agents/{chain}/{id}/history", summary: "An agent's registry events and the public history of its claims. Needs a key." },
       { method: "GET", path: "/api/v1/usage", summary: "What the key has used. Needs a key." },
@@ -501,10 +516,12 @@ const searchSchemaFor = byServed(chains =>
 
 const checkSchemaFor = byServed(checkRequestSchemaFor);
 
-const REGISTRY_OPTIONS = ["solana_8004", "solana_said", "solana_registry"] as const;
+const REGISTRY_OPTIONS = ["solana_8004", "solana_said", "solana_registry", "solana_agenc"] as const;
 const lookupQuery = z.object({ registry: z.enum(REGISTRY_OPTIONS).optional() }).strict();
+/** The figures take no option, so a made-up query string is refused and cannot be used to ask for the read again. */
+const statsQuery = z.object({}).strict();
 const batchSchema = z
-  .object({ agents: z.array(z.object({ chain: z.string().max(16), id: z.string().max(64), registry: z.enum(REGISTRY_OPTIONS).optional() }).strict()).min(1).max(BATCH_MAX) })
+  .object({ agents: z.array(z.object({ chain: z.string().max(16), id: z.string().max(AGENT_ID_MAX_CHARS), registry: z.enum(REGISTRY_OPTIONS).optional() }).strict()).min(1).max(BATCH_MAX) })
   .strict();
 
 const describeFailure = (issues: z.core.$ZodIssue[]) => issues.map(issue => (issue.path.length > 0 && !/^(owner|host) must/.test(issue.message) ? `${issue.path.join(".")}: ` : "") + issue.message).join("; ");
@@ -570,6 +587,7 @@ export function endpointOf(path: string): string {
   if (path === "/" || path === "") return "index";
   if (path === "/openapi.json") return "openapi";
   if (path === "/usage") return "usage";
+  if (path === "/stats") return "stats";
   if (path === "/agents/search") return "search";
   if (path === "/agents/batch") return "batch";
   if (path === "/check") return "check";
@@ -579,7 +597,19 @@ export function endpointOf(path: string): string {
   return "other";
 }
 
-const secondsUntil = (when: Date, now: Date) => Math.max(Math.ceil((when.getTime() - now.getTime()) / 1000), 1);
+const secondsUntil = (when: Date, now: Date) => retryAfterSeconds(when.getTime() - now.getTime());
+
+/**
+ * Refuses a request that went past a limit, telling the caller how long to wait. `logLine` is written to the log when given, with the
+ * wait added (the per-key minute count has none: a key's own pace is its owner's business). The caller spells the line out, so a log
+ * line found in the runtime log can be searched for in the source.
+ */
+function refuseRateLimited(res: Response, retryAfterMs: number, message: string, logLine?: string) {
+  const seconds = retryAfterSeconds(retryAfterMs);
+  if (logLine) console.warn(`${logLine} (retry in ${seconds}s)`);
+  res.set("Retry-After", String(seconds));
+  return fail(res, "rate_limited", message);
+}
 
 /**
  * What a caller with no key may pay for: one agent's lookup, past the free limit, and the pre-flight check. A request that carries a
@@ -622,9 +652,7 @@ async function askForPayment(deps: ApiV1Deps, req: Request, res: Response, endpo
   const header = req.get("payment-signature");
   const attempts = header === undefined ? consumeRateLimit(`x402-offer:${clientKey}`, OFFERS_PER_MINUTE, 60_000) : consumeRateLimit(`x402:${clientKey}`, PAID_ATTEMPTS_PER_MINUTE, 60_000);
   if (!attempts.allowed) {
-    console.warn(`[RateLimit] x402 limit reached for ${clientKey} (retry in ${Math.max(Math.ceil(attempts.retryAfterMs / 1000), 1)}s)`);
-    res.set("Retry-After", String(Math.max(Math.ceil(attempts.retryAfterMs / 1000), 1)));
-    fail(res, "rate_limited", "Too many requests. Try again later.");
+    refuseRateLimited(res, attempts.retryAfterMs, "Too many requests. Try again later.", `[RateLimit] x402 limit reached for ${clientKey}`);
     return false;
   }
   if (header === undefined) {
@@ -681,41 +709,35 @@ function limits(deps: ApiV1Deps) {
         if (canAsk && payable === "agent") {
           return (await askForPayment(deps, req, res, payable, clientKey, `The free limit is ${API_V1_RATE_LIMIT.requests} lookups a minute from one address. Pay ${price} for this call, or send an API key. PAYMENT-SIGNATURE header is required.`)) ? next() : undefined;
         }
-        const retryAfter = Math.max(Math.ceil(verdict.retryAfterMs / 1000), 1);
-        console.warn(`[RateLimit] api-v1 limit reached for ${clientKey} (retry in ${retryAfter}s)`);
-        res.set("Retry-After", String(retryAfter));
-        return fail(res, "rate_limited", "Too many requests. Try again later.");
+        return refuseRateLimited(res, verdict.retryAfterMs, "Too many requests. Try again later.", `[RateLimit] api-v1 limit reached for ${clientKey}`);
       });
     }
     await guarded(res, async () => {
       const match = /^Bearer (\S+)$/.exec(header.trim());
       const raw = match?.[1] ?? "";
-      const record = KEY_PATTERN.test(raw) ? await deps.keys.resolve(raw) : null;
+      const wellFormed = KEY_PATTERN.test(raw);
+      // A key the server has not read in the last 30 seconds costs a database read, and a made-up key costs one each time. An address that has
+      // used up its wrong guesses is turned away before that read, so a flood of made-up keys from one address stops costing reads. A key in use is
+      // held in memory and is not asked about; a real key that is not held gets the same refusal until the minute is out.
+      if (wellFormed && !deps.keys.isCached?.(raw)) {
+        const room = peekRateLimit(`api-v1-badkey:${clientKey}`, BAD_KEY_PER_MINUTE, 60_000);
+        if (!room.allowed) return refuseRateLimited(res, room.retryAfterMs, "Too many requests. Try again later.", `[RateLimit] api-v1-badkey limit reached for ${clientKey}`);
+      }
+      const record = wellFormed ? await deps.keys.resolve(raw) : null;
       if (!record) {
         // A wrong key costs the address a try, so a run of guesses stops.
-        const guess = consumeRateLimit(`api-v1-badkey:${clientKey}`, 20, 60_000);
-        if (!guess.allowed) {
-          console.warn(`[RateLimit] api-v1-badkey limit reached for ${clientKey} (retry in ${Math.max(Math.ceil(guess.retryAfterMs / 1000), 1)}s)`);
-          res.set("Retry-After", String(Math.max(Math.ceil(guess.retryAfterMs / 1000), 1)));
-          return fail(res, "rate_limited", "Too many requests. Try again later.");
-        }
+        const guess = consumeRateLimit(`api-v1-badkey:${clientKey}`, BAD_KEY_PER_MINUTE, 60_000);
+        if (!guess.allowed) return refuseRateLimited(res, guess.retryAfterMs, "Too many requests. Try again later.", `[RateLimit] api-v1-badkey limit reached for ${clientKey}`);
         return fail(res, "invalid_key", "That key is not valid. Send Authorization: Bearer <key>, with a key that has not been revoked.");
       }
       const tier = API_TIERS[record.tier];
       const address = consumeRateLimit(`api-v1-key-ip:${clientKey}`, KEY_ADDRESS_PER_MINUTE, 60_000);
-      if (!address.allowed) {
-        console.warn(`[RateLimit] api-v1-key-ip limit reached for ${clientKey} (retry in ${Math.max(Math.ceil(address.retryAfterMs / 1000), 1)}s)`);
-        res.set("Retry-After", String(Math.max(Math.ceil(address.retryAfterMs / 1000), 1)));
-        return fail(res, "rate_limited", "Too many requests from this address. Try again later.");
-      }
+      if (!address.allowed) return refuseRateLimited(res, address.retryAfterMs, "Too many requests from this address. Try again later.", `[RateLimit] api-v1-key-ip limit reached for ${clientKey}`);
       const minute = consumeRateLimit(`api-key:${record.id}`, tier.perMinute, 60_000);
       res.set("X-RateLimit-Limit", String(tier.perMinute));
       res.set("X-RateLimit-Remaining", String(minute.remaining));
       res.set("X-Api-Tier", record.tier);
-      if (!minute.allowed) {
-        res.set("Retry-After", String(Math.max(Math.ceil(minute.retryAfterMs / 1000), 1)));
-        return fail(res, "rate_limited", "Too many requests. Try again later.");
-      }
+      if (!minute.allowed) return refuseRateLimited(res, minute.retryAfterMs, "Too many requests. Try again later.");
       const day = await deps.keys.consume(record.id, tier.perDay, endpointOf(req.path));
       res.set("X-Quota-Limit", String(day.limit));
       res.set("X-Quota-Remaining", String(day.remaining));
@@ -791,6 +813,18 @@ export function apiV1Router(deps: ApiV1Deps = defaultApiV1Deps): Router {
       const report = await deps.keys.usage(record, 30);
       res.set("Cache-Control", "no-store");
       res.json(usageAnswer(record, report, deps.now()));
+    })
+  );
+
+  // What the directory holds on each chain served. The same for every caller, and answered like a search: private to the caller for a minute,
+  // and never held by a shared cache (the two public documents are the index and the OpenAPI one).
+  router.get("/stats", (req, res) =>
+    guarded(res, async () => {
+      const parsed = statsQuery.safeParse(req.query);
+      if (!parsed.success) return fail(res, "bad_request", describeFailure(parsed.error.issues));
+      const read = await deps.stats(req);
+      cacheable(res);
+      res.json(statsAnswer(read, servedChains()));
     })
   );
 
@@ -911,7 +945,9 @@ export function apiV1Router(deps: ApiV1Deps = defaultApiV1Deps): Router {
       if (!found.ok) return problem(res, found.error);
       // The claim read answers null only when it failed. A paid answer is not given without it, so no one is charged for one that is missing it.
       if (res.locals.pay && found.claim === null) throw new Error("the claim state could not be read");
-      cacheable(res);
+      // A free answer is given without the claim, but not kept: the browser would go on showing the gap for a minute after the read works again.
+      if (found.claim === null) res.set("Cache-Control", "no-store");
+      else cacheable(res);
       await respond(deps, res, `agent|${found.chain}|${agentIdOfKey(found.chain, found.key)}|${options.data.registry ?? ""}`, agentAnswer(found.chain, found.key, found.entry, found.claim));
     })
   );

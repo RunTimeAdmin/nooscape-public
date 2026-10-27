@@ -2,11 +2,12 @@ import { readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import express from "express";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
-import { EXTRA_CHAINS, extraProtocolOf } from "@shared/chains";
+import { EXTRA_CHAINS, extraProtocolOf, type ChainStat } from "@shared/chains";
 import { API_CHAINS, CHAIN_KEYS, apiChainOfProtocol, servedChains } from "./apiChains";
+import { STATS_STATEMENT, type StatsRead } from "./apiStats";
 import { registerApiV1, searchAnswer, type ApiV1Deps } from "./apiV1";
 import { API_TIERS, type ApiKeyRecord, type UsageReport } from "./apiKeys";
-import { problems, schemaOf } from "./apiV1Check";
+import { problems, schemaOf } from "./apiV1Testing";
 import { API_V1_SPEC, apiV1SpecFor } from "./apiV1Spec";
 import { externalKey } from "./ingestion/erc8004Chain";
 import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN } from "./ingestion/erc8004Chains";
@@ -53,6 +54,30 @@ const keys: ApiV1Deps["keys"] = {
   usage: async (): Promise<UsageReport> => ({ today: { date: "2026-10-20", used: 1, remaining: API_TIERS.pro.perDay - 1, limit: API_TIERS.pro.perDay, resetsAt: MIDNIGHT }, days: [] }),
 };
 
+/**
+ * The site's chain figures, with a row for every extra chain whatever its switch says. The site gives a row only for a chain that is
+ * on, so holding all three here shows the answer is held to the chains the API serves and does not trust the read to be.
+ */
+const STATS_AT = "2026-10-20T02:58:00.000Z";
+const statRow = (chain: ChainStat["chain"], acknowledged: number, feedbackEvents: number | null, registries: ChainStat["registries"]): ChainStat => ({ chain, indexed: true, acknowledged, reviewed: 0, feedbackEvents, registries, asOf: "2026-10-20T02:30:00.000Z" });
+const ARRIVED = { robinhood: 5, solana: 6, bnb: 7, ethereum: 8, base: 9, arc: 10 } as const;
+const STATS_READ: StatsRead = {
+  readAt: STATS_AT,
+  chains: [statRow("robinhood", 300, 40, [{ protocol: "erc8004", count: 300 }]), statRow("solana", 200, 10, [{ protocol: "solana_said", count: 150 }, { protocol: "solana_8004", count: 50 }]), statRow("bnb", 100, null, [{ protocol: "erc8004_bsc", count: 100 }])],
+  extras: EXTRA_CHAINS.map((chain, index) => ({
+    chain,
+    indexed: true,
+    acknowledged: 1000 * (index + 1),
+    reviewed: 0,
+    feedbackEvents: 7 * (index + 1),
+    registries: [{ protocol: CHAIN_OF[chain].protocol, count: 1000 * (index + 1) }],
+    asOf: "2026-10-20T02:40:00.000Z",
+    registry: { recorded: 50_000 * (index + 1), listed: 1000 * (index + 1) },
+  })),
+  arrivals: { windowHours: 24, computedAt: STATS_AT, chains: Object.entries(ARRIVED).map(([chain, added]) => ({ chain: chain as keyof typeof ARRIVED, indexed: true, added, newest: [], registries: [] })) },
+  bnbRegistrations: 5000,
+};
+
 type Calls = { find: Array<{ protocols: readonly string[]; key: string }>; search: Array<{ query: string; protocols?: readonly string[] }> };
 
 /** The data layer holds one listing on each extra chain, and answers a lookup only for the key it is stored under. */
@@ -75,6 +100,7 @@ function deps(calls: Calls): ApiV1Deps {
     claimOf: async () => null,
     claimHistory: async () => null,
     checkFacts: async () => ({ activityThroughBlock: null, solana: null }),
+    stats: async () => STATS_READ,
     keys,
   };
 }
@@ -192,7 +218,7 @@ describe("with every switch off", () => {
   it("searches only the registries it always has, and drops a listing of an extra chain if one reaches the page", async () => {
     await start(undefined);
     await get("/api/v1/agents/search?q=alice");
-    expect(calls.search).toEqual([{ query: "alice", limit: 10, protocols: ["erc8004", "erc8004_bsc", "solana_8004", "solana_said", "solana_registry"] }]);
+    expect(calls.search).toEqual([{ query: "alice", limit: 10, protocols: ["erc8004", "erc8004_bsc", "solana_8004", "solana_said", "solana_registry", "solana_agenc"] }]);
     const page = { entries: EXTRA_CHAINS.map(chain => entry(chain)), matchedTotal: 3, matchedTotalCapped: false } as never;
     const keysOf = new Map(EXTRA_CHAINS.map(chain => [entryIdOf(chain), API_CHAINS[chain].keyOf(idOf[chain])] as const));
     const answer = searchAnswer({ q: "alice", limit: 10 }, page, keysOf, NOW);
@@ -208,7 +234,7 @@ describe("with one switch on", () => {
     expect(index.chains).toEqual([
       { chain: "robinhood", label: "Robinhood Chain", registries: ["erc8004"] },
       { chain: "bnb", label: "BNB Chain", registries: ["erc8004_bsc"] },
-      { chain: "solana", label: "Solana", registries: ["solana_8004", "solana_said", "solana_registry"] },
+      { chain: "solana", label: "Solana", registries: ["solana_8004", "solana_said", "solana_registry", "solana_agenc"] },
       { chain: "base", label: "Base", registries: ["erc8004_base"] },
     ]);
     const spec = apiV1SpecFor(servedChains("chain_base"));
@@ -241,7 +267,7 @@ describe("with one switch on", () => {
   it("searches that chain's registry with the others, narrows to it on request, and links each result to its own answer", async () => {
     await start("chain_base");
     const all = await body(await get("/api/v1/agents/search?q=alice"));
-    expect(calls.search[0]!.protocols).toEqual(["erc8004", "erc8004_bsc", "solana_8004", "solana_said", "solana_registry", "erc8004_base"]);
+    expect(calls.search[0]!.protocols).toEqual(["erc8004", "erc8004_bsc", "solana_8004", "solana_said", "solana_registry", "solana_agenc", "erc8004_base"]);
     expect(all.source).toEqual({ kind: "directory_search", chains: [...ORIGINAL, "base"], registries: calls.search[0]!.protocols });
     const only = await body(await get("/api/v1/agents/search?q=alice&chain=base"));
     expect(calls.search[1]!.protocols).toEqual(["erc8004_base"]);
@@ -258,7 +284,7 @@ describe("with one switch on", () => {
     const served = JSON.stringify(spec);
     expect(served).toContain('"enum":["robinhood","bnb","solana","base"]');
     expect(served).toContain('"enum":["robinhood","bnb","solana","base",null]');
-    expect(served).toContain("erc8004, erc8004_bsc, solana_8004, solana_said, solana_registry, erc8004_base)");
+    expect(served).toContain("erc8004, erc8004_bsc, solana_8004, solana_said, solana_registry, solana_agenc, erc8004_base)");
     expect(served).toContain("The search covers the Robinhood Chain, BNB Smart Chain, Solana and Base registries.");
     expect(served).toContain("On robinhood, bnb and base the id is the registry token id.");
     // The watchlist's chain lists gain the chain too, with and without null.
@@ -315,6 +341,80 @@ describe("with every switch on", () => {
     expect(response.status).toBe(200);
     const answer = await body(response);
     expect(answer.data.results.map((item: { chain: string; status: number }) => [item.chain, item.status])).toEqual([["ethereum", 200], ["base", 200], ["arc", 200]]);
+  });
+});
+
+describe("the stats", () => {
+  type Row = { chain: string; registries: Array<{ registry: string; address: string | null; acknowledged: number }>; [field: string]: unknown };
+  const rowsOf = (answer: Record<string, any>) => Object.fromEntries((answer.data.chains as Row[]).map(row => [row.chain, row])) as Record<string, Row>;
+  const chainsOf = (answer: Record<string, any>) => (answer.data.chains as Row[]).map(row => row.chain);
+
+  it("count the three chains and none of the extra ones while every switch is off, though the read holds them, and name no extra chain", async () => {
+    await start(undefined);
+    const answer = await body(await get("/api/v1/stats"));
+    expect(answer.source).toEqual({ kind: "directory_stats", chains: ORIGINAL });
+    expect(chainsOf(answer)).toEqual(ORIGINAL);
+    expect(answer.data.totals).toEqual({ acknowledged: 300 + 100 + 200 });
+    expect(problems(schemaOf("StatsResponse"), answer)).toEqual([]);
+    expect(JSON.stringify(answer)).not.toMatch(/ethereum|\bbase\b|\barc\b/i);
+    // The part of the document that describes the stats names none either, so it is the same document as before the switches.
+    const described = JSON.stringify([API_V1_SPEC.paths["/api/v1/stats"], API_V1_SPEC.components.schemas.StatsChain, API_V1_SPEC.components.schemas.StatsResponse]);
+    expect(described).not.toMatch(/ethereum|\bbase\b|\barc\b/i);
+  });
+
+  it("add a chain that is on after the three, with its chain id, its registry and the registrations the registry holds, in the shape the served document describes", async () => {
+    await start("chain_base");
+    const answer = await body(await get("/api/v1/stats"));
+    expect(answer.source).toEqual({ kind: "directory_stats", chains: [...ORIGINAL, "base"] });
+    expect(chainsOf(answer)).toEqual([...ORIGINAL, "base"]);
+    expect(rowsOf(answer).base).toEqual({
+      chain: "base",
+      label: "Base",
+      chain_id: 8453,
+      indexed: true,
+      acknowledged: 2000,
+      ratings_recorded: 14,
+      registrations_on_chain: 100_000,
+      new_in_24h: 9,
+      registries: [{ registry: "erc8004_base", address: BASE_CHAIN.identityRegistry, acknowledged: 2000 }],
+      last_read_at: "2026-10-20T02:40:00.000Z",
+    });
+    expect(answer.data.totals).toEqual({ acknowledged: 300 + 100 + 200 + 2000 });
+    expect(problems(schemaOf("StatsResponse"), answer, "$", apiV1SpecFor(servedChains("chain_base")))).toEqual([]);
+    // The document before the switch does not name the chain, so the answer would not fit it.
+    expect(problems(schemaOf("StatsResponse"), answer).length).toBeGreaterThan(0);
+  });
+
+  it("count all six chains in the order the index gives them while every switch is on, each extra chain with its own chain id and registry", async () => {
+    await start("chain_ethereum,chain_base,chain_arc");
+    const answer = await body(await get("/api/v1/stats"));
+    expect(chainsOf(answer)).toEqual([...ORIGINAL, "ethereum", "base", "arc"]);
+    expect(answer.data.totals).toEqual({ acknowledged: 300 + 100 + 200 + 1000 + 2000 + 3000 });
+    for (const [chain, chainId] of [["ethereum", 1], ["base", 8453], ["arc", 5042]] as const) {
+      const row = rowsOf(answer)[chain]!;
+      expect(row, chain).toMatchObject({ chain_id: chainId });
+      expect(row.registries, chain).toEqual([{ registry: CHAIN_OF[chain].protocol, address: CHAIN_OF[chain].identityRegistry, acknowledged: row.acknowledged }]);
+    }
+    // The registrations of a registry come from its own count, and BNB Chain keeps the count of its registry read; Robinhood Chain and Solana have none.
+    expect(Object.values(rowsOf(answer)).map(row => row.registrations_on_chain)).toEqual([null, 5000, null, 50_000, 100_000, 150_000]);
+    expect(Object.values(rowsOf(answer)).map(row => row.new_in_24h)).toEqual([5, 7, 6, 8, 9, 10]);
+    expect(problems(schemaOf("StatsResponse"), answer, "$", apiV1SpecFor(servedChains("chain_ethereum,chain_base,chain_arc")))).toEqual([]);
+  });
+
+  it("name a chain that is on in the lists of chains in the served document, and only that one", async () => {
+    await start("chain_base");
+    const spec = await body(await get("/api/v1/openapi.json"));
+    expect(spec.components.schemas.StatsChain.properties.chain.enum).toEqual([...ORIGINAL, "base"]);
+    expect(spec.components.schemas.StatsResponse.properties.source.properties.chains.items.enum).toEqual([...ORIGINAL, "base"]);
+    expect(API_V1_SPEC.components.schemas.StatsChain.properties.chain.enum).toEqual(ORIGINAL);
+    expect(API_V1_SPEC.components.schemas.StatsResponse.properties.source.properties.chains.items.enum).toEqual(ORIGINAL);
+  });
+
+  it("say what the counts are and are not in the same words whatever the switches", async () => {
+    for (const features of [undefined, "chain_ethereum,chain_base,chain_arc"]) {
+      await start(features);
+      expect((await body(await get("/api/v1/stats"))).data.statement, String(features)).toBe(STATS_STATEMENT);
+    }
   });
 });
 

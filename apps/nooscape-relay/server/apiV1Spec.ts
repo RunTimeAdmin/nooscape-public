@@ -44,7 +44,7 @@ const agentSource = {
     kind: { const: "registry" },
     chain: { enum: CHAINS },
     chain_id: nullable("integer", { description: "The EVM chain id, or null on Solana." }),
-    registry: { type: "string", description: "The registry Nooscape read the agent from, by its name on Nooscape (erc8004, erc8004_bsc, solana_8004, solana_said, solana_registry)." },
+    registry: { type: "string", description: "The registry Nooscape read the agent from, by its name on Nooscape (erc8004, erc8004_bsc, solana_8004, solana_said, solana_registry, solana_agenc)." },
     registry_address: nullable("string", { description: "The registry contract, or null on Solana." }),
     key: { type: "string", description: "The registry key Nooscape stores the agent under." },
     first_seen_at: nullableDateTime,
@@ -226,6 +226,70 @@ const searchResponse = {
         matched_total: { type: "integer", description: "How many agents matched. With owner or host it counts the exact matches in the page returned." },
         matched_total_capped: { type: "boolean", description: "True when there may be more than matched_total." },
         results: { type: "array", items: { $ref: "#/components/schemas/SearchResult" } },
+      },
+    },
+  },
+};
+
+const statsChain = {
+  type: "object",
+  description: "What the directory holds on one chain.",
+  required: ["chain", "label", "chain_id", "indexed", "acknowledged", "ratings_recorded", "registrations_on_chain", "new_in_24h", "registries", "last_read_at"],
+  additionalProperties: false,
+  properties: {
+    chain: { enum: CHAINS },
+    label: { type: "string", description: "The chain's name as Nooscape writes it." },
+    chain_id: nullable("integer", { description: "The EVM chain id, or null on Solana." }),
+    indexed: { type: "boolean", description: "Whether Nooscape reads this chain now. A chain it does not read is not measured, which is not the same as zero." },
+    acknowledged: nullable("integer", { description: "Entries the directory lists on this chain, under the public rules: an entry the site hides, withdraws or closes is not counted. null while the chain is not indexed. Never an endorsement." }),
+    ratings_recorded: nullable("integer", { description: "Ratings written on chain for the chain's identities, revoked ones included, where Nooscape counts them. null where it does not, which is not the same as zero. Not a score." }),
+    registrations_on_chain: nullable("integer", { description: "Registrations the chain's registry holds, where Nooscape counts them apart from the entries it lists. The registrations the published listing rules do not list are held out, and held out is not judged. null where Nooscape does not count them, and while that count is not complete." }),
+    new_in_24h: nullable("integer", { description: "Entries Nooscape first saw on this chain in the last 24 hours, by each entry's own first-seen time. null while the chain is not indexed or the count cannot be read." }),
+    registries: {
+      type: "array",
+      description: "The registries behind the chain's entries and how many entries each lists, largest first.",
+      items: {
+        type: "object",
+        required: ["registry", "address", "acknowledged"],
+        additionalProperties: false,
+        properties: {
+          registry: { type: "string", description: "The registry's name on Nooscape, as the agent answers give it." },
+          address: nullable("string", { description: "The registry contract, or null on Solana." }),
+          acknowledged: { type: "integer", description: "Entries this registry lists." },
+        },
+      },
+    },
+    last_read_at: { ...nullableDateTime, description: "When a source for this chain last read it successfully, or null if none has." },
+  },
+};
+
+const statsResponse = {
+  type: "object",
+  required: ["api_version", "as_of", "source", "license", "data"],
+  additionalProperties: false,
+  properties: {
+    api_version: { const: "v1" },
+    as_of: { ...dateTime, description: "When the answer was built. The counts behind it are kept for up to five minutes." },
+    source: {
+      type: "object",
+      required: ["kind", "chains"],
+      additionalProperties: false,
+      properties: { kind: { const: "directory_stats" }, chains: { type: "array", items: { enum: CHAINS } } },
+    },
+    license: { $ref: "#/components/schemas/License" },
+    data: {
+      type: "object",
+      required: ["statement", "totals", "chains"],
+      additionalProperties: false,
+      properties: {
+        statement: { type: "string", description: "What the counts are and are not." },
+        totals: {
+          type: "object",
+          required: ["acknowledged"],
+          additionalProperties: false,
+          properties: { acknowledged: { type: "integer", description: "The entries listed on the chains below, added up. A chain that is not indexed adds nothing." } },
+        },
+        chains: { type: "array", description: "One row for each chain the API serves, in the order the index gives them.", items: { $ref: "#/components/schemas/StatsChain" } },
       },
     },
   },
@@ -414,7 +478,7 @@ const batchRequest = {
         type: "object",
         required: ["chain", "id"],
         additionalProperties: false,
-        properties: { chain: { enum: CHAINS }, id: { type: "string" }, registry: { enum: ["solana_8004", "solana_said", "solana_registry"] } },
+        properties: { chain: { enum: CHAINS }, id: { type: "string" }, registry: { enum: ["solana_8004", "solana_said", "solana_registry", "solana_agenc"] } },
       },
     },
   },
@@ -594,7 +658,7 @@ const checkRequest = {
       type: "object",
       required: ["chain", "id"],
       additionalProperties: false,
-      properties: { chain: { enum: CHAINS }, id: { type: "string" }, registry: { enum: ["solana_8004", "solana_said", "solana_registry"] } },
+      properties: { chain: { enum: CHAINS }, id: { type: "string" }, registry: { enum: ["solana_8004", "solana_said", "solana_registry", "solana_agenc"] } },
     },
     wallet: { type: "string", description: "A wallet address. The check answers for the listings it registered." },
     url: { type: "string", description: "An endpoint address. Only its host is used, to find listings that registered that host. Nothing is fetched." },
@@ -730,7 +794,7 @@ const watchAddRequest = {
         type: "object",
         required: ["chain", "id"],
         additionalProperties: false,
-        properties: { chain: { enum: WATCH_CHAINS }, id: { type: "string" }, registry: { enum: ["solana_8004", "solana_said", "solana_registry"], description: "Solana only, when more than one registry lists the address." } },
+        properties: { chain: { enum: WATCH_CHAINS }, id: { type: "string" }, registry: { enum: ["solana_8004", "solana_said", "solana_registry", "solana_agenc"], description: "Solana only, when more than one registry lists the address." } },
       },
     },
   },
@@ -992,7 +1056,7 @@ export const API_V1_SPEC = {
         parameters: [
           { name: "chain", in: "path", required: true, schema: { enum: CHAINS } },
           { name: "id", in: "path", required: true, description: "The registry token id (digits), or a Solana address.", schema: { type: "string" } },
-          { name: "registry", in: "query", description: "Solana only, when more than one registry lists the address.", schema: { enum: ["solana_8004", "solana_said", "solana_registry"] } },
+          { name: "registry", in: "query", description: "Solana only, when more than one registry lists the address.", schema: { enum: ["solana_8004", "solana_said", "solana_registry", "solana_agenc"] } },
         ],
         responses: { "200": { ...json("HistoryResponse", "The agent's history."), headers: keyedHeaders }, ...errors(400, 401, 404, 409, 429, 503) },
       },
@@ -1018,6 +1082,14 @@ export const API_V1_SPEC = {
         responses: { "200": { ...json("SearchResponse", "A page of results."), headers: keyedHeaders }, ...errors(400, 401, 429, 503) },
       },
     },
+    "/api/v1/stats": {
+      get: {
+        operationId: "getStats",
+        summary: "What the directory holds on each chain.",
+        description: "Counts of the entries the directory lists on each chain the API serves, the registries behind them, how many registrations the registry holds where that is counted separately, how many entries were first seen in the last 24 hours, and when each chain was last read. They are the figures the chain tabs on the site show. The counts are kept for up to five minutes, so a change can take that long to show; as_of is when the answer was built. It takes no option.",
+        responses: { "200": { ...json("StatsResponse", "The counts."), headers: keyedHeaders }, ...errors(400, 401, 429, 503) },
+      },
+    },
     "/api/v1/agents/{chain}/{id}": {
       get: {
         operationId: "getAgent",
@@ -1026,7 +1098,7 @@ export const API_V1_SPEC = {
         parameters: [
           { name: "chain", in: "path", required: true, schema: { enum: CHAINS } },
           { name: "id", in: "path", required: true, description: "The registry token id (digits), or a Solana address.", schema: { type: "string" } },
-          { name: "registry", in: "query", description: "Solana only, when more than one registry lists the address (the answer is 409 and names them).", schema: { enum: ["solana_8004", "solana_said", "solana_registry"] } },
+          { name: "registry", in: "query", description: "Solana only, when more than one registry lists the address (the answer is 409 and names them).", schema: { enum: ["solana_8004", "solana_said", "solana_registry", "solana_agenc"] } },
           payParameter,
         ],
         responses: {
@@ -1045,6 +1117,8 @@ export const API_V1_SPEC = {
       AgentResponse: agentResponse,
       SearchResult: searchResult,
       SearchResponse: searchResponse,
+      StatsChain: statsChain,
+      StatsResponse: statsResponse,
       IndexResponse: indexResponse,
       HistoryResponse: historyResponse,
       BatchRequest: batchRequest,
@@ -1070,7 +1144,7 @@ export const API_V1_SPEC = {
   },
 } as const;
 
-const REGISTRY_NAMES_TEXT = "The registry Nooscape read the agent from, by its name on Nooscape (erc8004, erc8004_bsc, solana_8004, solana_said, solana_registry).";
+const REGISTRY_NAMES_TEXT = "The registry Nooscape read the agent from, by its name on Nooscape (erc8004, erc8004_bsc, solana_8004, solana_said, solana_registry, solana_agenc).";
 const SEARCH_COVERS_TEXT = "The search covers the Robinhood Chain, BNB Smart Chain and Solana registries.";
 const ID_TEXT = "On robinhood and bnb the id is the registry token id.";
 

@@ -44,6 +44,8 @@ describe.skipIf(!dbReachable)("Solana activity feed against a real database", ()
     e8004: { id: "src-8004", key: "solana-8004-agent-registry", protocol: "solana_8004", state: "active" },
     meta: { id: "src-meta", key: "metaplex-solana-agent-registry", protocol: "solana_registry", state: "active" },
     paused: { id: "src-paused", key: "paused-solana-source", protocol: "solana_8004", state: "paused" },
+    // A registry on Solana whose pass writes no events: it is in the directory and never in the feed.
+    agenc: { id: "src-agenc", key: "solana-agenc-agent-registry", protocol: "solana_agenc", state: "active" },
   } as const;
 
   const T0 = Date.UTC(2026, 9, 13, 12, 0, 0);
@@ -91,6 +93,13 @@ describe.skipIf(!dbReachable)("Solana activity feed against a real database", ()
     }
     await baselineReplay.end();
     await applyPendingMigrations(process.env.DATABASE_URL);
+    // The boot runner skips the manual migrations, which hold the protocol values of the extra chains (0046) and of AgenC (0051). They are
+    // pasted here, as the owner pastes them, so that a source for AgenC can be written.
+    const pasted = await createConnection(process.env.DATABASE_URL);
+    for (const file of (await collectMigrationFiles("drizzle")).filter(f => f.version === 46 || f.version === 51)) {
+      for (const statement of splitMigrationStatements(await readFile(file.file, "utf8"))) await pasted.query(statement);
+    }
+    await pasted.end();
 
     db = await import("./db");
     writer = drizzle(createPool(process.env.DATABASE_URL!));
@@ -120,6 +129,7 @@ describe.skipIf(!dbReachable)("Solana activity feed against a real database", ()
     await entry("e-said", "said", "K", "SAID agent one");
     await entry("e-8004", "e8004", "K", "8004 agent​ one");
     await entry("e-meta", "meta", "M", "Metaplex agent");
+    await entry("e-agenc", "agenc", "A".repeat(44), "AgenC agent one");
     // Entries that must never surface.
     await entry("e-hidden", "said", "H", "Hidden agent", { hidden: true });
     await entry("e-closed", "e8004", "C", "Closed agent", { assetClosedAt: at(0) });
@@ -236,6 +246,14 @@ describe.skipIf(!dbReachable)("Solana activity feed against a real database", ()
     expect(ids).toContain("batch-44");
     const times = feed.map(e => new Date(e.recordedAt).getTime());
     expect(times).toEqual([...times].sort((a, b) => b - a));
+  });
+
+  it("gives a Solana registry that writes no events no share of the floor and no place in the feed or the totals", async () => {
+    // With four registries on Solana the floor of a limit of six would be one a registry. AgenC writes no ledger, so it takes none of it.
+    const feed = await db.readSolanaActivityFeed(6);
+    expect(feed.some(e => e.protocol === "solana_agenc")).toBe(false);
+    expect(feed.filter(e => e.protocol === "solana_registry")).toHaveLength(2);
+    expect((await db.readSolanaActivityTotals()).some(row => row.protocol === "solana_agenc")).toBe(false);
   });
 
   it("keeps fewer of each registry's newest when the limit is small, and still one or two of every registry", async () => {

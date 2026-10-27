@@ -62,6 +62,19 @@ describe("runWebhooks", { timeout: 30_000 }, () => {
     warn.mockRestore();
   });
 
+  it("logs a failed run without the parameters the driver appends to its message", async () => {
+    mocks.runWebhookPass.mockRejectedValueOnce(new Error("Failed query: select * from api_webhooks where keyId = ?\nparams: secret-key-id,https://hooks.example/private"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const caller = await callerWith(OPERATOR);
+    await caller.liveData.admin.runWebhooks();
+    const logged = warn.mock.calls.flat().join(" ");
+    expect(logged).toContain("[Webhooks] pass failed:");
+    expect(logged).toContain("Failed query: select * from api_webhooks where keyId = ?");
+    expect(logged).not.toContain("secret-key-id");
+    expect(logged).not.toContain("hooks.example");
+    warn.mockRestore();
+  });
+
   it("is not a public procedure: asked for outside the admin router, there is nothing there", async () => {
     const caller = await callerWith(OPERATOR);
     const error = await (caller.liveData as unknown as { runWebhooks: () => Promise<unknown> }).runWebhooks().catch((reason: unknown) => reason);

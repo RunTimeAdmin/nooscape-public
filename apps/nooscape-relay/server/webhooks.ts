@@ -79,7 +79,7 @@ export function retryAfterSeconds(attempts: number): number | null {
   return attempts >= 1 && attempts <= RETRY_AFTER_SECONDS.length ? RETRY_AFTER_SECONDS[attempts - 1]! : null;
 }
 
-export type AgentRef = { chain: string; agentId: string; registry: string; entryId: string };
+type AgentRef = { chain: string; agentId: string; registry: string; entryId: string };
 
 const STATEMENT = "A fact Nooscape recorded, with its date. It is a record, not a review, and it says nothing about whether an agent works.";
 const PAGE_ORIGIN = "https://nooscape.si";

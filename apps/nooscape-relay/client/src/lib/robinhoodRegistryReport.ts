@@ -42,7 +42,7 @@ export type Q6Row = readonly [
   entriesEdited: number,
 ];
 /** Query 6b: entries by how many transfers after the mint, or profile-link edits, they have had. */
-export type Q6bRow = readonly [what: "transfers" | "edits", perEntry: string, entries: number];
+type Q6bRow = readonly [what: "transfers" | "edits", perEntry: string, entries: number];
 /** Query 7: the activity ledger by kind of event. */
 export type Q7Row = readonly [kind: string, events: number, entries: number, oldestBlock: number, newestBlock: number];
 /** Query 8: the reputation ledger by kind of event. */
