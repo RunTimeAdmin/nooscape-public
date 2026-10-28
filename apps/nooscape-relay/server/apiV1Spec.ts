@@ -834,7 +834,14 @@ const webhookRequest = {
   type: "object",
   required: ["url"],
   additionalProperties: false,
-  properties: { url: { type: "string", maxLength: 500, description: "An https address on a public name, with no user name, no password and no port. It is checked again before every delivery." } },
+  properties: {
+    url: { type: "string", maxLength: 500, description: "An https address on a public name, with no user name, no password and no port. It is checked again before every delivery." },
+    rotate_secret: {
+      type: "boolean",
+      description:
+        "Optional. True gives the webhook a new signing secret in the same call, and the old one stops working at once. Leave it out when a receiver only moved: a new address keeps the secret. Send it when the old receiver may still hold the secret. The test event is signed with the new secret, so a receiver that still holds the old one will refuse it: set the new secret there and send the same address again.",
+    },
+  },
 };
 
 const webhookResponse = envelope({
@@ -1016,7 +1023,7 @@ export const API_V1_SPEC = {
         operationId: "setWebhook",
         summary: "Set the https address that events are sent to.",
         description:
-          "Needs a Builder or Pro key. The address is checked, saved, and sent a test event (type ping) so its owner sees at once whether it is right; it is saved whatever the test got. Setting it again turns a webhook that was turned off back on. A delivery is a POST of a JSON body with X-Nooscape-Event, X-Nooscape-Delivery, X-Nooscape-Timestamp and X-Nooscape-Signature (t=<seconds>,v1=<hex HMAC-SHA256 of the timestamp, a dot and the body, under the signing secret>). Any 2xx answer is a success. A failed try is tried again after 1 minute, 5 minutes, 30 minutes, 2 hours and 12 hours, and then given up. A redirect is a failure. Changes are limited to 6 a minute.",
+          "Needs a Builder or Pro key. The address is checked, saved, and sent a test event (type ping) so its owner sees at once whether it is right; it is saved whatever the test got. Setting it again turns a webhook that was turned off back on. A new address keeps the signing secret unless rotate_secret is true. A delivery is a POST of a JSON body with X-Nooscape-Event, X-Nooscape-Delivery, X-Nooscape-Timestamp and X-Nooscape-Signature (t=<seconds>,v1=<hex HMAC-SHA256 of the timestamp, a dot and the body, under the signing secret>). Any 2xx answer is a success. A failed try is tried again after 1 minute, 5 minutes, 30 minutes, 2 hours and 12 hours, and then given up. A redirect is a failure. Changes are limited to 6 a minute.",
         security: needsKey,
         requestBody: { required: true, content: { "application/json": { schema: ref("WebhookRequest") } } },
         responses: { "200": { ...json("WebhookResponse", "The webhook as saved, and what the test got."), headers: keyedHeaders }, ...errors(400, 401, 403, 429, 503) },

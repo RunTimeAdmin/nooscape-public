@@ -59,10 +59,10 @@ export function memoryWebhookStore(keys: Record<string, MemoryKey> = {}, clock: 
       const hook = webhooks.get(keyId);
       return hook && hook.url !== "" ? hook : null;
     },
-    setWebhook: async (keyId, url) => {
+    setWebhook: async (keyId, url, options) => {
       const now = clock();
       const before = webhooks.get(keyId);
-      const next: WebhookRow = before ? { ...before, url, failures: 0, disabledAt: null, updatedAt: now } : { keyId, url, secretVersion: 1, failures: 0, disabledAt: null, createdAt: now, updatedAt: now };
+      const next: WebhookRow = before ? { ...before, url, failures: 0, disabledAt: null, updatedAt: now, ...(options?.rotateSecret ? { secretVersion: before.secretVersion + 1 } : {}) } : { keyId, url, secretVersion: 1, failures: 0, disabledAt: null, createdAt: now, updatedAt: now };
       webhooks.set(keyId, next);
       return next;
     },

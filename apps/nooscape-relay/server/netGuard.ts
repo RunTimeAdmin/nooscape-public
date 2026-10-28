@@ -14,7 +14,11 @@ import { isIP } from "node:net";
  * IPv4 special-purpose space that must never be reachable through the fetch
  * boundary: "this network", private use, CGNAT, loopback, link-local
  * (including the 169.254.169.254 metadata service), the 192.0.0.0/24 and
- * 198.18.0.0/15 protocol/benchmark blocks, and multicast/reserved space.
+ * 198.18.0.0/15 protocol/benchmark blocks, the three documentation blocks
+ * (TEST-NET-1, -2 and -3), the retired 6to4 relay block 192.88.99.0/24, and
+ * multicast/reserved space. The rule is the IANA special-purpose registry
+ * (last updated 9 October 2025): a block it marks as not globally reachable
+ * is refused here.
  */
 export function isForbiddenIpv4(address: string) {
   const octets = address.split(".").map(Number);
@@ -29,7 +33,11 @@ export function isForbiddenIpv4(address: string) {
     (first === 172 && second >= 16 && second <= 31) ||
     (first === 192 && second === 168) ||
     (first === 192 && second === 0 && third === 0) ||
+    (first === 192 && second === 0 && third === 2) ||
+    (first === 192 && second === 88 && third === 99) ||
     (first === 198 && (second === 18 || second === 19)) ||
+    (first === 198 && second === 51 && third === 100) ||
+    (first === 203 && second === 0 && third === 113) ||
     first >= 224
   );
 }
@@ -61,9 +69,12 @@ function ipv6Groups(address: string) {
 /**
  * True for every IPv6 form that could reach non-public space: unspecified,
  * loopback, IPv4-compatible, IPv4-mapped (dotted or hex), NAT64 (well-known
- * and local-use), 6to4, Teredo, documentation, unique-local (fc00::/7),
- * link-local (fe80::/10), site-local (fec0::/10), and multicast space.
- * Unparseable values fail closed.
+ * and local-use), 6to4, the IETF protocol assignments 2001::/23 (Teredo among
+ * them), the two documentation blocks, the reserved 100::/8 (discard-only
+ * space), segment-routing 5f00::/16, unique-local (fc00::/7), link-local
+ * (fe80::/10), site-local (fec0::/10), and multicast space. Like the IPv4
+ * check, it follows the IANA special-purpose registry. Unparseable values
+ * fail closed.
  */
 export function isForbiddenIp(address: string) {
   const kind = isIP(address);
@@ -77,9 +88,12 @@ export function isForbiddenIp(address: string) {
   if (groups.slice(0, 6).every(group => group === 0)) return true; // ::, ::1, ::a.b.c.d
   if (groups.slice(0, 5).every(group => group === 0) && groups[5] === 0xffff) return true; // ::ffff:0:0/96
   if (first === 0x0064 && second === 0xff9b) return true; // 64:ff9b::/96 and 64:ff9b:1::/48
+  if ((first & 0xff00) === 0x0100) return true; // 100::/8, reserved: the discard-only 100::/64 and the dummy 100:0:0:1::/64 are inside it
   if (first === 0x2002) return true; // 6to4
-  if (first === 0x2001 && second === 0x0000) return true; // Teredo
+  if (first === 0x2001 && second < 0x0200) return true; // 2001::/23: Teredo, benchmarking 2001:2::/48, deprecated ORCHID 2001:10::/28
   if (first === 0x2001 && second === 0x0db8) return true; // documentation
+  if (first === 0x3fff && second < 0x1000) return true; // 3fff::/20, documentation (RFC 9637)
+  if (first === 0x5f00) return true; // 5f00::/16, segment routing SIDs
 
   const uniqueLocal = (first & 0xfe00) === 0xfc00;
   const linkLocal = (first & 0xffc0) === 0xfe80;

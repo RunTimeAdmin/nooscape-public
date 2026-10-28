@@ -122,7 +122,7 @@ apps/nooscape-relay/     The application
   drizzle/                 SQL migrations
   docs/                    Decision records, runbooks and the documentation index
   scripts/                 Build, CI and live-check scripts
-packages/nooscape-mcp/   The MCP server (public home: nooscape-mcp)
+packages/nooscape-mcp/   A pointer to the MCP server's own repository, nooscape-mcp
 brand/                   Logos, cards and the screenshots above
 ```
 

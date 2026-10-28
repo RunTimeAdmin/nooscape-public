@@ -61,7 +61,7 @@ type RouteHelpers = {
 
 const REGISTRY_OPTIONS = ["solana_8004", "solana_said", "solana_registry", "solana_agenc"] as const;
 const addSchema = z.object({ agents: z.array(z.object({ chain: z.string().max(16), id: z.string().max(AGENT_ID_MAX_CHARS), registry: z.enum(REGISTRY_OPTIONS).optional() }).strict()).min(1).max(WATCH_ADD_LIMIT) }).strict();
-const setSchema = z.object({ url: z.unknown().optional() }).strict();
+const setSchema = z.object({ url: z.unknown().optional(), rotate_secret: z.boolean().optional() }).strict();
 const ENTRY_ID = /^[A-Za-z0-9-]{1,36}$/;
 const PING_MESSAGE = "A test from Nooscape. It is not about any agent.";
 
@@ -249,7 +249,7 @@ export function webhookRoutes(service: WebhookService | null, helpers: RouteHelp
       if (problem) return fail(res, "bad_request", problem);
       const keyId = keyOf(res);
       if (tooOften(res, keyId)) return;
-      const hook = await live.store.setWebhook(keyId, parsed.data.url as string);
+      const hook = await live.store.setWebhook(keyId, parsed.data.url as string, { rotateSecret: parsed.data.rotate_secret === true });
       // The address is called once, now, with a ping that says what it is, so its owner sees at once whether it is right. It is saved either way.
       const at = live.now();
       const id = live.newId();

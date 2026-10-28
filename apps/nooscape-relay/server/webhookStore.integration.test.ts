@@ -142,6 +142,18 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
     expect(await store.getWebhook("nobody")).toBeNull();
   });
 
+  it("raises the secret's version in the same write as the address only when asked, and not for a webhook being created", async () => {
+    const made = await store.setWebhook("key-v", "https://hooks.example.com/v", { rotateSecret: true });
+    expect(made.secretVersion).toBe(1);
+    expect((await store.setWebhook("key-v", "https://hooks.example.com/v2")).secretVersion).toBe(1);
+    const moved = await store.setWebhook("key-v", "https://hooks.example.com/v3", { rotateSecret: true });
+    expect(moved).toMatchObject({ url: "https://hooks.example.com/v3", secretVersion: 2, failures: 0, disabledAt: null });
+    expect((await store.setWebhook("key-v", "https://hooks.example.com/v4", { rotateSecret: false })).secretVersion).toBe(2);
+    // A removed webhook keeps its row, and setting it again with the flag raises the version once more.
+    expect(await store.deleteWebhook("key-v")).toBe(true);
+    expect((await store.setWebhook("key-v", "https://hooks.example.com/v5", { rotateSecret: true })).secretVersion).toBe(3);
+  });
+
   it("turns a webhook off at the limit, once, and a success clears the count", async () => {
     await store.setWebhook("key-d", "https://hooks.example.com/d");
     await store.recordResult("key-d", false, 3);

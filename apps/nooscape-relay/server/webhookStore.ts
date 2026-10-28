@@ -46,8 +46,11 @@ export type WebhookStore = {
   liveWatches: () => Promise<LiveWatch[]>;
 
   getWebhook: (keyId: string) => Promise<WebhookRow | null>;
-  /** Sets the address, turns the webhook on and clears its failures. A new webhook starts at secret version 1; a set one keeps its version. */
-  setWebhook: (keyId: string, url: string) => Promise<WebhookRow>;
+  /**
+   * Sets the address, turns the webhook on and clears its failures. A new webhook starts at secret version 1; a set one keeps its version,
+   * unless `rotateSecret` is true, which raises it in the same write. A webhook that is being created has no secret to rotate.
+   */
+  setWebhook: (keyId: string, url: string, options?: { rotateSecret?: boolean }) => Promise<WebhookRow>;
   /** Raises the secret's version, which gives a new secret. Null when there is no webhook. */
   rotateSecret: (keyId: string) => Promise<WebhookRow | null>;
   deleteWebhook: (keyId: string) => Promise<boolean>;
@@ -143,12 +146,12 @@ export const dbWebhookStore: WebhookStore = {
     // A removed webhook is kept as a row with no address (see deleteWebhook), and is not a webhook.
     return row && row.url !== "" ? row : null;
   },
-  setWebhook: async (keyId, url) => {
+  setWebhook: async (keyId, url, options) => {
     const db = requireDb(await getDb());
     await db
       .insert(apiWebhooks)
       .values({ keyId, url })
-      .onDuplicateKeyUpdate({ set: { url, failures: 0, disabledAt: null, updatedAt: new Date() } });
+      .onDuplicateKeyUpdate({ set: { url, failures: 0, disabledAt: null, updatedAt: new Date(), ...(options?.rotateSecret ? { secretVersion: sql`${apiWebhooks.secretVersion} + 1` } : {}) } });
     const [row] = await db.select().from(apiWebhooks).where(eq(apiWebhooks.keyId, keyId)).limit(1);
     return row!;
   },

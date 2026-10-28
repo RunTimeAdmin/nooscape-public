@@ -12,8 +12,8 @@ function request(ip: string | undefined, forwardedFor?: string | string[], trust
   };
 }
 
-const VISITOR = "203.0.113.9";
-const PROXY = "198.51.100.7";
+const VISITOR = "8.8.8.8";
+const PROXY = "1.1.1.1";
 
 describe("the address the per-address limits see", () => {
   it("looks right when one proxy added the visitor's address and the app trusts one hop", () => {
