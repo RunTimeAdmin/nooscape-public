@@ -37,7 +37,7 @@ describe("isClientRoutePath", () => {
     expect(isClientRoutePath("/chains/Arc", "chain_arc")).toBe(false);
   });
 
-  it("serves Ethereum's page only while its own switch is on, and it has no census report to serve", () => {
+  it("serves Ethereum's page and its census report only while its own switch is on", () => {
     expect(isClientRoutePath("/chains/ethereum", undefined)).toBe(false);
     expect(isClientRoutePath("/chains/ethereum", "chain_arc,chain_base")).toBe(false);
     expect(isClientRoutePath("/chains/ethereum", "chain_ethereum")).toBe(true);
@@ -47,7 +47,11 @@ describe("isClientRoutePath", () => {
     // Its switch opens no other chain's page, and no other chain's switch opens its.
     expect(isClientRoutePath("/chains/arc", "chain_ethereum")).toBe(false);
     expect(isClientRoutePath("/chains/base", "chain_ethereum")).toBe(false);
-    expect(isClientRoutePath("/field/ethereum-registry-2026-10-27", "chain_ethereum")).toBe(false);
+    expect(isClientRoutePath("/field/ethereum-registry-2026-10-28", undefined)).toBe(false);
+    expect(isClientRoutePath("/field/ethereum-registry-2026-10-28", "chain_arc,chain_base")).toBe(false);
+    expect(isClientRoutePath("/field/ethereum-registry-2026-10-28", "chain_ethereum")).toBe(true);
+    expect(isClientRoutePath("/field/ethereum-registry-2026-10-28/", "chain_ethereum")).toBe(false);
+    expect(isClientRoutePath("/field/base-registry-2026-10-21", "chain_ethereum")).toBe(false);
   });
 
   it("serves Base's page and its census report only while its switch is on", () => {

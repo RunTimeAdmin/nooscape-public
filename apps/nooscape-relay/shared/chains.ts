@@ -129,9 +129,9 @@ export type ChainStat = {
   reviewed: number | null;
   /**
    * Ratings recorded on-chain for the chain's identities, where they are read; null where they are not measured. On Robinhood
-   * Chain this is the reputation ledger. On Solana it is the 8004 registry's own feedback counters, summed: the other two
-   * Solana registries have no ratings that Nooscape reads. On Ethereum, Base and Arc it is the count of the reputation registry's
-   * NewFeedback events (docs/extra-chain-ratings-2026-10-21.md), shown once the read has reached the finalized head.
+   * Chain this is the reputation ledger. On Solana it is the 8004 registry's own feedback counters, summed: SAID and Metaplex
+   * keep no ratings that Nooscape reads, and AgenC's reputation counter is not counted. On Ethereum, Base and Arc it is the count of
+   * the reputation registry's NewFeedback events (docs/extra-chain-ratings-2026-10-21.md), shown once the read has reached the finalized head.
    */
   feedbackEvents: number | null;
   /** The registries behind the chain's entries and how many each lists, largest first; empty while the chain is not indexed. */

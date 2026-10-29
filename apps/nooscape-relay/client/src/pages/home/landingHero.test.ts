@@ -177,7 +177,7 @@ describe("the BNB fleet lights on the scan map", () => {
   it("reads the groups from the one endpoint that returns them, waits for them with the rest, and does not retry", () => {
     expect(home).toContain("trpc.liveData.mapFleets.useQuery(undefined, { enabled: view === \"home\", retry: false,");
     expect(home).toContain("fleets={mapFleetsQuery.data ?? null}");
-    expect(hero).toContain("fleetRecords(fleets, arcFleets)");
+    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets)");
     expect(hero).toContain("...lights");
   });
 
@@ -226,7 +226,7 @@ describe("the Solana owner-wallet lights on the scan map", () => {
 
   it("come from the same endpoint and the same node kind, so they ask for no evidence and tell the owl nothing", () => {
     expect(read("../../components/home/constellationModel.ts")).toContain("...(sample?.solana?.fleets ?? [])");
-    expect(hero).toContain("fleetRecords(fleets, arcFleets)");
+    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets)");
     expect(hero).toContain("if (node && (isAcknowledged(node) || isFleet(node))) return { status: \"idle\" };");
   });
 
@@ -238,7 +238,7 @@ describe("the Solana owner-wallet lights on the scan map", () => {
 
   it("say on the card that the wallet is the owner a registry records today, with what that does not show", () => {
     expect(fleetCard).toContain("fleetKindLabel(fleet)");
-    expect(fleetCard).toContain('fleet.chain === "solana" ? "Owner wallet" : fleet.chain === "robinhood" || fleet.chain === "arc" ? "Registering wallet" : "Wallet"');
+    expect(fleetCard).toContain('fleet.chain === "solana" ? "Owner wallet" : fleet.chain === "robinhood" || fleet.chain === "arc" || fleet.chain === "base" || fleet.chain === "ethereum" ? "Registering wallet" : "Wallet"');
     expect(fleetCard).toContain("fleetOverlapNote(fleet)");
     expect(fleetCard).not.toMatch(/scam|fraud|fake|spam|sybil|malicious|suspicious|score|rank|trust/i);
   });
@@ -261,7 +261,7 @@ describe("the Robinhood Chain registering-wallet lights on the scan map", () => 
 
   it("come from the same endpoint and the same node kind, so they ask for no evidence and tell the owl nothing", () => {
     expect(read("../../components/home/constellationModel.ts")).toContain("...(sample?.robinhood?.fleets ?? [])");
-    expect(hero).toContain("fleetRecords(fleets, arcFleets)");
+    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets)");
   });
 
   it("are drawn as a hexagon in the chain's colour, so a circle is BNB Chain, a diamond is Solana and a hexagon is Robinhood Chain", () => {
@@ -299,7 +299,7 @@ describe("the Arc lights on the scan map", () => {
 
   it("come from the same node kind as the other lights, so they ask for no evidence and tell the owl nothing", () => {
     expect(read("../../components/home/constellationModel.ts")).toContain("...arcLights(arc)");
-    expect(hero).toContain("fleetRecords(fleets, arcFleets)");
+    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets)");
     expect(hero).toContain("...lights");
   });
 
@@ -312,7 +312,7 @@ describe("the Arc lights on the scan map", () => {
   it("say on the card that the wallet is the registering wallet, with what that does not show, and link the Arc page", () => {
     expect(fleetCard).toContain("fleetNotProved(fleet)");
     expect(fleetCard).toContain('fleet?.chain === "arc" ? <path d={markerPath("dome")}');
-    expect(fleetCard).toContain('fleet.chain === "robinhood" || fleet.chain === "arc" ? "Registering wallet"');
+    expect(fleetCard).toContain('fleet.chain === "robinhood" || fleet.chain === "arc" || fleet.chain === "base" || fleet.chain === "ethereum" ? "Registering wallet"');
     expect(fleetCard).toContain("href={`/chains/${fleet.chain}`}");
   });
 
@@ -322,4 +322,57 @@ describe("the Arc lights on the scan map", () => {
     expect(hero).toContain("arcLightsCaption(arcFleets, arcLightCount)");
     expect(hero).toContain("{arcNote && <p");
   });
+});
+
+/**
+ * The Base and Ethereum lights (docs/base-ethereum-lights-2026-10-28.md): one large cross for each of the largest groups of the Base page and
+ * one large pentagon for each of the largest groups of the Ethereum page, from the registry rows, while the chain's switch is on. This guards
+ * where they come from and what they are allowed to say; their placement and wording are in constellationModel.test.ts and server/mapFleets.test.ts.
+ */
+describe.each([
+  { chain: "base", label: "Base", shape: "cross", query: "baseFleets", count: "baseLightCount", note: "baseLightsCaption(baseFleets, baseLightCount)", lights: "...baseLights(base)" },
+  { chain: "ethereum", label: "Ethereum", shape: "pentagon", query: "ethereumFleets", count: "ethereumLightCount", note: "ethereumLightsCaption(ethereumFleets, ethereumLightCount)", lights: "...ethereumLights(ethereum)" },
+])("the $label lights on the scan map", ({ chain, label, shape, query, count, note, lights }) => {
+  const cardSource = card.replace(/\/\*[\s\S]*?\*\//g, "");
+  const fleetCard = cardSource.slice(cardSource.indexOf("function FleetCard"));
+
+  it(`are read only while ${label}'s switch is on in the build, are not waited for and are not retried, so a failed read leaves the map as it was`, () => {
+    expect(home).toContain(`trpc.liveData.registryFleets.useQuery({ chain: "${chain}" }, { enabled: view === "home" && featureOn("chain_${chain}", import.meta.env.VITE_FEATURES), retry: false,`);
+    expect(home).toContain(`${query}={${query}Query.data ?? null}`);
+    const status = home.slice(home.indexOf("<LandingHero"), home.indexOf("/>", home.indexOf("<LandingHero")));
+    expect(status).not.toContain(`${query}Query.isLoading`);
+  });
+
+  it("come from the same node kind as the other lights, so they ask for no evidence and tell the owl nothing", () => {
+    expect(read("../../components/home/constellationModel.ts")).toContain(lights);
+    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets)");
+    expect(hero).toContain("...lights");
+  });
+
+  it(`are drawn as a ${shape} in ${label}'s colour, with the outline of the ${shape} on its tab`, () => {
+    expect(constellation).toContain(`if (shape === "${shape}") {`);
+    expect(constellation).toContain(`${shape}: new Path2D(markerPath("${shape}")),`);
+    expect(constellation).toContain("const [red, green, blue] = rgbOf(style.color);");
+  });
+
+  it(`say on the card that the wallet is the registering wallet, show the ${shape} and link the ${label} page`, () => {
+    expect(fleetCard).toContain("fleetNotProved(fleet)");
+    expect(fleetCard).toContain(`fleet?.chain === "${chain}" ? <path d={markerPath("${shape}")}`);
+    expect(fleetCard).toContain(`fleet.chain === "${chain}"`);
+    expect(fleetCard).toContain("href={`/chains/${fleet.chain}`}");
+  });
+
+  it(`have a key entry and a caption of their own, drawn only when there are ${shape}s`, () => {
+    expect(hero).toContain(`${count} > 0 && ${query}`);
+    expect(hero).toContain(`groups · {${count}} of`);
+    expect(hero).toContain(note);
+    expect(hero).toContain(`{${chain}Note && <p`);
+  });
+});
+
+it("links the Base census under the Base caption and the Ethereum census under the Ethereum caption", () => {
+  expect(hero).toContain('{baseNote && (');
+  expect(hero).toContain('href="/field/base-registry-2026-10-21"');
+  expect(hero).toContain('{ethereumNote && (');
+  expect(hero).toContain('href="/field/ethereum-registry-2026-10-28"');
 });

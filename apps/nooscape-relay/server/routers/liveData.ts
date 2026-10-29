@@ -562,10 +562,11 @@ export const liveDataRouter = router({
   }),
   // The same fixed sample of listed entries the home map draws for BNB Chain, for an extra chain's own page: acknowledged entries,
   // never reviewed records, picked by a rule that ignores quality (the ids that hash lowest). Fails closed to an empty sample.
-  chainSample: publicProcedure.input(z.object({ chain: z.enum(["arc"]) })).query(async ({ input }) => {
+  // Arc's follows Arc's switch. AgenC's is for the fourth lane of Solana's page, which has no switch: nothing holds it back but the source's own state.
+  chainSample: publicProcedure.input(z.object({ chain: z.enum(["arc", "agenc"]) })).query(async ({ input }) => {
     try {
-      if (!extraChainsOn(process.env.VITE_FEATURES).includes(input.chain)) return { entries: [], listed: 0 };
-      return await listMapAcknowledgedSample("erc8004_arc");
+      if (input.chain === "arc" && !extraChainsOn(process.env.VITE_FEATURES).includes("arc")) return { entries: [], listed: 0 };
+      return await listMapAcknowledgedSample(input.chain === "arc" ? "erc8004_arc" : "solana_agenc");
     } catch (error) {
       if (!isCircuitOpenError(error)) console.warn("[LiveData] chain sample read failed:", describeStorageFailure(error));
       return { entries: [], listed: 0 };

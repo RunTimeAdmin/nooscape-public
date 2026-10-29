@@ -55,10 +55,10 @@ export const ROUTE_HEADS: Record<string, Head> = {
   },
   "/chains/solana": {
     title: "Solana agent registries",
-    description: "Explore identity records and anchored registration events across Solana's three mapped registries. Events are not conversations.",
+    description: "Explore identity records across Solana's four mapped registries, and the anchored registration events that three of them record. Events are not conversations.",
     image: {
-      file: "nooscape-card-chain-solana.png",
-      alt: `Nooscape, World 02, Solana: three registry lanes, Metaplex, 8004 and SAID, with diamond formations and small scouts, beside the words The prism garden, Three registries. One living field, the note Illustration, not agent activity, and the line ${PROMISES}`,
+      file: "nooscape-card-chain-solana-four.png",
+      alt: `Nooscape, World 02, Solana: four registry lanes, Metaplex, 8004, SAID and AgenC, with diamond formations and small scouts, beside the words The prism garden, Four registries. One living field, the note Illustration, not agent activity, and the line ${PROMISES}`,
     },
   },
   "/chains/arc": {
@@ -92,6 +92,10 @@ export const ROUTE_HEADS: Record<string, Head> = {
   "/field/base-registry-2026-10-21": {
     title: "Base registry census, 2026-10-21",
     description: "A dated count of the ERC-8004 identity registry on Base as the directory holds it: who registered, what the listing rules held out, what the chain records and when. Counts only, with no agent, wallet or host named.",
+  },
+  "/field/ethereum-registry-2026-10-28": {
+    title: "Ethereum registry census, 2026-10-28",
+    description: "A dated count of the ERC-8004 identity registry on Ethereum as the directory holds it: who registered, what the listing rules held out, what the chain records and when. Counts only, with no agent, wallet or host named.",
   },
   "/chains/bnb": {
     title: "BNB Chain registry groups",

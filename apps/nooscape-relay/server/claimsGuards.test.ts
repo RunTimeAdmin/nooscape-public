@@ -45,8 +45,8 @@ describe("what a claim can reach", () => {
   });
 
   it("never names a tier, a publisher state, a rating, a listing flag or a score in the claim code", () => {
-    const claimFiles = files.filter(({ file }) => /^(server\/claims(Chain|Crypto|Arc)?\.ts|server\/routers\/claim\.ts|shared\/claim(Profile|Message)\.ts)$/.test(file));
-    expect(claimFiles.map(({ file }) => file).sort()).toEqual(["server/claims.ts", "server/claimsArc.ts", "server/claimsChain.ts", "server/claimsCrypto.ts", "server/routers/claim.ts", "shared/claimMessage.ts", "shared/claimProfile.ts"]);
+    const claimFiles = files.filter(({ file }) => /^(server\/claims(Chain|Crypto|Arc|Node|Pinned)?\.ts|server\/routers\/claim\.ts|shared\/claim(Profile|Message)\.ts)$/.test(file));
+    expect(claimFiles.map(({ file }) => file).sort()).toEqual(["server/claims.ts", "server/claimsArc.ts", "server/claimsChain.ts", "server/claimsCrypto.ts", "server/claimsNode.ts", "server/claimsPinned.ts", "server/routers/claim.ts", "shared/claimMessage.ts", "shared/claimProfile.ts"]);
     for (const { file, text } of claimFiles) {
       expect(text, file).not.toMatch(/evidenceTier|publisherState|hidden\b|listing\b|\bscore\b|\brank\b|\btier_[0-9]/i);
     }

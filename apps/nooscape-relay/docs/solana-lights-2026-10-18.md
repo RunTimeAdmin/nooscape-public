@@ -2,7 +2,7 @@
 
 Front end, one read and the words around them. No migration, no new table, no worker step, no change to the listing rules or the gate.
 
-**Status.** Built and tested on a local branch. Not shipped.
+**Status.** Shipped in PR 145 on 2026-10-18.
 
 **Decided:** 2026-10-18, by the operator, in chat, choosing "Owner wallets, 100+ entries" from three options (the other two were the same plus the two 8004 profile links that 100 or more entries share, and no Solana lights).
 

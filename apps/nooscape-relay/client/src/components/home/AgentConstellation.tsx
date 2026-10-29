@@ -51,6 +51,8 @@ const MARKERS: Record<MarkerShape, Path2D> = {
   square: new Path2D(markerPath("square")),
   triangle: new Path2D(markerPath("triangle")),
   dome: new Path2D(markerPath("dome")),
+  cross: new Path2D(markerPath("cross")),
+  pentagon: new Path2D(markerPath("pentagon")),
 };
 
 const ARROWS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
@@ -58,7 +60,7 @@ const ARROWS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "righ
 /** The red, green and blue of a #RRGGBB colour, for the translucent fills of a light. */
 const rgbOf = (hex: string): [number, number, number] => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 
-/** The outline of a light centred on a point: a circle, a diamond, a hexagon or a dome, whose points are `reach` away. It leaves the path ready to fill or stroke. */
+/** The outline of a light centred on a point: a circle, a diamond, a hexagon, a dome, a cross or a pentagon, whose points are `reach` away. It leaves the path ready to fill or stroke. */
 function lightOutline(context: CanvasRenderingContext2D, x: number, y: number, reach: number, shape: FleetShape) {
   context.beginPath();
   if (shape === "circle") {
@@ -68,6 +70,24 @@ function lightOutline(context: CanvasRenderingContext2D, x: number, y: number, r
   if (shape === "dome") {
     // A half circle on its base, set so the middle of its height is the light's centre.
     context.arc(x, y + reach * 0.5, reach, Math.PI, 0);
+    context.closePath();
+    return;
+  }
+  if (shape === "cross") {
+    // A plus sign whose four arms end `reach` away and are a third of that wide on each side of the centre.
+    const arm = reach / 3;
+    const outline = [[-arm, -reach], [arm, -reach], [arm, -arm], [reach, -arm], [reach, arm], [arm, arm], [arm, reach], [-arm, reach], [-arm, arm], [-reach, arm], [-reach, -arm], [-arm, -arm]];
+    outline.forEach(([dx, dy], index) => (index === 0 ? context.moveTo(x + dx!, y + dy!) : context.lineTo(x + dx!, y + dy!)));
+    context.closePath();
+    return;
+  }
+  if (shape === "pentagon") {
+    // Pointed at the top, one corner `reach` away at each fifth of a turn.
+    for (let corner = 0; corner < 5; corner += 1) {
+      const angle = -Math.PI / 2 + (corner * 2 * Math.PI) / 5;
+      if (corner === 0) context.moveTo(x + reach * Math.cos(angle), y + reach * Math.sin(angle));
+      else context.lineTo(x + reach * Math.cos(angle), y + reach * Math.sin(angle));
+    }
     context.closePath();
     return;
   }

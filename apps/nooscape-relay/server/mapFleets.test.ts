@@ -3,10 +3,14 @@ import {
   ARC_LIGHTS_LIMIT,
   arcLightsCaption,
   ARC_OVERLAP_NOTE,
+  BASE_LIGHTS_LIMIT,
+  baseLightsCaption,
   compactCount,
   EMPTY_MAP_FLEETS,
   EMPTY_ROBINHOOD_LIGHTS,
   EMPTY_SOLANA_LIGHTS,
+  ETHEREUM_LIGHTS_LIMIT,
+  ethereumLightsCaption,
   FLEET_KIND_LABEL,
   FLEET_NOT_PROVED,
   FLEET_OVERLAP_NOTE,
@@ -412,6 +416,24 @@ describe("the words around a light", () => {
     const words = arcLightsCaption({ groups: 11 }, 8)!;
     expect(words).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
     expect(words).not.toMatch(/[–—]/);
+  });
+
+  it("captions the Base and Ethereum lights the same way, naming the chain and its shape", () => {
+    expect(BASE_LIGHTS_LIMIT).toBe(5);
+    expect(ETHEREUM_LIGHTS_LIMIT).toBe(5);
+    expect(baseLightsCaption({ groups: 121 }, 5)).toBe(
+      "Large crosses are Base groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 121 groups, as the registry held them at its last read. Each cross is one group, not one agent. No individual Base registration is drawn."
+    );
+    expect(ethereumLightsCaption({ groups: 63 }, 5)).toBe(
+      "Large pentagons are Ethereum groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 63 groups, as the registry held them at its last read. Each pentagon is one group, not one agent. No individual Ethereum registration is drawn."
+    );
+    for (const caption of [baseLightsCaption, ethereumLightsCaption]) {
+      expect(caption({ groups: 0 }, 1)).toContain("1 of 1 group,");
+      expect(caption({ groups: 3 }, 0)).toBeNull();
+      const words = caption({ groups: 9 }, 8)!;
+      expect(words).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
+      expect(words).not.toMatch(/[–—]/);
+    }
   });
 
   it("shortens a wallet and a count", () => {

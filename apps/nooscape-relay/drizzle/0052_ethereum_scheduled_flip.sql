@@ -1,0 +1,25 @@
+-- Ethereum identity registry scheduled flip (migration 0052). The same reviewed flip the Arc pass received from 0050 and the BNB Chain pass
+-- from 0035: the source moves from operator-paced to the scheduler, so the Ethereum registry refreshes by itself and no one has to press
+-- "Run chain pass". Once a day.
+--
+-- Preconditions, all encoded in the WHERE so a fresh or unhealthy deployment never wakes up to an unattended pass: the row is the approved
+-- Ethereum identity source (by its key), it is active, it is still manual_only (so running this file again is a no-op and an operator's later
+-- cadence change is never overwritten), it holds an `eth:` cursor (an operator staged and approved it and ran it, the last pass at 14:41Z on
+-- 2026-10-27), it has a recorded success, and it has no recorded failure. The protocol is not named, as in 0050: this runs at every boot,
+-- including on a database that has not had the by-hand migration 0046 that adds the extra chains' protocol values, and dbMigrations.test.ts
+-- keeps those values out of every boot. The key is unique and the `eth:` cursor is written only by the Ethereum pass.
+--
+-- What the unattended pass is: the reviewed chain-facts-only posture of server/ingestion/erc8004Chains.ts. It reads windows of at most 2,000
+-- finalized blocks through the keyed Ethereum endpoint (ETH_RPC_URL), up to three at a time, applies them in chain order and stops at a budget
+-- of 100 windows, 30 seconds and 5,000 events. It writes registry rows, ledger rows and URI updates, fetches no registration URI and adds no
+-- agent, snapshot or evidence event, so no run can add a reviewed record. A failed pass leaves the cursor untouched. Ethereum's finalized
+-- block sits about 70 to 90 blocks (15 to 19 minutes) behind the head, so a run lists what the chain had finalized when it started. The pass
+-- does not start while the `chain_ethereum` switch is off, and a scheduled run then records a failure.
+--
+-- Cadence 1440 minutes. finishIngestionRun sets nextRunAt to the finish time plus the cadence, whatever the outcome, and the cron fires on
+-- fixed 15-minute marks, so the pass runs about once every 24 hours and a run that fails is tried again a day later. A day of Ethereum is
+-- about 7,200 blocks (12.04 seconds a block), four windows, and the registry gains about 130 registrations a day, so one run a day has room.
+-- Until this runs, the chain's figures stay as of the last manual pass. Were Ethereum ever to record more than 5,000 events a day, a daily
+-- run would fall behind and the cadence would have to shorten.
+-- nextRunAt uses NOW(), not UTC_TIMESTAMP(), for the reason migration 0031 records. The worker's maxSourcesPerTick and interval are not touched.
+UPDATE `ingestion_sources` SET `executionPolicy` = 'scheduled', `scheduleMinutes` = 1440, `nextRunAt` = NOW() WHERE `sourceKey` = 'ethereum-erc8004-identity-registry' AND `state` = 'active' AND `executionPolicy` = 'manual_only' AND `cursor` LIKE 'eth:%' AND `lastSuccessfulAt` IS NOT NULL AND `failureCount` = 0;

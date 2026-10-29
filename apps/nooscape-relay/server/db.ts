@@ -2149,7 +2149,7 @@ const MAP_ACKNOWLEDGED_LIMIT = 30;
  * every public directory read: nothing hidden, closed, on a suppressed host or from an inactive source. These are
  * acknowledged entries and never reviewed records; the map draws them as such (docs/approvals/2026-10-15-informational-use-and-bnb-map.md).
  */
-export function listMapAcknowledgedSample(protocol: "erc8004_bsc" | "erc8004_arc", limit: number = MAP_ACKNOWLEDGED_LIMIT) {
+export function listMapAcknowledgedSample(protocol: "erc8004_bsc" | "erc8004_arc" | "solana_agenc", limit: number = MAP_ACKNOWLEDGED_LIMIT) {
   return cachedDirectoryRead(`directory:map-acknowledged:${protocol}:${limit}`, async () => {
     const db = requireDb(await getDb());
     const visible = and(eq(ingestionSources.protocol, protocol), directoryVisibilityCondition());
@@ -2863,7 +2863,7 @@ export async function getDirectoryEntryForClaim(id: string) {
 }
 
 /** How many entries the directory lists for one registering wallet on one protocol, under the public visibility rule. The fleet rule of the claim flow reads it. */
-export async function countVisibleEntriesOfRegistrant(protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc", registrant: string): Promise<number> {
+export async function countVisibleEntriesOfRegistrant(protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth", registrant: string): Promise<number> {
   const db = requireDb(await getDb());
   const [row] = await db
     .select({ total: sql<number>`count(*)` })

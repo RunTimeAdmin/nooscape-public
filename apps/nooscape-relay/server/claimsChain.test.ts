@@ -5,12 +5,15 @@ const mocks = vi.hoisted(() => ({
   callRobinhoodRpcOnce: vi.fn(async (_body: Record<string, unknown>): Promise<{ result?: unknown; error?: { code?: unknown; message?: unknown } }> => ({ result: "0x" })),
   take: vi.fn(async (_cost: number) => {}),
   callArcRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
+  callBaseRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
+  callEthereumRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
 }));
 
 vi.mock("./ingestion/bscRpc", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/bscRpc")>()), callBscRpc: mocks.callBscRpc }));
 vi.mock("./ingestion/robinhood", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/robinhood")>()), callRobinhoodRpcOnce: mocks.callRobinhoodRpcOnce }));
 vi.mock("./ingestion/bscBudget", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/bscBudget")>()), bscReadBucket: { take: mocks.take, spent: () => 0 } }));
 vi.mock("./claimsArc", () => ({ callArcRpcOnce: mocks.callArcRpcOnce }));
+vi.mock("./claimsPinned", () => ({ callBaseRpcOnce: mocks.callBaseRpcOnce, callEthereumRpcOnce: mocks.callEthereumRpcOnce }));
 
 import { BscRpcError } from "./ingestion/bscRpc";
 import { Erc8004RpcError } from "./ingestion/erc8004Rpc";
@@ -202,12 +205,86 @@ describe("the production call", () => {
     await expect(callChain(56, "eth_call", [])).rejects.toBeInstanceOf(ChainUnavailableError);
     mocks.callBscRpc.mockRejectedValueOnce(new Error("BSC_RPC_URL is not configured"));
     await expect(callChain(56, "eth_call", [])).rejects.toBeInstanceOf(ChainUnavailableError);
-    await expect(callChain(1, "eth_call", [])).rejects.toBeInstanceOf(ChainUnavailableError);
+    await expect(callChain(31337, "eth_call", [])).rejects.toBeInstanceOf(ChainUnavailableError);
   });
 
   it("never carries an address, a key or a query in what it throws", async () => {
     expect.assertions(1);
     mocks.callBscRpc.mockRejectedValueOnce(new BscRpcError("failed at https://bsc-mainnet.nodereal.io/v1/SECRETKEYSECRETKEYSECRETKEY"));
     await expect(callChain(56, "eth_call", [])).rejects.toMatchObject({ message: "The chain could not be read right now." });
+  });
+});
+
+describe.each([
+  { label: "Base", protocol: "erc8004_base", chainId: 8453, chain: "chain_base", claims: "claims_base", node: mocks.callBaseRpcOnce },
+  { label: "Ethereum", protocol: "erc8004_eth", chainId: 1, chain: "chain_ethereum", claims: "claims_ethereum", node: mocks.callEthereumRpcOnce },
+])("$label's registry", ({ label, protocol, chainId, chain, claims, node }) => {
+  const ON = `${chain},${claims}`;
+
+  beforeEach(() => resetRateLimits());
+
+  it("is a claim chain with the chain's own id and the registry's address", () => {
+    expect(CLAIM_CHAINS[protocol as "erc8004_base" | "erc8004_eth"]).toMatchObject({ protocol, chainId, registry: REGISTRY, label });
+  });
+
+  it("can be claimed only while the chain is on and its claims are on, each named in the list, and no other chain's switches open it", () => {
+    expect(claimChainOf(protocol, ON)?.chainId).toBe(chainId);
+    expect(claimChainOf(protocol, ` Claims , ${claims.toUpperCase()} , ${chain} `)?.chainId).toBe(chainId);
+    for (const list of [undefined, "", "claims", chain, claims, `claims,${chain}`, `claims,${claims}`, "chain_arc,claims_arc", "chain_base,chain_ethereum", `${chain}x,${claims}x`]) {
+      expect(claimChainOf(protocol, list), String(list)).toBeNull();
+    }
+    // The other of the two does not open this one, though both are on.
+    const other = chain === "chain_base" ? "chain_ethereum,claims_ethereum" : "chain_base,claims_base";
+    expect(claimChainOf(protocol, other)).toBeNull();
+    expect(claimableChains(ON).map(candidate => candidate.label)).toEqual(["Robinhood Chain", "BNB Smart Chain", label]);
+  });
+
+  it("is read from the server's switches when none is given", () => {
+    vi.stubEnv("VITE_FEATURES", ON);
+    expect(claimChainOf(protocol)?.chainId).toBe(chainId);
+    vi.stubEnv("VITE_FEATURES", chain);
+    expect(claimChainOf(protocol)).toBeNull();
+    vi.unstubAllEnvs();
+  });
+
+  it("reads the chain once through the node's client, and takes a revert from the node's own words and anything else for an outage", async () => {
+    node.mockReset();
+    node.mockResolvedValueOnce(word);
+    expect(await callChain(chainId, "eth_call", [{ to: REGISTRY, data: "0x" }, "latest"])).toEqual({ revert: false, result: word });
+    expect(node).toHaveBeenCalledWith("eth_call", [{ to: REGISTRY, data: "0x" }, "latest"]);
+    for (const message of [`${label} eth_call failed at the RPC layer: execution reverted`, `${label} eth_call failed at the RPC layer: execution reverted: ERC721NonexistentToken`]) {
+      node.mockRejectedValueOnce(new Erc8004RpcError(message, `${label}RpcError`));
+      expect(await callChain(chainId, "eth_call", []), message).toEqual({ revert: true });
+    }
+    for (const message of [`${label} eth_call request timed out.`, `${label} eth_call returned HTTP 503.`, `${label} eth_call request failed.`, `${label} eth_call failed at the RPC layer: rate limit exceeded`, `${label} eth_call failed at the RPC layer: invalid token`]) {
+      node.mockRejectedValueOnce(new Erc8004RpcError(message, `${label}RpcError`));
+      await expect(callChain(chainId, "eth_call", []), message).rejects.toBeInstanceOf(ChainUnavailableError);
+    }
+    node.mockRejectedValueOnce(new Error(`${label}'s node is not configured.`));
+    await expect(callChain(chainId, "eth_call", [])).rejects.toBeInstanceOf(ChainUnavailableError);
+    // The worker's daily check reads the chain through the same client, with no per-minute budget.
+    node.mockResolvedValueOnce(word);
+    expect(await callChainForWorker(chainId, "eth_call", [])).toEqual({ revert: false, result: word });
+  });
+
+  it("holds a visitor's reads to 60 a minute, with a budget of its own, and refuses as an outage without asking the node", async () => {
+    node.mockReset();
+    node.mockResolvedValue(word);
+    for (let index = 0; index < CLAIM_CHAIN_READS_PER_MINUTE; index += 1) await callChain(chainId, "eth_call", []);
+    await expect(callChain(chainId, "eth_call", [])).rejects.toBeInstanceOf(ChainUnavailableError);
+    expect(node).toHaveBeenCalledTimes(CLAIM_CHAIN_READS_PER_MINUTE);
+    // Another chain's budget is its own, and the worker's call is not held to this one's.
+    mocks.callRobinhoodRpcOnce.mockResolvedValue({ result: word });
+    expect(await callChain(4663, "eth_call", [])).toEqual({ revert: false, result: word });
+    expect(await callChainForWorker(chainId, "eth_call", [])).toEqual({ revert: false, result: word });
+  });
+});
+
+describe("every extra chain's claims together", () => {
+  it("name the registries in the order Arc, Base, Ethereum after the first two, and the words for an entry that cannot be claimed follow", () => {
+    const all = "chain_arc,claims_arc,chain_base,claims_base,chain_ethereum,claims_ethereum";
+    expect(claimableChains(all).map(candidate => candidate.label)).toEqual(["Robinhood Chain", "BNB Smart Chain", "Arc", "Base", "Ethereum"]);
+    expect(claimableChains(all).map(candidate => candidate.chainId)).toEqual([4663, 56, 5042, 8453, 1]);
+    expect(claimableChains(undefined).map(candidate => candidate.label)).toEqual(["Robinhood Chain", "BNB Smart Chain"]);
   });
 });

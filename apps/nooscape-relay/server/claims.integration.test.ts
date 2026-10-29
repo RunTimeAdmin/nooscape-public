@@ -109,7 +109,7 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     await writer.insert(schema.ingestionSources).values({ id, sourceKey: `claims-${id}`, label: id, protocol, rootUrl: "https://claims.example/feed", allowedHostname: "claims.example", state, createdByUserId: operatorUserId });
   }
   /** An entry on a registry with an owner on the fake chain, and the wallet the directory recorded for it. */
-  async function entry(sourceId: string, protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "solana_8004", chainId: number, token: number, owner: string | null, registrant: string | null = owner, extra: Partial<typeof schema.agentDirectoryEntries.$inferInsert> = {}) {
+  async function entry(sourceId: string, protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "solana_8004", chainId: number, token: number, owner: string | null, registrant: string | null = owner, extra: Partial<typeof schema.agentDirectoryEntries.$inferInsert> = {}) {
     n += 1;
     const id = `claim-entry-${n}`;
     const externalKey = protocol === "solana_8004" ? `solana-asset-${n}` : `eip155:${chainId}:${REGISTRY}:${token}`;
@@ -1036,6 +1036,129 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
         expect(await claims.recheckClaims(deps(), 1)).toMatchObject({ checked: 1, revoked: 0, unavailable: 0, stoppedBy: "done" });
       });
       expect((await writer.select().from(schema.agentClaims).where(eq(schema.agentClaims.entryId, arcMine)))[0]!.lastOwnerCheckAt.getTime()).toBe(Math.floor(clock.getTime() / 1000) * 1000);
+    });
+  });
+
+  describe.each([
+    { label: "Base", protocol: "erc8004_base" as const, chainId: 8453, chain: "chain_base", claimsSwitch: "claims_base", sourceId: "src-base", tokenBase: 4000, key: `0x${"8".repeat(64)}`, otherKey: `0x${"a".repeat(64)}` },
+    { label: "Ethereum", protocol: "erc8004_eth" as const, chainId: 1, chain: "chain_ethereum", claimsSwitch: "claims_ethereum", sourceId: "src-eth", tokenBase: 5000, key: `0x${"9".repeat(64)}`, otherKey: `0x${"b".repeat(64)}` },
+  ])("an agent on $label (docs/base-ethereum-claims-2026-10-28.md)", ({ label, protocol, chainId, chain, claimsSwitch, sourceId, tokenBase, key, otherKey }) => {
+    const ON = `${chain},${claimsSwitch}`;
+    /** A wallet no other test has used, so it holds no claims and is no fleet. */
+    const FRANK = testWallet(key);
+    /** The owner of an agent on Robinhood Chain, whose claim is due beside this chain's. */
+    const GRACE = testWallet(otherKey);
+    let target: string;
+    /** Runs a step with the switches as the list says, and puts them back. */
+    async function withFeatures<T>(list: string | undefined, run: () => Promise<T>): Promise<T> {
+      const saved = process.env.VITE_FEATURES;
+      if (list === undefined) delete process.env.VITE_FEATURES;
+      else process.env.VITE_FEATURES = list;
+      try {
+        return await run();
+      } finally {
+        if (saved === undefined) delete process.env.VITE_FEATURES;
+        else process.env.VITE_FEATURES = saved;
+      }
+    }
+
+    it(`cannot be claimed until ${label}'s claims are on, whatever else is, and the words for an entry that cannot be claimed name the registries that can`, async () => {
+      await source(sourceId, protocol);
+      target = await entry(sourceId, protocol, chainId, tokenBase + 1, FRANK.address);
+      // Off, or only part of the way on: the page can be on, and the panel too, and the agent still cannot be claimed. Another chain's claims do not open it.
+      const other = chain === "chain_base" ? "chain_ethereum,claims_ethereum" : "chain_base,claims_base";
+      for (const list of [undefined, "claims", chain, claimsSwitch, `claims,${chain}`, `claims,${claimsSwitch}`, "chain_arc,claims_arc", other]) {
+        await withFeatures(list, async () => {
+          rateLimit.resetRateLimits();
+          expect(await code_(() => request(target, FRANK.address)), String(list)).toBe("NOT_CLAIMABLE");
+          expect(await claims.readClaimState(target), String(list)).toEqual({ available: true, claimable: false, claim: null });
+        });
+      }
+      expect(await writer.select().from(schema.agentClaimNonces).where(eq(schema.agentClaimNonces.entryId, target))).toEqual([]);
+      // The refusal says which registries can be claimed on: the two it always named, and this one once its claims are on.
+      const solana = await entry("src-sol", "solana_8004", 0, tokenBase, null, FRANK.address);
+      const refusal = (list: string | undefined) =>
+        withFeatures(list, async () => {
+          rateLimit.resetRateLimits();
+          try {
+            await request(solana, FRANK.address);
+          } catch (error) {
+            return (error as Error).message;
+          }
+          return "claimable";
+        });
+      expect(await refusal(undefined)).toBe(claims.CLAIM_MESSAGES.NOT_CLAIMABLE);
+      expect(await refusal(ON)).toBe(`This entry cannot be claimed. Only agents on the Robinhood Chain, BNB Smart Chain and ${label} registries can.`);
+    });
+
+    it(`is claimed as the others are: ${label}'s chain id and registry are in the message, the registry is asked on ${label}, and the page is told it can be claimed`, async () => {
+      await withFeatures(ON, async () => {
+        const issued = await request(target, FRANK.address);
+        const lines = issued.message.split("\n");
+        expect(lines).toContain(`Chain ID: ${chainId}`);
+        expect(lines).toContain(`- eip155:${chainId}:${REGISTRY}:${tokenBase + 1}`);
+        expect(lines).toContain(`URI: https://nooscape.si/agents/${target}`);
+        const made = await claims.verifyAndClaim({ nonce: issued.nonce, message: issued.message, signature: FRANK.sign(issued.message) }, deps());
+        expect(made).toMatchObject({ status: "active", wallet: FRANK.address });
+        expect(await claimOf(target)).toMatchObject({ protocol, chainId, registry: REGISTRY, tokenId: String(tokenBase + 1), wallet: FRANK.address });
+        // Every read of the chain was on this chain.
+        expect(calls.length).toBeGreaterThan(0);
+        expect(calls.every(call => call.chainId === chainId)).toBe(true);
+        expect(await claims.readClaimState(target)).toMatchObject({ available: true, claimable: true, claim: { status: "active", wallet: FRANK.address } });
+        expect((await history(target)).map(row => row.kind)).toEqual(["claim"]);
+      });
+    });
+
+    it(`is refused to a wallet that ${label}'s registry does not record as the owner, and takes an edit from the owner, asking ${label} each time`, async () => {
+      await withFeatures(ON, async () => {
+        const stranger = await entry(sourceId, protocol, chainId, tokenBase + 2, BOB.address);
+        const issued = await request(stranger, FRANK.address);
+        expect(await code_(() => claims.verifyAndClaim({ nonce: issued.nonce, message: issued.message, signature: FRANK.sign(issued.message) }, deps()))).toBe("NOT_OWNER");
+        expect(await claimOf(stranger)).toBeUndefined();
+        calls = [];
+        expect((await editAs(FRANK, target, { name: `${label} agent` })).changed).toBe(1);
+        expect(await claimOf(target)).toMatchObject({ name: `${label} agent` });
+        expect(calls.length).toBeGreaterThan(0);
+        expect(calls.every(call => call.chainId === chainId)).toBe(true);
+      });
+    });
+
+    it(`is not claimed on a ${label} registration that is held out, in the wrong registry or in the wrong chain's key: an entry the public cannot see has no claim`, async () => {
+      await withFeatures(ON, async () => {
+        const hidden = await entry(sourceId, protocol, chainId, tokenBase + 4, FRANK.address, FRANK.address, { hidden: true });
+        expect(await code_(() => request(hidden, FRANK.address))).toBe("NOT_CLAIMABLE");
+        const wrongRegistry = await entry(sourceId, protocol, chainId, tokenBase + 5, FRANK.address, FRANK.address, { externalKey: `eip155:${chainId}:0x${"1".repeat(40)}:${tokenBase + 5}` });
+        rateLimit.resetRateLimits();
+        expect(await code_(() => request(wrongRegistry, FRANK.address))).toBe("NOT_CLAIMABLE");
+        const wrongChain = await entry(sourceId, protocol, chainId, tokenBase + 6, FRANK.address, FRANK.address, { externalKey: `eip155:${chainId === 1 ? 8453 : 1}:${REGISTRY}:${tokenBase + 6}` });
+        rateLimit.resetRateLimits();
+        expect(await code_(() => request(wrongChain, FRANK.address))).toBe("NOT_CLAIMABLE");
+      });
+    });
+
+    it(`is ended by the daily check when ${label} shows a new owner, and a claim on a chain whose claims are off is neither asked about nor given the place of one that can be`, async () => {
+      // The owner has changed, and a claim on Robinhood Chain is due as well. This claim is the oldest.
+      owners.set(`${chainId}:${tokenBase + 1}`, CAROL.address);
+      const robinhood = await entry("src-rh", "erc8004", 4663, tokenBase + 7, GRACE.address);
+      await claimAs(GRACE, robinhood);
+      clock = new Date(clock.getTime() + 24 * 3_600_000);
+      await writer.update(schema.agentClaims).set({ lastOwnerCheckAt: new Date("2000-01-01T00:00:00Z") }).where(eq(schema.agentClaims.entryId, target));
+      // Claims off: the check takes one claim that can be checked, and does not ask this chain about this one.
+      calls = [];
+      await withFeatures(undefined, async () => {
+        const result = await claims.recheckClaims(deps(), 1);
+        expect(result.checked).toBe(1);
+        expect(calls.some(call => call.chainId === chainId)).toBe(false);
+      });
+      expect(await claimOf(target)).toMatchObject({ wallet: FRANK.address });
+      // Claims on: this one is the oldest, so it is the one checked, and the registry now says Carol.
+      calls = [];
+      await withFeatures(ON, async () => {
+        expect(await claims.recheckClaims(deps(), 1)).toMatchObject({ checked: 1, revoked: 1 });
+        expect(calls.every(call => call.chainId === chainId)).toBe(true);
+      });
+      expect(await claimOf(target)).toBeUndefined();
+      expect((await history(target)).at(-1)!).toMatchObject({ kind: "revoke", reason: "owner_changed", wallet: CAROL.address });
     });
   });
 });

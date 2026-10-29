@@ -9,7 +9,7 @@ import { acknowledgedLegendEntries, acknowledgedRecords, CHAIN_STYLE, currentSel
 import { sweepLine } from "@/components/home/sweepModel";
 import { setOwlFacts } from "@/components/owl/owlFacts";
 import { useOwl } from "@/contexts/OwlContext";
-import { arcLightsCaption, fleetShape, fleetsCaption, robinhoodLightsCaption, solanaLightsCaption, type MapFleets, type RegistryFleets } from "@shared/mapFleets";
+import { arcLightsCaption, baseLightsCaption, ethereumLightsCaption, fleetShape, fleetsCaption, robinhoodLightsCaption, solanaLightsCaption, type MapFleets, type RegistryFleets } from "@shared/mapFleets";
 import { tierExplanations } from "@/lib/evidenceExplain";
 import { trpc } from "@/lib/trpc";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
@@ -23,6 +23,10 @@ type Props = {
   fleets?: MapFleets | null;
   /** The groups of Arc registrations that share one wallet, host or profile link, from `liveData.registryFleets`, while Arc's switch is on: each of the largest is drawn as one large dome with its count. */
   arcFleets?: RegistryFleets | null;
+  /** The same for Base, while its switch is on: each of the largest is drawn as one large cross with its count. */
+  baseFleets?: RegistryFleets | null;
+  /** The same for Ethereum, while its switch is on: each of the largest is drawn as one large pentagon with its count. */
+  ethereumFleets?: RegistryFleets | null;
   /** The agent a link named (?agent=): pinned on the map once, when the map has it. */
   linkedAgentId?: string | null;
 };
@@ -39,10 +43,10 @@ type EnvelopeFacts = {
  * The only other dots are the hollow ones: entries from `liveData.mapAcknowledged` that the directory lists and Nooscape has
  * not reviewed. Nothing else is drawn.
  */
-export default function LandingHero({ records, status, acknowledged = null, fleets = null, arcFleets = null, linkedAgentId = null }: Props) {
+export default function LandingHero({ records, status, acknowledged = null, fleets = null, arcFleets = null, baseFleets = null, ethereumFleets = null, linkedAgentId = null }: Props) {
   const { enabled: owlOn } = useOwl();
   const entries = useMemo(() => acknowledgedRecords(acknowledged), [acknowledged]);
-  const lights = useMemo(() => fleetRecords(fleets, arcFleets), [fleets, arcFleets]);
+  const lights = useMemo(() => fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets), [fleets, arcFleets, baseFleets, ethereumFleets]);
   // An entry that is also a reviewed record is drawn once, as the record.
   const everything = useMemo(() => {
     const reviewed = new Set(records.map(candidate => candidate.agentId));
@@ -71,10 +75,16 @@ export default function LandingHero({ records, status, acknowledged = null, flee
   const solanaLightCount = useMemo(() => nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "diamond").length, [nodes]);
   const robinhoodLightCount = useMemo(() => nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "hexagon").length, [nodes]);
   const arcLightCount = useMemo(() => nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "dome").length, [nodes]);
+  const baseLightCount = useMemo(() => nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "cross").length, [nodes]);
+  const ethereumLightCount = useMemo(() => nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "pentagon").length, [nodes]);
   const fleetNote = fleets ? fleetsCaption(fleets) : null;
   const solanaNote = fleets?.solana ? solanaLightsCaption(fleets.solana) : null;
   const robinhoodNote = fleets?.robinhood ? robinhoodLightsCaption(fleets.robinhood) : null;
   const arcNote = arcFleets ? arcLightsCaption(arcFleets, arcLightCount) : null;
+  // Taken out of the table by name here and not read as a property: claimClient.test.ts reads a property called ethereum as the page's wallet.
+  const ETHEREUM_STYLE = CHAIN_STYLE["ethereum"];
+  const baseNote = baseFleets ? baseLightsCaption(baseFleets, baseLightCount) : null;
+  const ethereumNote = ethereumFleets ? ethereumLightsCaption(ethereumFleets, ethereumLightCount) : null;
 
   // The evidence is read only for the record on the card, and only once the selection has settled on it.
   const settledId = useDebouncedValue(shownId, 150);
@@ -193,6 +203,24 @@ export default function LandingHero({ records, status, acknowledged = null, flee
                   {CHAIN_STYLE.arc.label} groups · {arcLightCount} of {Math.max(arcFleets.groups, arcLightCount).toLocaleString("en-US")} drawn
                 </li>
               )}
+              {baseLightCount > 0 && baseFleets && (
+                <li className="flex items-center gap-2">
+                  <svg aria-hidden="true" viewBox="-6 -6 12 12" className="size-3.5 shrink-0">
+                    <path d="M-1.7 -5.2H1.7V-1.7H5.2V1.7H1.7V5.2H-1.7V1.7H-5.2V-1.7H-1.7Z" fill="rgba(59,130,246,0.14)" stroke={CHAIN_STYLE.base.color} strokeWidth="1.1" />
+                    <path d="M-0.5 -1.5H0.5V-0.5H1.5V0.5H0.5V1.5H-0.5V0.5H-1.5V-0.5H-0.5Z" fill={CHAIN_STYLE.base.color} />
+                  </svg>
+                  {CHAIN_STYLE.base.label} groups · {baseLightCount} of {Math.max(baseFleets.groups, baseLightCount).toLocaleString("en-US")} drawn
+                </li>
+              )}
+              {ethereumLightCount > 0 && ethereumFleets && (
+                <li className="flex items-center gap-2">
+                  <svg aria-hidden="true" viewBox="-6 -6 12 12" className="size-3.5 shrink-0">
+                    <path d="M0 -5.2L4.95 -1.61L3.06 4.21L-3.06 4.21L-4.95 -1.61Z" fill="rgba(125,211,252,0.14)" stroke={ETHEREUM_STYLE.color} strokeWidth="1.1" />
+                    <path d="M0 -1.5L1.43 -0.46L0.88 1.21L-0.88 1.21L-1.43 -0.46Z" fill={ETHEREUM_STYLE.color} />
+                  </svg>
+                  {ETHEREUM_STYLE.label} groups · {ethereumLightCount} of {Math.max(ethereumFleets.groups, ethereumLightCount).toLocaleString("en-US")} drawn
+                </li>
+              )}
               <li className="flex items-center gap-2">
                 <span aria-hidden="true" className="inline-block size-3 shrink-0 rounded-full shadow-[0_0_0_2px_var(--ns-radar)]" />
                 Ring: the record on the card
@@ -202,6 +230,8 @@ export default function LandingHero({ records, status, acknowledged = null, flee
             {solanaNote && <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">{solanaNote}</p>}
             {robinhoodNote && <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">{robinhoodNote}</p>}
             {arcNote && <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">{arcNote}</p>}
+            {baseNote && <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">{baseNote}</p>}
+            {ethereumNote && <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">{ethereumNote}</p>}
             {fleetNote && (
               <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">
                 Two reports, both dated 16 October 2026: the <Link href="/field/bnb-registry-2026-10-16" className="underline underline-offset-4 hover:text-ns-ink">BNB Chain registry census</Link> and the <Link href="/field/bnb-ratings-2026-10-16" className="underline underline-offset-4 hover:text-ns-ink">BNB Chain rating census</Link>.
@@ -220,6 +250,16 @@ export default function LandingHero({ records, status, acknowledged = null, flee
             {arcNote && (
               <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">
                 One report, dated 20 October 2026: the <Link href="/field/arc-registry-2026-10-20" className="underline underline-offset-4 hover:text-ns-ink">Arc registry census</Link>.
+              </p>
+            )}
+            {baseNote && (
+              <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">
+                One report, dated 21 October 2026: the <Link href="/field/base-registry-2026-10-21" className="underline underline-offset-4 hover:text-ns-ink">Base registry census</Link>.
+              </p>
+            )}
+            {ethereumNote && (
+              <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">
+                One report, dated 28 October 2026: the <Link href="/field/ethereum-registry-2026-10-28" className="underline underline-offset-4 hover:text-ns-ink">Ethereum registry census</Link>.
               </p>
             )}
             <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">

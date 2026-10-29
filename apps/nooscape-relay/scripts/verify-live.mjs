@@ -35,6 +35,8 @@ const FRESHNESS_HOURS = {
   a2a: 36,
   // The Arc identity pass runs once a day (migration 0050), so it gets the same allowance.
   erc8004_arc: 36,
+  // So does the Ethereum identity pass (migration 0052).
+  erc8004_eth: 36,
 };
 
 const results = [];

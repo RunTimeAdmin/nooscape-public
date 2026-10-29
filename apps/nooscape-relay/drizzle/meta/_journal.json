@@ -365,6 +365,13 @@
       "when": 1793018869783,
       "tag": "0051_solana_agenc_protocol",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "5",
+      "when": 1793160314431,
+      "tag": "0052_ethereum_scheduled_flip",
+      "breakpoints": true
     }
   ]
 }

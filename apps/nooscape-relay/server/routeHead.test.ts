@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { archiveMeta, noCatchMeta } from "@shared/owlsCatch";
+import { CHAIN_WORLDS } from "../client/src/lib/chainExplorerModel";
 import { buildCspFromHtml } from "./_core/securityHeaders";
 import { injectHead } from "./catchPage";
 import { EXACT_CLIENT_ROUTES, FLAGGED_CLIENT_ROUTES } from "./clientRoutes";
@@ -137,7 +138,7 @@ describe("the card of a chain page", () => {
     const siteCard = /<meta property="og:image" content="https:[/][/]nooscape[.]si[/]([^"]+)"/.exec(SOURCE_SHELL)?.[1];
     expect(siteCard).toBe("nooscape-card-observatory.png");
     for (const file of files) {
-      expect(file).toMatch(/^nooscape-card-chain-[a-z]+[.]png$/);
+      expect(file).toMatch(/^nooscape-card-chain-[a-z]+(-[a-z]+)?[.]png$/);
       expect(file).not.toBe(siteCard);
       const png = fs.readFileSync(path.join(publicDir, file));
       expect(png.subarray(1, 4).toString("latin1"), file).toBe("PNG");
@@ -159,11 +160,27 @@ describe("the card of a chain page", () => {
     }
   });
 
+  it("quotes the title and the subtitle of its page, so a card cannot keep words the page has dropped", () => {
+    for (const [route] of CHAINS) {
+      const world = CHAIN_WORLDS[route.replace("/chains/", "") as keyof typeof CHAIN_WORLDS];
+      expect(cardOf(route).alt, route).toContain(`${world.title}, ${world.subtitle.replace(/[.]$/, "")},`);
+    }
+  });
+
+  it("says four registries for Solana, in the description and in the card's words and file, and keeps no three", () => {
+    const { description, image } = ROUTE_HEADS["/chains/solana"]!;
+    expect(description).toContain("Solana's four mapped registries");
+    expect(image!.alt).toContain("four registry lanes, Metaplex, 8004, SAID and AgenC");
+    expect(image!.alt).toContain("Four registries. One living field");
+    expect(image!.file).toBe("nooscape-card-chain-solana-four.png");
+    expect(`${description} ${image!.alt}`).not.toMatch(/\bthree (mapped )?registr|\bthree registry lanes/i);
+  });
+
   it("is written into the five tags that carry a card, with the shell's own type, width and height left as they are", () => {
     const meta = { title: "Solana agent registries | Nooscape", heading: "Solana agent registries", description: ROUTE_HEADS["/chains/solana"]!.description, url: "https://nooscape.si/chains/solana", robots: INDEXED };
-    const after = flat(injectHead(SOURCE_SHELL, { ...meta, image: { url: "https://nooscape.si/nooscape-card-chain-solana.png", alt: "A card & its words" } }));
+    const after = flat(injectHead(SOURCE_SHELL, { ...meta, image: { url: "https://nooscape.si/nooscape-card-chain-solana-four.png", alt: "A card & its words" } }));
     const before = flat(SOURCE_SHELL);
-    for (const pattern of IMAGE_TAGS.slice(0, 2).concat(IMAGE_TAGS[3]!)) expect(tag(after, pattern)).toContain('content="https://nooscape.si/nooscape-card-chain-solana.png"');
+    for (const pattern of IMAGE_TAGS.slice(0, 2).concat(IMAGE_TAGS[3]!)) expect(tag(after, pattern)).toContain('content="https://nooscape.si/nooscape-card-chain-solana-four.png"');
     for (const pattern of [IMAGE_TAGS[2]!, IMAGE_TAGS[4]!]) expect(tag(after, pattern)).toContain('content="A card &amp; its words"');
     for (const key of ['property="og:image:type"', 'property="og:image:width"', 'property="og:image:height"', 'name="twitter:card"']) {
       expect(tag(after, new RegExp(`<meta ${key}[^>]*>`)), key).toBe(tag(before, new RegExp(`<meta ${key}[^>]*>`)));

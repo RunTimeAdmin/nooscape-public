@@ -480,6 +480,73 @@ describe.skipIf(!dbReachable)("the Owl's Catch against a real database", { timeo
     });
   });
 
+  describe.each([
+    { label: "Base", protocol: "erc8004_base" as const, feature: "chain_base", key: "base", first: 810, sourceId: "src-base-catch" },
+    { label: "Ethereum", protocol: "erc8004_eth" as const, feature: "chain_ethereum", key: "ethereum", first: 820, sourceId: "src-eth-catch" },
+  ])("$label's round number", ({ label, protocol, feature, key, first, sourceId }) => {
+    const DAYS = [day(first), day(first + 1), day(first + 2)];
+    const features = (list: string | undefined) => {
+      if (list === undefined) delete process.env.VITE_FEATURES;
+      else process.env.VITE_FEATURES = list;
+      fresh();
+    };
+    // The real read of the chains, and no fleets, so the only thing that can be the day's catch is a round number.
+    const deps = () => ({ ...catchDb.defaultCatchDeps, readWallets: async () => [] });
+    const words = `${label} has passed 250 acknowledged entries.`;
+
+    beforeAll(async () => {
+      // 252 visible entries on the chain: it has just passed 250. The other chains here have not just passed one.
+      await source(sourceId, protocol, "active");
+      await writer.insert(schema.agentDirectoryEntries).values(
+        Array.from({ length: 252 }, (_, index) => ({ id: `${key}-${String(index).padStart(3, "0")}`, sourceId, externalKey: `key-${key}-${index}`, displayName: `${label} entry ${index}`, protocol, firstSeenAt: new Date(Date.UTC(2026, 9, 28, 0, index % 60)) })),
+      );
+    });
+
+    afterAll(async () => {
+      delete process.env.VITE_FEATURES;
+      fresh();
+      await writer.delete(schema.owlsCatch).where(inArray(schema.owlsCatch.catchDate, DAYS));
+      await writer.delete(schema.agentDirectoryEntries).where(eq(schema.agentDirectoryEntries.protocol, protocol));
+      await writer.delete(schema.ingestionSources).where(eq(schema.ingestionSources.id, sourceId));
+    });
+
+    it("is not featured while the chain's switch is off, nor while another chain's is on, though the chain is indexed and has just passed one", async () => {
+      features(undefined);
+      expect(await catchDb.selectTodaysCatch(at(day(first)), deps())).toEqual({ date: day(first), status: "none" });
+      expect(await rowOn(day(first))).toMatchObject({ rule: "none" });
+      await writer.delete(schema.owlsCatch).where(eq(schema.owlsCatch.catchDate, day(first)));
+      features(feature === "chain_base" ? "chain_ethereum,chain_arc" : "chain_base,chain_arc");
+      expect((await catchDb.selectTodaysCatch(at(day(first)), deps())).status).toBe("none");
+    });
+
+    it("is featured once the switch is on, with the facts its words are made from and nothing to link to", async () => {
+      features(feature);
+      expect(await catchDb.selectTodaysCatch(at(day(first + 1)), deps())).toEqual({ date: day(first + 1), status: "selected" });
+      const stored = (await rowOn(day(first + 1)))!;
+      expect(stored.rule).toBe("milestone");
+      expect(stored.agentIds).toBe("[]");
+      expect(parseFacts("milestone", stored.facts)).toMatchObject({ chain: key, metric: "acknowledged", milestone: 250, value: 252 });
+      expect(viewOf(toCatchRow(stored), feature)!.headline).toBe(words);
+      // It is said once: the same count the next day has nothing new.
+      expect((await catchDb.selectTodaysCatch(at(day(first + 2)), deps())).status).toBe("none");
+      await writer.delete(schema.owlsCatch).where(eq(schema.owlsCatch.catchDate, day(first + 2)));
+    });
+
+    it("is read back only while the switch is on: by its day, in the archive, as today's catch and through the public procedures", async () => {
+      features(feature);
+      expect((await catchDb.readCatchForDate(day(first + 1)))!.headline).toBe(words);
+      expect((await catchDb.readCatchArchive(100)).some(view => view.date === day(first + 1))).toBe(true);
+      expect((await catchDb.readTodaysCatch(at(day(first + 1)))).status).toBe("selected");
+      expect((await caller().liveData.owlsCatchByDate({ date: day(first + 1) })).catch!.headline).toBe(words);
+      features(undefined);
+      expect(await catchDb.readCatchForDate(day(first + 1))).toBeNull();
+      expect((await catchDb.readCatchArchive(100)).some(view => view.date === day(first + 1))).toBe(false);
+      expect(await catchDb.readTodaysCatch(at(day(first + 1)))).toMatchObject({ status: "none", today: null });
+      expect(await caller().liveData.owlsCatchByDate({ date: day(first + 1) })).toEqual({ catch: null });
+      expect((await caller().liveData.owlsCatchArchive({ limit: 100 })).catches.some(view => view.date === day(first + 1))).toBe(false);
+    });
+  });
+
   describe("the pages around a catch, sent by the server with the real read", () => {
     let dist: string;
     let server: ReturnType<ReturnType<typeof express>["listen"]>;

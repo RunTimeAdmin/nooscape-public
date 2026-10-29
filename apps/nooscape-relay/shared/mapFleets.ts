@@ -16,7 +16,7 @@ export type MapFleetKind = (typeof MAP_FLEET_KINDS)[number];
 
 /**
  * The chain a light is on: BNB Chain groups are drawn as circles, Solana owner wallets as diamonds, Robinhood Chain registering wallets as hexagons.
- * Arc's groups are drawn as domes, Base's as crosses and Ethereum's as pentagons, on their own pages only: none has lights on the home map.
+ * Arc's groups are drawn as domes, Base's as crosses and Ethereum's as pentagons, on the chain's own page and, while its switch is on, on the home map.
  */
 type MapFleetChain = "bnb" | "solana" | "robinhood" | "arc" | "base" | "ethereum";
 
@@ -47,6 +47,10 @@ export const ROBINHOOD_LIGHTS_LIMIT = 8;
 
 /** The most Arc lights the home map draws: the largest groups of the Arc page's, whatever their kind. The rest are counted, not drawn. */
 export const ARC_LIGHTS_LIMIT = 8;
+
+/** The same for Base and Ethereum, each with a constant of its own so that tuning one never moves another. Five each and not eight: with the other chains' lights the map is already full at the width of a phone (docs/base-ethereum-lights-2026-10-28.md). */
+export const BASE_LIGHTS_LIMIT = 5;
+export const ETHEREUM_LIGHTS_LIMIT = 5;
 
 export type MapFleet = {
   /** A stable id for the light, derived from the shared fact. It is not the fact itself. */
@@ -245,12 +249,21 @@ export function solanaLightsCaption(solana: Pick<SolanaLights, "fleets" | "group
   return `Large diamonds are Solana owner wallets that the 8004 or the Metaplex agent registry records as holding ${grouped(SOLANA_LIGHT_MIN)} or more registrations: ${solana.fleets.length} of ${grouped(groups)} ${groups === 1 ? "wallet" : "wallets"}, as the directory held them at its last read. Each diamond is one wallet in one registry, not one agent. SAID has none: each SAID identity has a wallet of its own.`;
 }
 
-/** The sentence under the map about the Arc lights: how many are drawn of how many groups meet the rule, and what a dome is. `drawn` is how many domes the map shows. */
-export function arcLightsCaption(arc: Pick<RegistryFleets, "groups">, drawn: number): string | null {
+/** The sentence under the map about an extra chain's lights: how many are drawn of how many groups meet the rule, and what its shape is. `drawn` is how many the map shows. */
+function registryLightsCaption(place: string, shape: string, shapes: string, registry: Pick<RegistryFleets, "groups">, drawn: number): string | null {
   if (drawn <= 0) return null;
-  const groups = Math.max(arc.groups, drawn);
-  return `Large domes are Arc groups of registrations that share one wallet, host or profile link, ${grouped(FLEET_MIN)} or more registrations each: ${drawn} of ${grouped(groups)} ${groups === 1 ? "group" : "groups"}, as the registry held them at its last read. Each dome is one group, not one agent. No individual Arc registration is drawn.`;
+  const groups = Math.max(registry.groups, drawn);
+  return `Large ${shapes} are ${place} groups of registrations that share one wallet, host or profile link, ${grouped(FLEET_MIN)} or more registrations each: ${drawn} of ${grouped(groups)} ${groups === 1 ? "group" : "groups"}, as the registry held them at its last read. Each ${shape} is one group, not one agent. No individual ${place} registration is drawn.`;
 }
+
+/** The sentence under the map about the Arc lights, which are domes. */
+export const arcLightsCaption = (arc: Pick<RegistryFleets, "groups">, drawn: number): string | null => registryLightsCaption("Arc", "dome", "domes", arc, drawn);
+
+/** The sentence under the map about the Base lights, which are crosses. */
+export const baseLightsCaption = (base: Pick<RegistryFleets, "groups">, drawn: number): string | null => registryLightsCaption("Base", "cross", "crosses", base, drawn);
+
+/** The sentence under the map about the Ethereum lights, which are pentagons. */
+export const ethereumLightsCaption = (ethereum: Pick<RegistryFleets, "groups">, drawn: number): string | null => registryLightsCaption("Ethereum", "pentagon", "pentagons", ethereum, drawn);
 
 /** The sentence under the map about the Robinhood Chain lights: how many are drawn of how many there are, and what a hexagon is. */
 export function robinhoodLightsCaption(robinhood: Pick<RobinhoodLights, "fleets" | "groups">): string | null {

@@ -2,7 +2,7 @@
 
 Nooscape holds a combined, dated record that nobody else has in one place: ERC-8004 identities on Robinhood Chain and BNB Smart Chain, Solana owner wallets, reputation feedback and revocations, evidence levels, endpoint-host groups, owner claims with their public history. The plan to offer it to platforms, wallets, facilitators and researchers is the operator's `SPEC_DATA_ACCESS.md`: a free public tier, free and paid keys, a pre-flight `/check`, pay-per-call x402, webhooks and daily exports, in six stages (D1 to D6), one pull request each, each stopping for review, none auto-merged.
 
-**Status.** D1 (PR 155) and D2 (PR 156) are merged and live (19 Oct 2026). A follow-up (PR 157) made answers about an agent private to the caller's cache: see "Caching, corrected" below. D3 (the pre-flight check, PR 159) is merged and live. D4 (pay per call, PR 161) is merged and live on Arc testnet and Arc mainnet: see the D4 section below. D4b (smart-contract wallets) is built on a local branch: see the D4b section at the end. D5 and D6 are not started.
+**Status.** D1 (PR 155) and D2 (PR 156) are merged and live (19 Oct 2026). A follow-up (PR 157) made answers about an agent private to the caller's cache: see "Caching, corrected" below. D3 (the pre-flight check, PR 159) is merged and live. D4 (pay per call, PR 161) is merged and live on Arc testnet and Arc mainnet: see the D4 section below. D4b (smart-contract wallets, PR 164) and D5 (watchlists and webhooks, PR 165) are merged and deployed (19 Oct 2026): see the D4b section at the end. D6 is not started.
 
 ## What D1 is
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { plan, runWebhookPass, type PassDeps, type SendResult } from "./webhookPass";
 import { LIVE_WATCH_LIMIT, type DeliveryRow } from "./webhookStore";
-import { ARC_ENTRY, ROBINHOOD_ENTRY, SOLANA_ENTRY, memoryEventSource, memoryWebhookStore, type MemoryLedgers } from "./webhookTesting";
+import { ARC_ENTRY, BASE_ENTRY, ETHEREUM_ENTRY, ROBINHOOD_ENTRY, SOLANA_ENTRY, memoryEventSource, memoryWebhookStore, type MemoryLedgers } from "./webhookTesting";
 import { DISABLE_AFTER_FAILURES, RETRY_AFTER_SECONDS, signature, signingSecret } from "./webhooks";
 
 /**
@@ -602,5 +602,61 @@ describe("tidying", () => {
     expect(r.mem.deliveries.has("old-2")).toBe(true);
     r.advance(6 * 3_600_000);
     expect(await r.run()).toMatchObject({ purged: 1 });
+  });
+});
+
+describe.each([
+  { chain: "base", label: "Base", feature: "chain_base", entry: BASE_ENTRY, agentId: "21", registry: "erc8004_base" },
+  { chain: "ethereum", label: "Ethereum", feature: "chain_ethereum", entry: ETHEREUM_ENTRY, agentId: "22", registry: "erc8004_eth" },
+])("the webhook pass on $label", ({ chain, feature, entry, agentId, registry }) => {
+  it("tells of a listing as it does of the others, in the chain's name, while the chain's switch is on", async () => {
+    process.env.VITE_FEATURES = feature;
+    const r = rig();
+    r.ledgers.entries.push({ ...entry });
+    await r.watch("key-b", [entry.id]);
+    r.advance(MINUTE);
+    const at = new Date(T0.getTime() + 30_000);
+    r.ledgers.transfers.push({ ref: "own:extra", entryId: entry.id, from: "0xaaa", to: "0xbbb", blockNumber: 25_000_000, transactionRef: "0xextra", isHandout: false, createdAt: at });
+    r.ledgers.claims.push(claimEdit(1, at, entry.id, "claim"));
+    expect(await r.run()).toMatchObject({ created: 2, sent: 2 });
+    const bodies = r.sent.map(call => JSON.parse(call.body));
+    expect(bodies.map(body => body.type).sort()).toEqual(["claim.changed", "ownership.changed"]);
+    for (const body of bodies) {
+      expect(body.agent).toMatchObject({ chain, agent_id: agentId, registry, nooscape_id: entry.id, links: { agent: `https://nooscape.si/api/v1/agents/${chain}/${agentId}` } });
+    }
+    expect(bodies.find(body => body.type === "ownership.changed").data).toEqual({ from: "0xaaa", to: "0xbbb", block_number: 25_000_000, transaction_hash: "0xextra", is_handout: false });
+  });
+
+  it("says nothing of a listing while the chain's switch is off, and does not record a change of view it did not report", async () => {
+    const r = rig();
+    r.ledgers.entries.push({ ...entry });
+    await r.watch("key-b", [entry.id]);
+    r.advance(MINUTE);
+    const at = new Date(T0.getTime() + 30_000);
+    r.ledgers.transfers.push({ ref: "own:extra", entryId: entry.id, from: "0xaaa", to: "0xbbb", blockNumber: 1, transactionRef: "0xextra", isHandout: false, createdAt: at });
+    r.ledgers.claims.push(claimEdit(1, at, entry.id, "claim"));
+    r.ledgers.entries.find(candidate => candidate.id === entry.id)!.visible = false;
+    expect(await r.run()).toMatchObject({ created: 0, sent: 0 });
+    expect((await r.mem.store.listWatches("key-b"))[0]).toMatchObject({ entryId: entry.id, visible: true });
+    r.ledgers.transfers.length = 0;
+    r.ledgers.claims.length = 0;
+    process.env.VITE_FEATURES = feature;
+    r.ledgers.entries.find(candidate => candidate.id === entry.id)!.visible = true;
+    r.advance(MINUTE);
+    expect(await r.run()).toMatchObject({ created: 0, sent: 0 });
+  });
+
+  it("tells that a listing left the public view and that it returned, while the chain's switch is on", async () => {
+    process.env.VITE_FEATURES = feature;
+    const r = rig();
+    r.ledgers.entries.push({ ...entry });
+    await r.watch("key-b", [entry.id]);
+    r.advance(MINUTE);
+    r.ledgers.entries.find(candidate => candidate.id === entry.id)!.visible = false;
+    expect(await r.run()).toMatchObject({ created: 1, sent: 1 });
+    r.advance(MINUTE);
+    r.ledgers.entries.find(candidate => candidate.id === entry.id)!.visible = true;
+    expect(await r.run()).toMatchObject({ created: 1, sent: 1 });
+    expect(r.sent.map(call => JSON.parse(call.body)).map(body => [body.type, body.agent.chain])).toEqual([["listing.removed", chain], ["listing.restored", chain]]);
   });
 });

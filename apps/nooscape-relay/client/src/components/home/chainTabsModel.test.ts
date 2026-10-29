@@ -44,8 +44,8 @@ describe("bnbSentence", () => {
 });
 
 describe("ratingsNote", () => {
-  it("says on Solana that the figure is the 8004 registry's own counters and the other registries keep none, so it is never read as all of Solana", () => {
-    expect(ratingsNote("solana")).toBe("The 8004 registry's own feedback counters, summed. SAID and Metaplex keep no ratings Nooscape reads. Not a score.");
+  it("says on Solana that the figure is the 8004 registry's own counters and that the other registries add none to it, so it is never read as all of Solana", () => {
+    expect(ratingsNote("solana")).toBe("The 8004 registry's own feedback counters, summed. SAID and Metaplex keep no ratings Nooscape reads, and AgenC's reputation counter is not counted. Not a score.");
   });
 
   it("keeps the wording the other chains already had", () => {

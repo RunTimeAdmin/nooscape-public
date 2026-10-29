@@ -31,6 +31,7 @@ const SolanaRegistryReport = lazy(() => import("./pages/SolanaRegistryReport"));
 const RobinhoodRegistryReport = lazy(() => import("./pages/RobinhoodRegistryReport"));
 const ArcRegistryReport = lazy(() => import("./pages/ArcRegistryReport"));
 const BaseRegistryReport = lazy(() => import("./pages/BaseRegistryReport"));
+const EthereumRegistryReport = lazy(() => import("./pages/EthereumRegistryReport"));
 const Disputes = lazy(() => import("./pages/Disputes"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Terms = lazy(() => import("./pages/Terms"));
@@ -60,6 +61,7 @@ function Router() {
         <Route path="/field/robinhood-registry-2026-10-20" component={RobinhoodRegistryReport} />
         {featureOn("chain_arc", FEATURES) && <Route path="/field/arc-registry-2026-10-20" component={ArcRegistryReport} />}
         {featureOn("chain_base", FEATURES) && <Route path="/field/base-registry-2026-10-21" component={BaseRegistryReport} />}
+        {featureOn("chain_ethereum", FEATURES) && <Route path="/field/ethereum-registry-2026-10-28" component={EthereumRegistryReport} />}
         <Route path="/developers" component={DeveloperApi} />
         <Route path="/developers/keys" component={DeveloperKeys} />
         <Route path="/verify" component={VerifyEvidence} />

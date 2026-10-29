@@ -154,7 +154,7 @@ describe("what the privacy and terms pages say about claiming an agent, held to 
     expect(privacy).toContain('{ARC_CLAIMS && " The owner of an agent on the Arc registry can claim it in the same way."}');
     // The sentence that has always been there is as it was, and the date on the page changes only with the new sentence.
     expect(privacy).toContain("The owner of an agent on the Robinhood Chain or BNB Smart Chain registry can claim it by signing one message with their wallet.");
-    expect(privacy).toContain('changed={ARC_CLAIMS ? "20 October 2026" : "19 October 2026"}');
+    expect(privacy).toContain('ARC_CLAIMS ? "20 October 2026" : "19 October 2026"');
     const chains = read(join(app, "server", "claimsChain.ts"));
     expect(chains).toContain('label: "Arc"');
     expect(flow).toContain('"Arc"');
@@ -162,6 +162,28 @@ describe("what the privacy and terms pages say about claiming an agent, held to 
     expect(read(join(app, "shared", "features.ts"))).toContain('featureOn("chain_arc", list) && featureOn("claims_arc", list)');
     expect(chains).toContain("arcClaimsOn(features)");
     expect(flow).toContain("arcClaimsOn(features)");
+  });
+
+  it("says in one more sentence for each, only while that chain's claims are on in the build, that the owner of an agent on Base or on Ethereum can claim it the same way", () => {
+    expect(privacy).toContain('const BASE_CLAIMS = baseClaimsOn(import.meta.env.VITE_FEATURES);');
+    expect(privacy).toContain('const ETHEREUM_CLAIMS = ethereumClaimsOn(import.meta.env.VITE_FEATURES);');
+    expect(privacy).toContain('{BASE_CLAIMS && " The owner of an agent on the Base registry can claim it in the same way."}');
+    expect(privacy).toContain('{ETHEREUM_CLAIMS && " The owner of an agent on the Ethereum registry can claim it in the same way."}');
+    // The date on the page is the day the newest sentence was written, and the older dates are kept for the older builds.
+    expect(privacy).toContain('changed={BASE_CLAIMS || ETHEREUM_CLAIMS ? "28 October 2026" : ARC_CLAIMS ? "20 October 2026" : "19 October 2026"}');
+    const chains = read(join(app, "server", "claimsChain.ts"));
+    expect(chains).toContain('label: "Base"');
+    expect(chains).toContain('label: "Ethereum"');
+    expect(flow).toContain('"Base"');
+    expect(flow).toContain('"Ethereum"');
+    // The claim code and the page ask the same question: the chain is on and its claims are on.
+    const features = read(join(app, "shared", "features.ts"));
+    expect(features).toContain('featureOn("chain_base", list) && featureOn("claims_base", list)');
+    expect(features).toContain('featureOn("chain_ethereum", list) && featureOn("claims_ethereum", list)');
+    expect(chains).toContain("baseClaimsOn(features)");
+    expect(chains).toContain("ethereumClaimsOn(features)");
+    expect(flow).toContain("baseClaimsOn(features)");
+    expect(flow).toContain("ethereumClaimsOn(features)");
   });
 
   it("keeps the one-time request for at least two days after it expires, which is when the daily step deletes it", () => {

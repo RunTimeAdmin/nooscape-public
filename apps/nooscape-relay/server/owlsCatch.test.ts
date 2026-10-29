@@ -424,3 +424,56 @@ describe("the page around a catch", () => {
     }
   });
 });
+
+describe.each([
+  { key: "ethereum" as const, label: "Ethereum", feature: "chain_ethereum", others: "chain_base,chain_arc", value: 5_040, milestone: 5_000 },
+  { key: "base" as const, label: "Base", feature: "chain_base", others: "chain_ethereum,chain_arc", value: 2_520, milestone: 2_500 },
+])("$label's round numbers in the Owl's Catch", ({ key, label, feature, others, value, milestone }) => {
+  const facts = milestoneFacts({ chain: key, metric: "acknowledged", milestone, value, asOf: "2026-10-28T05:00:08.000Z" });
+  const factsRow = (over: Partial<CatchRow> = {}) => row({ rule: "milestone", facts: JSON.stringify(facts), sourceQuery: MILESTONE_SOURCE_QUERY, ...over });
+
+  it("are the round numbers its row has just passed, and nothing for it while the caller gives no row, as for Arc", () => {
+    const found = newMilestones([chain("robinhood", { reviewed: 51, acknowledged: 3 }), extra(key, { acknowledged: value })], []);
+    expect(found.map(item => [item.chain, item.metric, item.milestone, item.value])).toEqual([["robinhood", "reviewed", 50, 51], [key, "acknowledged", milestone, value]]);
+    expect(found[1]!.asOf).toBe("2026-10-20T16:45:00.000Z");
+    // The server gives a row only while the chain's switch is on, so with none there is nothing to say about the chain.
+    expect(newMilestones([chain("robinhood", { reviewed: 51, acknowledged: 3 })], []).some(item => item.chain === key)).toBe(false);
+    // A count that is not measured, a chain that is not indexed and a count that passed the round number a while ago are not news.
+    expect(newMilestones([extra(key, { indexed: false, acknowledged: value })], [])).toEqual([]);
+    expect(newMilestones([extra(key, { acknowledged: null, reviewed: null })], [])).toEqual([]);
+    expect(newMilestones([extra(key, { acknowledged: milestone - 4 })], [])).toEqual([]);
+  });
+
+  it("are not said twice, the next one is, and another chain's does not count", () => {
+    const said = past("2026-10-21", "milestone", facts);
+    expect(newMilestones([extra(key, { acknowledged: value })], [said])).toEqual([]);
+    expect(newMilestones([extra(key, { acknowledged: milestone * 2 + 10 })], [said]).map(item => item.milestone)).toEqual([milestone * 2]);
+    const elsewhere = past("2026-10-21", "milestone", milestoneFacts({ chain: key === "base" ? "ethereum" : "base", metric: "acknowledged", milestone, value }));
+    expect(newMilestones([extra(key, { acknowledged: value })], [elsewhere]).map(item => item.milestone)).toEqual([milestone]);
+  });
+
+  it("come in the order the chains are listed, the original three first and Ethereum, Base and Arc after them", () => {
+    const found = newMilestones([extra("arc", { acknowledged: 252 }), extra("base", { acknowledged: 2_520 }), extra("ethereum", { acknowledged: 5_040 }), chain("solana", { reviewed: 51, acknowledged: 3 })], []);
+    expect(found.map(item => item.chain)).toEqual(["solana", "ethereum", "base", "arc"]);
+  });
+
+  it("are a candidate with the read it came from, ahead of any fleet", () => {
+    const [first, second] = candidateCatches({ date: "2026-10-28", wallets: [wallet("0xbig", 5_000)], chains: [extra(key, { acknowledged: value })], past: [] });
+    expect(first).toMatchObject({ rule: "milestone", sourceQuery: MILESTONE_SOURCE_QUERY, facts: { chain: key, metric: "acknowledged", milestone, value } });
+    expect(second).toMatchObject({ rule: "fleet" });
+  });
+
+  it(`are said in ${label}'s own name from the stored facts, with the read's time`, () => {
+    expect(headlineOf("milestone", facts)).toBe(`${label} has passed ${milestone.toLocaleString("en-US")} acknowledged entries.`);
+    expect(detailOf("milestone", facts)).toBe(`The count is ${value.toLocaleString("en-US")} under the public rules.`);
+    expect(howWeKnowOf("milestone", facts, "2026-10-28", MILESTONE_SOURCE_QUERY)).toContain("Last successful read of this chain: 2026-10-28T05:00:08.000Z.");
+    expect(parseFacts("milestone", JSON.stringify(facts))).toEqual(facts);
+  });
+
+  it("are shown only while the chain's own switch is on in the list given, and no other chain's switch shows them", () => {
+    expect(viewOf(factsRow(), feature)!.headline).toBe(`${label} has passed ${milestone.toLocaleString("en-US")} acknowledged entries.`);
+    expect(viewOf(factsRow(), ` Claims , ${feature.toUpperCase()} `)).not.toBeNull();
+    for (const features of [undefined, "", "claims", others, `${feature}x`]) expect(viewOf(factsRow(), features), String(features)).toBeNull();
+    expect(viewOf(factsRow())).toBeNull();
+  });
+});

@@ -2,7 +2,7 @@
 
 A static picture and the head the server writes. No migration, no new read, no change to a page and no change to the gate. It follows [the cards of the other three chain pages](./chain-worlds-2026-10-20.md) (stage B3), which are built the same way.
 
-**Status.** Built and tested on a local branch (`feature/arc-card`), after the Arc census. Not shipped.
+**Status.** Shipped in PR 178 on 2026-10-20, after the Arc census.
 
 **Decided:** 2026-10-20, by the operator, in chat: "do the lights  share card  census etc before base". The picture and its words are mine, chosen to match the other three.
 

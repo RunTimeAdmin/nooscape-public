@@ -126,7 +126,7 @@ export function ChainTabs({ bnbProfile }: Props) {
                     {registrySplitText(row.registries) && <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">{registrySplitText(row.registries)}</p>}
                     {chain === "solana" && (
                       <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
-                        A dated count of what the three registries hold: the{" "}
+                        A dated count of what SAID, 8004 and Metaplex hold: the{" "}
                         <Link href="/field/solana-registries-2026-10-18" className="underline underline-offset-4 hover:text-ns-ink">Solana registry census, 18 October 2026</Link>.
                       </p>
                     )}
@@ -146,6 +146,12 @@ export function ChainTabs({ bnbProfile }: Props) {
                       <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
                         A dated count of what the registry holds: the{" "}
                         <Link href="/field/base-registry-2026-10-21" className="underline underline-offset-4 hover:text-ns-ink">Base registry census, 21 October 2026</Link>.
+                      </p>
+                    )}
+                    {chain === "ethereum" && (
+                      <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
+                        A dated count of what the registry holds: the{" "}
+                        <Link href="/field/ethereum-registry-2026-10-28" className="underline underline-offset-4 hover:text-ns-ink">Ethereum registry census, 28 October 2026</Link>.
                       </p>
                     )}
                     {chain === "bnb" && bnbSentence(bnbProfile) && <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">{bnbSentence(bnbProfile)}</p>}
