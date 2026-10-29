@@ -307,11 +307,11 @@ describe.skipIf(!dbReachable)("the BNB registration-file step against a real dat
     for (const [n, uri] of entries) files.set(uri, { status: "ok", text: registration(`Bot ${String.fromCharCode(97 + (n % 26))}${String.fromCharCode(97 + Math.floor(n / 26))}`, `Entry ${n}`, `host-${n}.example.io`) });
     asked.length = 0;
     expect(await run()).toMatchObject({ waiting: 13, fetched: 9 });
-    expect(asked.filter(uri => uri.includes("platform.example.io")).length).toBe(6);
-    expect(asked.filter(uri => uri.includes("other.example.io")).length).toBe(3);
+    expect(asked.filter(uri => new URL(uri).hostname === "platform.example.io").length).toBe(6);
+    expect(asked.filter(uri => new URL(uri).hostname === "other.example.io").length).toBe(3);
     asked.length = 0;
     expect(await run()).toMatchObject({ waiting: 4, fetched: 4 });
-    expect(asked.filter(uri => uri.includes("platform.example.io")).length).toBe(4);
+    expect(asked.filter(uri => new URL(uri).hostname === "platform.example.io").length).toBe(4);
   });
 
   it("finds at most the batch size of entries in a run, oldest first", async () => {

@@ -21,7 +21,7 @@ const docs = (name: string) => read("..", "..", "..", "docs", name);
 
 const ROUTE = "/field/arc-registry-2026-10-20";
 const markup = renderToStaticMarkup(createElement(Router, { ssrPath: ROUTE, children: createElement(ArcRegistryReport) }));
-const decode = (value: string) => value.replace(/&rsquo;/g, "’").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#39;/g, "'");
+const decode = (value: string) => value.replace(/&rsquo;/g, "’").replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 const text = decode(markup.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 const pageSource = read("ArcRegistryReport.tsx");
 const dataSource = read("..", "lib", "arcRegistryReport.ts");

@@ -24,8 +24,10 @@ const how = read("../components/home/HowItWorks.tsx");
 
 const order = (source: string, markers: string[]) => markers.map(marker => source.indexOf(marker));
 const ascending = (indexes: number[]) => indexes.every((index, i) => index > -1 && (i === 0 || index > indexes[i - 1]!));
+/** The text with every tag taken out, again and again until none is left. */
+const stripTags = (jsx: string) => { let text = jsx; for (let before = ""; before !== text; ) { before = text; text = text.replace(/<[^>]+>/g, ""); } return text; };
 /** The words of a JSX string without its tags and braces, and how many sentences it has. */
-const sentences = (jsx: string) => (jsx.replace(/<[^>]+>/g, "").replace(/[{}]/g, "").match(/[.!?](\s|$)/g) ?? []).length;
+const sentences = (jsx: string) => (stripTags(jsx).replace(/[{}]/g, "").match(/[.!?](\s|$)/g) ?? []).length;
 
 const homeBranch = home.slice(home.indexOf('{view === "home" ? ('), home.indexOf(") : ("));
 const fieldBranch = read("./home/FieldView.tsx");

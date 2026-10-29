@@ -18,7 +18,7 @@ const read = (...parts: string[]) => readFileSync(path.resolve(here, ...parts), 
 const docs = (name: string) => read("..", "..", "..", "docs", name);
 
 const markup = renderToStaticMarkup(createElement(Router, { ssrPath: "/field/solana-registries-2026-10-18", children: createElement(SolanaRegistryReport) }));
-const decode = (text: string) => text.replace(/&rsquo;/g, "’").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#39;/g, "'");
+const decode = (text: string) => text.replace(/&rsquo;/g, "’").replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 const text = decode(markup.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 const pageSource = read("SolanaRegistryReport.tsx");
 const dataSource = read("..", "lib", "solanaRegistryReport.ts");
