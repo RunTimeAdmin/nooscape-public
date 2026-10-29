@@ -208,6 +208,44 @@ describe("what a claim needs of the node", () => {
     expect((await thrown(callArcRpcOnce("eth_call", []))).message).toBe("Arc's node is behind.");
   });
 
+  it("does not believe a latest block dated well ahead of this server's clock, and allows two minutes for a clock that is a little slow", async () => {
+    node.headAgeSeconds = -10 * 60;
+    const ahead = await thrown(callArcRpcOnce("eth_call", [{ to: "0x1", data: OWNER_OF }, "latest"]));
+    expect(ahead.message).toBe("Arc's node has a latest block dated ahead of this server's clock.");
+    expect(ahead).not.toBeInstanceOf(Erc8004RpcError);
+    expect(methods()).toEqual(["eth_chainId", "eth_getBlockByNumber"]);
+    node.headAgeSeconds = -121;
+    expect((await thrown(callArcRpcOnce("eth_call", []))).message).toBe("Arc's node has a latest block dated ahead of this server's clock.");
+    // A refused head is not remembered: the next read looks again, and a head within the allowance is used.
+    node.headAgeSeconds = -120;
+    expect(await callArcRpcOnce("eth_call", [])).toBe("0xabc");
+  });
+
+  it("does not trust a check that looks as if it was made in the future: after the clock goes back, the chain id and the head are asked again", async () => {
+    await callArcRpcOnce("eth_call", []);
+    expect(methods().filter(method => method === "eth_chainId")).toHaveLength(1);
+    expect(methods().filter(method => method === "eth_getBlockByNumber")).toHaveLength(1);
+    // The clock goes back an hour, and the node, which was fresh, is now 30 minutes behind it. Both checks used to count as made a moment ago.
+    vi.setSystemTime(new Date(Date.now() - 60 * 60_000));
+    node.headAgeSeconds = 30 * 60;
+    expect((await thrown(callArcRpcOnce("eth_call", []))).message).toBe("Arc's node is behind.");
+    expect(methods().filter(method => method === "eth_chainId")).toHaveLength(2);
+    expect(methods().filter(method => method === "eth_getBlockByNumber")).toHaveLength(2);
+    // Once asked at the new time, each is remembered from then on and is not asked for every read.
+    node.headAgeSeconds = 1;
+    await callArcRpcOnce("eth_call", []);
+    await callArcRpcOnce("eth_call", []);
+    expect(methods().filter(method => method === "eth_chainId")).toHaveLength(2);
+    expect(methods().filter(method => method === "eth_getBlockByNumber")).toHaveLength(3);
+  });
+
+  it("has its head looked at again for another address, as the chain id is", async () => {
+    await callArcRpcOnce("eth_call", []);
+    process.env.X402_RPC = `https://other.example.org/${KEY}`;
+    await callArcRpcOnce("eth_call", []);
+    expect(methods().filter(method => method === "eth_getBlockByNumber")).toHaveLength(2);
+  });
+
   it("can never have a failed check read as a revert: whatever the node says to the chain id or the block, the failure is fixed text", async () => {
     fetchMock.mockImplementation(async () => json({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted" } }));
     const chainId = await thrown(callArcRpcOnce("eth_call", []));

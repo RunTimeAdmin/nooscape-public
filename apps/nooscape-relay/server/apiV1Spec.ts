@@ -76,7 +76,10 @@ const claim = {
     status: { enum: ["active", "on_hold"] },
     wallet: { type: "string", description: "The wallet that holds the claim. The registry recorded it as the owner when the claim was made." },
     claimed_at: nullableDateTime,
-    last_owner_check_at: nullableDateTime,
+    last_owner_check_at: {
+      ...nullableDateTime,
+      description: "When Nooscape last asked the registry who owns the agent and was told this wallet. The registry is read at the chain's latest block, not a finalized one, and again about once a day, so a transfer made since may not show yet. Do not use a claim to decide who may act for the agent.",
+    },
     owner_text: {
       type: ["object", "null"],
       description: "What the owner wrote. Null while the claim is on hold, or when nothing is written. Always the owner's word, never Nooscape's.",
