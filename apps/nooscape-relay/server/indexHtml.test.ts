@@ -98,8 +98,9 @@ describe("client/index.html first paint", () => {
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? "";
     expect(style).toContain("#05070a");
     const css = readFileSync(path.resolve(import.meta.dirname, "..", "client", "src", "index.css"), "utf8");
+    const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const declarations = (text: string, selector: string, property: string) => {
-      const rule = new RegExp(`${selector.replace(/[.]/g, "\\.")}\\s*\\{([^}]*)\\}`).exec(text)?.[1] ?? "";
+      const rule = new RegExp(`${escapeRegExp(selector)}\\s*\\{([^}]*)\\}`).exec(text)?.[1] ?? "";
       const value = new RegExp(`${property}:\\s*([^;]+);`).exec(rule)?.[1] ?? "";
       // .045em and 0.045em are the same length.
       return value.trim().replace(/(^|[\s(,-])\.(\d)/g, "$10.$2");
