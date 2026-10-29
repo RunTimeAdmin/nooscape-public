@@ -185,4 +185,18 @@ export const ARC_ENTRY: WatchedEntry = {
   externalKey: "eip155:5042:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:13",
   visible: true,
 };
+export const BASE_ENTRY: WatchedEntry = {
+  id: "entry-base-1",
+  protocol: "erc8004_base",
+  sourceId: "source-base",
+  externalKey: "eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:21",
+  visible: true,
+};
+export const ETHEREUM_ENTRY: WatchedEntry = {
+  id: "entry-eth-1",
+  protocol: "erc8004_eth",
+  sourceId: "source-eth",
+  externalKey: "eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:22",
+  visible: true,
+};
 export const SOLANA_ENTRY: WatchedEntry = { id: "entry-sol-1", protocol: "solana_8004", sourceId: "source-sol", externalKey: "7Yw6u4v9kQ3pZ2r8s5t1x6c4b3n2m1k9j8h7g6f5d4e3", visible: true };

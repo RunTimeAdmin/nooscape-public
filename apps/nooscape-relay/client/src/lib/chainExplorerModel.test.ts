@@ -15,7 +15,7 @@ import {
   ENTRY_EVENT_WORLDS,
   formatObserved,
   registrationShare,
-  undrawnRegistryNote,
+  sampledRegistryNote,
   WORLD_ARRANGEMENT,
   worldProtocolLabel,
   worldsOn,
@@ -318,20 +318,47 @@ describe("the zones of a world", () => {
     expect(worldZones("solana", entities)[0]!.sublabel).toBeNull();
   });
 
-  it("says on Solana's page that AgenC is counted and not drawn, only while the count includes it", () => {
+  it("says on Solana's page that AgenC's lane holds a fixed sample and nothing in it moves, only while the count includes it", () => {
     const counted = [{ protocol: "solana_said", count: 14_174 }, { protocol: "solana_agenc", count: 256 }];
-    const note = undrawnRegistryNote("solana", counted);
-    expect(note).toBe("AgenC, a fourth, is counted below but has no recorded events, so it is not drawn.");
-    // The note is true only while the page draws nothing of AgenC: if it is ever added to the drawn registries, the note goes.
-    expect(CHAIN_IDENTITY_PROTOCOLS.solana).not.toContain("solana_agenc");
+    const note = sampledRegistryNote("solana", counted);
+    expect(note).toBe("AgenC, a fourth registry, records no events, so its lane holds a fixed sample of its entries and nothing in it moves.");
+    // The page draws AgenC's entries now, so its protocol is one of the registries the page accepts.
+    expect(CHAIN_IDENTITY_PROTOCOLS.solana).toContain("solana_agenc");
     expect(note).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
     expect(note).not.toMatch(/[–—]/);
     // No count, a zero count, no list, or any other chain: no sentence.
-    expect(undrawnRegistryNote("solana", [{ protocol: "solana_said", count: 14_174 }])).toBeNull();
-    expect(undrawnRegistryNote("solana", [{ protocol: "solana_agenc", count: 0 }])).toBeNull();
-    expect(undrawnRegistryNote("solana")).toBeNull();
-    expect(undrawnRegistryNote("robinhood", counted)).toBeNull();
-    expect(undrawnRegistryNote("base", counted)).toBeNull();
+    expect(sampledRegistryNote("solana", [{ protocol: "solana_said", count: 14_174 }])).toBeNull();
+    expect(sampledRegistryNote("solana", [{ protocol: "solana_agenc", count: 0 }])).toBeNull();
+    expect(sampledRegistryNote("solana")).toBeNull();
+    expect(sampledRegistryNote("robinhood", counted)).toBeNull();
+    expect(sampledRegistryNote("base", counted)).toBeNull();
+  });
+
+  it("counts the registries in Solana's subtitle as the registry line under the title names them, so a fourth lane cannot sit under three", () => {
+    const named = CHAIN_WORLDS.solana.registry.split(" · ");
+    expect(named).toEqual(["Metaplex", "8004", "SAID", "AgenC"]);
+    expect(CHAIN_WORLDS.solana.subtitle).toBe(`${["Zero", "One", "Two", "Three", "Four", "Five"][named.length]} registries. One living field.`);
+  });
+
+  it("stands a fixed sample of AgenC's entries in a fourth lane after SAID's, with no group and no event, and leaves the lane out while there is no sample", () => {
+    const agenc = (id: string, name: string) => ({ id, displayName: name, locatorHost: null, protocol: "solana_agenc" });
+    const sample = [agenc("ag1", "AgenC agent 11111111"), agenc("ag2", "AgenC agent 22222222")];
+    const entities = buildWorldEntities("solana", [solRecord("m1", "solana_registry")], [], sample, []);
+    const registries = [{ protocol: "solana_registry", count: 1_599 }, { protocol: "solana_agenc", count: 256 }];
+    const zones = worldZones("solana", entities, registries);
+    expect(zones.map(zone => zone.id)).toEqual(["solana_registry", "solana_agenc"]);
+    const lane = zones.find(zone => zone.id === "solana_agenc")!;
+    expect(lane.label).toBe("AgenC agent registry");
+    expect(lane.sublabel).toBe("256 listed · no recorded events: a fixed sample of its entries");
+    expect(lane.groups).toEqual([]);
+    expect(lane.figures.map(entity => [entity.id, entity.kind, entity.protocol])).toEqual([["ag1", "acknowledged", "solana_agenc"], ["ag2", "acknowledged", "solana_agenc"]]);
+    // A sample entry is an acknowledged entry: never a reviewed record, with no tier.
+    expect(lane.figures.every(entity => entity.evidenceTier === null && entity.detail === "Registry identity · not reviewed")).toBe(true);
+    // The other lanes are as they were, and with no sample there is no AgenC lane.
+    expect(worldZones("solana", buildWorldEntities("solana", [solRecord("m1", "solana_registry")], [], [], []), registries).map(zone => zone.id)).toEqual(["solana_registry"]);
+    // Another chain's page does not take AgenC's entries.
+    expect(buildWorldEntities("arc", [], [], sample, [])).toEqual([]);
+    expect(worldProtocolLabel("solana_agenc")).toBe("AgenC");
   });
 
   it("stands each BNB Chain group on the platform of the shared fact it counts, in a fixed order, and never an unreviewed registration", () => {
@@ -618,12 +645,12 @@ describe("the Ethereum world", () => {
     expect(worldZones("ethereum", [])).toEqual([]);
   });
 
-  it("has no feed of its own, sets its plates in columns, names its registry, and has no census report to link", () => {
+  it("has no feed of its own, sets its plates in columns, names its registry, and links its census report", () => {
     expect(ENTRY_EVENT_WORLDS).toContain("ethereum");
     expect(WORLD_ARRANGEMENT.ethereum).toBe("columns");
     expect(worldProtocolLabel("erc8004_eth")).toBe("ERC-8004 / Ethereum");
     expect(CHAIN_WORLDS.ethereum).toMatchObject({ number: "06", registry: "ERC-8004 / Ethereum", title: "The pale spire" });
-    expect(CHAIN_GROUP_REPORT.ethereum).toBeNull();
+    expect(CHAIN_GROUP_REPORT.ethereum).toEqual({ href: "/field/ethereum-registry-2026-10-28", label: "Ethereum registry census, 28 October 2026" });
     expect(CHAIN_IDENTITY_PROTOCOLS.ethereum).toEqual(["erc8004_eth"]);
   });
 

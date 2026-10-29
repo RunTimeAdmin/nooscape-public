@@ -29,6 +29,8 @@ const WALLET = "0x14791697260e4c9a71f18484c9f997b308e59325";
 const OTHER = "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a";
 const RH_KEY = (id: number) => `eip155:4663:${API_CHAINS.robinhood.registry}:${id}`;
 const ARC_KEY = (id: number) => API_CHAINS.arc.keyOf(String(id));
+const BASE_KEY = (id: number) => API_CHAINS.base.keyOf(String(id));
+const ETH_KEY = (id: number) => API_CHAINS.ethereum.keyOf(String(id));
 const BNB_KEY = (id: number) => API_CHAINS.bnb.keyOf(String(id));
 const SOL_ASSET = "7Yw6u4v9kQ3pZ2r8s5t1x6c4b3n2m1k9j8h7g6f5d4e3";
 const SIGNING_KEY = "k".repeat(40);
@@ -98,6 +100,8 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
     await sourceRow("src-paused", "erc8004", "paused");
     await sourceRow("src-bnb", "erc8004_bsc");
     await sourceRow("src-arc", "erc8004_arc");
+    await sourceRow("src-base", "erc8004_base");
+    await sourceRow("src-eth", "erc8004_eth");
     for (const [id, tier, revoked] of [["key-b", "builder", false], ["key-p", "pro", false], ["key-f", "free", false], ["key-r", "builder", true], ["key-d", "builder", false], ["key-x", "builder", false]] as const) await key(id, tier, revoked);
   });
 
@@ -391,6 +395,32 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
         // Robinhood Chain: 20,000 blocks after the mint is inside 36,000, and 40,000 is not.
         "own:rh-far-47": true,
         "own:rh-late-47": false,
+      });
+    });
+
+    it("judges a hand-out on Base by its 1,800 blocks and on Ethereum by its 299, not by Robinhood Chain's 36,000", async () => {
+      await entry("base-21", "src-base", "erc8004_base", BASE_KEY(21));
+      await entry("eth-22", "src-eth", "erc8004_eth", ETH_KEY(22));
+      const baseRows = { sourceId: "src-base", externalKey: BASE_KEY(21) };
+      const ethRows = { sourceId: "src-eth", externalKey: ETH_KEY(22) };
+      await writer.insert(schema.agentDirectoryChainActivity).values([
+        { id: "base-mint", ...baseRows, transactionHash: "0xbasemint", logIndex: 0, kind: "mint", blockNumber: 10_000, fromAddress: null, toAddress: WALLET, createdAt: new Date(t0.getTime() - 3 * HOUR) },
+        { id: "base-near", ...baseRows, transactionHash: "0xbasenear", logIndex: 0, kind: "secondary", blockNumber: 11_500, fromAddress: WALLET, toAddress: OTHER },
+        { id: "base-far", ...baseRows, transactionHash: "0xbasefar", logIndex: 0, kind: "secondary", blockNumber: 12_000, fromAddress: WALLET, toAddress: OTHER },
+        { id: "eth-mint", ...ethRows, transactionHash: "0xethmint", logIndex: 0, kind: "mint", blockNumber: 10_000, fromAddress: null, toAddress: WALLET, createdAt: new Date(t0.getTime() - 3 * HOUR) },
+        { id: "eth-near", ...ethRows, transactionHash: "0xethnear", logIndex: 0, kind: "secondary", blockNumber: 10_250, fromAddress: WALLET, toAddress: OTHER },
+        { id: "eth-far", ...ethRows, transactionHash: "0xethfar", logIndex: 0, kind: "secondary", blockNumber: 10_400, fromAddress: WALLET, toAddress: OTHER },
+      ]);
+      const entries = await source.entries(["base-21", "eth-22"]);
+      const found = await source.transfers(new Date(t0.getTime() - 5 * 60_000), entries);
+      const handout = Object.fromEntries(found.rows.filter(item => /^own:(base|eth)-(near|far)/.test(item.ref)).map(item => [item.ref, item.isHandout]));
+      expect(handout).toEqual({
+        // Base: 1,500 blocks after the mint is inside 1,800, and 2,000 is not.
+        "own:base-near": true,
+        "own:base-far": false,
+        // Ethereum: 250 blocks after the mint is inside 299, and 400 is not.
+        "own:eth-near": true,
+        "own:eth-far": false,
       });
     });
 

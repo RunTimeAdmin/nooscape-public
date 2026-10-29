@@ -53,7 +53,7 @@ export const FLAGGED_CLIENT_ROUTES: Partial<Record<Feature, readonly string[]>> 
   patrols: ["/patrols"],
   chain_arc: ["/chains/arc", "/field/arc-registry-2026-10-20"],
   chain_base: ["/chains/base", "/field/base-registry-2026-10-21"],
-  chain_ethereum: ["/chains/ethereum"],
+  chain_ethereum: ["/chains/ethereum", "/field/ethereum-registry-2026-10-28"],
 };
 
 export function isClientRoutePath(pathname: string, features: string | undefined = process.env.VITE_FEATURES): boolean {

@@ -139,13 +139,13 @@ function FleetCard({ node, kind, onUnpin }: { node: ConstellationNode; kind: Sel
         <dt className="text-ns-ink-dim">Chain</dt>
         <dd className="flex items-center gap-2 text-[#DFFFF0]">
           <svg aria-hidden="true" viewBox="-1.5 -1.5 3 3" className="size-3 shrink-0">
-            {fleet?.chain === "arc" ? <path d={markerPath("dome")} fill="none" stroke={chain.color} strokeWidth={0.35} /> : fleet?.chain === "solana" ? <path d={markerPath("diamond")} fill="none" stroke={chain.color} strokeWidth={0.35} /> : fleet?.chain === "robinhood" ? <path d="M0 -1.25L1.08 -0.625L1.08 0.625L0 1.25L-1.08 0.625L-1.08 -0.625Z" fill="none" stroke={chain.color} strokeWidth={0.35} /> : <circle r="1.2" fill="none" stroke={chain.color} strokeWidth={0.35} />}
+            {fleet?.chain === "base" ? <path d={markerPath("cross")} fill="none" stroke={chain.color} strokeWidth={0.35} /> : fleet?.chain === "ethereum" ? <path d={markerPath("pentagon")} fill="none" stroke={chain.color} strokeWidth={0.35} /> : fleet?.chain === "arc" ? <path d={markerPath("dome")} fill="none" stroke={chain.color} strokeWidth={0.35} /> : fleet?.chain === "solana" ? <path d={markerPath("diamond")} fill="none" stroke={chain.color} strokeWidth={0.35} /> : fleet?.chain === "robinhood" ? <path d="M0 -1.25L1.08 -0.625L1.08 0.625L0 1.25L-1.08 0.625L-1.08 -0.625Z" fill="none" stroke={chain.color} strokeWidth={0.35} /> : <circle r="1.2" fill="none" stroke={chain.color} strokeWidth={0.35} />}
           </svg>
           {chain.label}
         </dd>
         {fleet?.wallet && (
           <>
-            <dt className="text-ns-ink-dim">{fleet.chain === "solana" ? "Owner wallet" : fleet.chain === "robinhood" || fleet.chain === "arc" ? "Registering wallet" : "Wallet"}</dt>
+            <dt className="text-ns-ink-dim">{fleet.chain === "solana" ? "Owner wallet" : fleet.chain === "robinhood" || fleet.chain === "arc" || fleet.chain === "base" || fleet.chain === "ethereum" ? "Registering wallet" : "Wallet"}</dt>
             <dd className="break-all text-[#DFFFF0]" title={fleet.wallet}>
               <span aria-hidden="true">{shortWallet(fleet.wallet)}</span>
               <span className="sr-only">{fleet.wallet}</span>

@@ -41,11 +41,11 @@ export const registrySentence = bnbSentence;
 
 /**
  * What the "Ratings recorded" figure counts on each chain. Robinhood Chain's is the reputation ledger. Solana's is the 8004
- * registry's own feedback counters, summed, and the note says the other two registries keep none Nooscape reads, so the
- * figure is never taken for all of Solana. BNB Chain's is not measured here.
+ * registry's own feedback counters, summed, and the note says SAID and Metaplex keep no ratings Nooscape reads and AgenC's
+ * reputation counter is not counted, so the figure is never taken for all of Solana. BNB Chain's is not measured here.
  */
 export function ratingsNote(chain: ListedChainKey): string {
-  if (chain === "solana") return "The 8004 registry's own feedback counters, summed. SAID and Metaplex keep no ratings Nooscape reads. Not a score.";
+  if (chain === "solana") return "The 8004 registry's own feedback counters, summed. SAID and Metaplex keep no ratings Nooscape reads, and AgenC's reputation counter is not counted. Not a score.";
   return "Ratings written on-chain, revoked ones included. Not a score.";
 }
 

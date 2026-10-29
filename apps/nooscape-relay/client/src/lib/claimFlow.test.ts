@@ -112,6 +112,16 @@ describe("the chain a claim can be made on", () => {
     for (const features of [undefined, "", "claims", "chain_arc", "claims_arc", "claims,chain_arc"]) expect(claimChainLabel("erc8004_arc", features), String(features)).toBeNull();
   });
 
+  it("names Base only while Base and its claims are both on in the build, and Ethereum only while Ethereum and its claims are", () => {
+    expect(claimChainLabel("erc8004_base", "chain_base,claims_base")).toBe("Base");
+    expect(claimChainLabel("erc8004_eth", "chain_ethereum,claims_ethereum")).toBe("Ethereum");
+    expect(claimChainLabel("erc8004_base", " Claims , CLAIMS_BASE , Chain_Base ")).toBe("Base");
+    for (const features of [undefined, "", "claims", "chain_base", "claims_base", "claims,chain_base", "chain_ethereum,claims_ethereum,chain_arc,claims_arc"]) expect(claimChainLabel("erc8004_base", features), String(features)).toBeNull();
+    for (const features of [undefined, "", "claims", "chain_ethereum", "claims_ethereum", "claims,chain_ethereum", "chain_base,claims_base,chain_arc,claims_arc"]) expect(claimChainLabel("erc8004_eth", features), String(features)).toBeNull();
+    // Each chain's switches open that chain only.
+    expect(claimChainLabel("erc8004_arc", "chain_base,claims_base,chain_ethereum,claims_ethereum")).toBeNull();
+  });
+
   it("reads the build's own list when none is given, which is none in a test", () => {
     expect(claimChainLabel("erc8004_arc")).toBeNull();
     expect(claimChainLabel("erc8004")).toBe("Robinhood Chain");

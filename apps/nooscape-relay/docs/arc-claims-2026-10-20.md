@@ -2,7 +2,7 @@
 
 The claim flow ([docs/claims-2026-10-18.md](./claims-2026-10-18.md)) opened to the owners of agents on Arc. One new server module, one new switch, and a few lines in the flow and the page. No migration, no new table and no new setting: it uses the three claim tables (migration 0042) and the Arc node the identity pass already reads.
 
-**Status.** Built and tested on a local branch (`feature/arc-claims`), after the watchlist. Not shipped, and **off until the operator adds `claims_arc` to `VITE_FEATURES`**.
+**Status.** Shipped in PR 178 on 2026-10-20, after the watchlist, and on in the live build (`claims_arc` is named in `VITE_FEATURES`, checked 2026-10-28).
 
 **Decided:** 2026-10-20, by the operator, in chat: "Owl's Catch, watchlist, claims are good to add   lets finish the ARC arc so to say", and "do it all in one pr". The operator asked for claims on Arc. That everything lands in one merge is why the claims have a switch of their own: see below.
 

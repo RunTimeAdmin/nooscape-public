@@ -2,7 +2,7 @@
 
 Front end and one read endpoint. No migration, no agent promotion, no change to the listing rules or the gate.
 
-**Status.** Built and tested on a local branch. Not shipped. It needs the operator's decision on the points under "Decisions needed", because it changes what the home map draws for BNB Chain.
+**Status.** Shipped in PR 77 on 2026-10-16. It changed what the home map draws for BNB Chain, and the points under "Decisions needed" were the questions put to the operator when it was built.
 
 ## What a visitor sees
 

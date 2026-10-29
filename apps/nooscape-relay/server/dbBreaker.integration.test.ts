@@ -92,9 +92,15 @@ describe.skipIf(!dbReachable)("an account that has used its connections for the 
   /** The connections a pool opened, with the ids the server knows them by. */
   type Opened = Array<{ id: number; connection: EventEmitter }>;
 
-  /** Holds `count` connections at once so the pool opens `count`, then gives them back. */
+  /**
+   * Holds `count` connections at once so the pool opens `count`, then gives them back. They are opened one after another:
+   * when two logins for an account arrive together, MySQL now and then counts only one of them against the hourly cap (5 in
+   * 3,000 tries on mysql 8.4.11, none in 3,000 one after another), and the account is left one connection that the tests
+   * below take for used. That spare connection opened in the middle of a test and served a request without the breaker.
+   */
   async function open(pool: Pool, count: number): Promise<Opened> {
-    const held = await Promise.all(Array.from({ length: count }, () => pool.promise().getConnection()));
+    const held = [];
+    for (let index = 0; index < count; index += 1) held.push(await pool.promise().getConnection());
     const ids = await Promise.all(held.map(async connection => Number(((await connection.query("SELECT CONNECTION_ID() AS id"))[0] as Array<{ id: number }>)[0]!.id)));
     for (const connection of held) connection.release();
     return held.map((connection, index) => ({ id: ids[index]!, connection: connection.connection }));

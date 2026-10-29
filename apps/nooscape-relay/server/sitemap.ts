@@ -48,7 +48,7 @@ export function sitemapXml(urls: readonly string[]): string {
 const SITEMAP_FLAGGED_ROUTES: Partial<Record<Feature, readonly string[]>> = {
   chain_arc: ["/chains/arc", "/field/arc-registry-2026-10-20"],
   chain_base: ["/chains/base", "/field/base-registry-2026-10-21"],
-  chain_ethereum: ["/chains/ethereum"],
+  chain_ethereum: ["/chains/ethereum", "/field/ethereum-registry-2026-10-28"],
 };
 
 export function flaggedSitemapUrls(features: string | undefined = process.env.VITE_FEATURES): string[] {

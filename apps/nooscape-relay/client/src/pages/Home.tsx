@@ -36,6 +36,9 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
   const mapFleetsQuery = trpc.liveData.mapFleets.useQuery(undefined, { enabled: view === "home", retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
   // The groups of Arc registrations, drawn as domes beside the others while Arc's switch is on in this build. Not waited for and not retried: a failed or empty read leaves the map as it was, and the domes are placed after everything else, so they move nothing when they arrive.
   const arcFleetsQuery = trpc.liveData.registryFleets.useQuery({ chain: "arc" }, { enabled: view === "home" && featureOn("chain_arc", import.meta.env.VITE_FEATURES), retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
+  // The same for Base (crosses) and Ethereum (pentagons), each behind its own switch and placed after the Arc domes.
+  const baseFleetsQuery = trpc.liveData.registryFleets.useQuery({ chain: "base" }, { enabled: view === "home" && featureOn("chain_base", import.meta.env.VITE_FEATURES), retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
+  const ethereumFleetsQuery = trpc.liveData.registryFleets.useQuery({ chain: "ethereum" }, { enabled: view === "home" && featureOn("chain_ethereum", import.meta.env.VITE_FEATURES), retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [linkedAgentId, setLinkedAgentId] = useState<string | null>(null);
@@ -419,7 +422,7 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
             <HeroScene onAskTheOwl={askTheOwl} />
 
             <Suspense fallback={<div className="mb-5 h-[520px]" aria-hidden="true" />}>
-              <LandingHero records={liveRecords} status={liveRecordsQuery.isLoading || mapFleetsQuery.isLoading ? "loading" : liveRecordsQuery.isError ? "unavailable" : "ready"} fleets={mapFleetsQuery.data ?? null} arcFleets={arcFleetsQuery.data ?? null} linkedAgentId={linkedAgentId} />
+              <LandingHero records={liveRecords} status={liveRecordsQuery.isLoading || mapFleetsQuery.isLoading ? "loading" : liveRecordsQuery.isError ? "unavailable" : "ready"} fleets={mapFleetsQuery.data ?? null} arcFleets={arcFleetsQuery.data ?? null} baseFleets={baseFleetsQuery.data ?? null} ethereumFleets={ethereumFleetsQuery.data ?? null} linkedAgentId={linkedAgentId} />
             </Suspense>
 
             {/* Below the map, not above it: the map is the best thing on the page and should be the first section a visitor reaches. The hero's own line says what is new and links here. */}

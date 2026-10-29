@@ -16,13 +16,13 @@ export const CHAIN_WORLDS = {
   },
   solana: {
     title: "The prism garden",
-    subtitle: "Three registries. One living field.",
+    subtitle: "Four registries. One living field.",
     description: "Follow registrations, ownership changes and profile edits across Solana’s agent registries.",
     accent: "#A78BFA",
     secondary: "#5EEAD4",
     number: "02",
     terrain: "Registry archipelago",
-    registry: "Metaplex · 8004 · SAID",
+    registry: "Metaplex · 8004 · SAID · AgenC",
   },
   bnb: {
     title: "The amber foundry",
@@ -87,7 +87,7 @@ export const ENTRY_EVENT_WORLDS: readonly WorldKey[] = ["bnb", "arc", "base", "e
 /** Only protocols that register identities belong in the character field. Reputation and settlement ledgers are separate. */
 export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {
   robinhood: ["erc8004"],
-  solana: ["solana_registry", "solana_8004", "solana_said"],
+  solana: ["solana_registry", "solana_8004", "solana_said", "solana_agenc"],
   bnb: ["erc8004_bsc"],
   arc: ["erc8004_arc"],
   base: ["erc8004_base"],
@@ -110,7 +110,7 @@ export const CHAIN_GROUP_REPORT: Record<WorldKey, { href: string; label: string 
   bnb: { href: "/field/bnb-registry-2026-10-16", label: "BNB Chain registry census, 16 October 2026" },
   arc: { href: "/field/arc-registry-2026-10-20", label: "Arc registry census, 20 October 2026" },
   base: { href: "/field/base-registry-2026-10-21", label: "Base registry census, 21 October 2026" },
-  ethereum: null,
+  ethereum: { href: "/field/ethereum-registry-2026-10-28", label: "Ethereum registry census, 28 October 2026" },
 };
 
 export type ChainWorldEvent = {
@@ -357,18 +357,21 @@ export function worldProtocolLabel(protocol: string) {
         solana_registry: "Metaplex",
         solana_8004: "8004 Solana",
         solana_said: "SAID",
+        solana_agenc: "AgenC",
       } as Record<string, string>
     )[protocol] ?? protocol.replace(/_/g, " ")
   );
 }
 
 /**
- * Solana's page draws three registries and counts a fourth. AgenC's pass lists its agents and records no registration, ownership change or
- * profile edit, so there is nothing of it to draw (docs/agenc-solana-2026-10-26.md). Said only while the chain's own count includes it.
+ * Solana's page has four lanes and the fourth is different. AgenC's pass lists its agents and records no registration, ownership change or
+ * profile edit, so nothing of it moves and there is no group to draw: its lane holds a fixed sample of its entries, picked by a rule that
+ * ignores quality, as Arc's page holds one (docs/agenc-solana-2026-10-26.md, docs/agenc-lane-2026-10-28.md). Said only while the chain's own
+ * count includes AgenC.
  */
-export function undrawnRegistryNote(chain: WorldKey, registries: ReadonlyArray<{ protocol: string; count: number }> = []): string | null {
+export function sampledRegistryNote(chain: WorldKey, registries: ReadonlyArray<{ protocol: string; count: number }> = []): string | null {
   return chain === "solana" && registries.some(row => row.protocol === "solana_agenc" && row.count > 0)
-    ? "AgenC, a fourth, is counted below but has no recorded events, so it is not drawn."
+    ? "AgenC, a fourth registry, records no events, so its lane holds a fixed sample of its entries and nothing in it moves."
     : null;
 }
 
@@ -378,11 +381,12 @@ export const WORLD_ARRANGEMENT: Record<WorldKey, Arrangement> = { robinhood: "sp
 /** A zone of a world: a plate with a name, the formations of its groups and the figures of its records. */
 export type WorldZone = { id: string; label: string; sublabel: string | null; groups: ChainWorldEntity[]; figures: ChainWorldEntity[] };
 
-/** The three Solana registries, in the order the lanes stand. */
+/** The four Solana registries, in the order the lanes stand. AgenC stands last: it has no events and no groups, only a fixed sample of its entries. */
 const SOLANA_LANES = [
   { id: "solana_registry", label: "Metaplex agent registry" },
   { id: "solana_8004", label: "8004 registry" },
   { id: "solana_said", label: "SAID registry" },
+  { id: "solana_agenc", label: "AgenC agent registry" },
 ] as const;
 /** The kinds of shared fact a BNB Chain group can be, in the order the platforms stand. */
 const BNB_PLATFORMS = ["platform_host", "shared_link", "wallet", "template"] as const;
@@ -410,7 +414,8 @@ export function worldZones(chain: WorldKey, entities: readonly ChainWorldEntity[
   } else if (chain === "solana") {
     for (const lane of SOLANA_LANES) {
       const listed = registries.find(row => row.protocol === lane.id)?.count;
-      const parts = [listed != null ? `${listed.toLocaleString("en-US")} listed` : null, lane.id === "solana_said" ? "no groups: each identity has a wallet of its own" : null].filter(Boolean);
+      const why = lane.id === "solana_said" ? "no groups: each identity has a wallet of its own" : lane.id === "solana_agenc" ? "no recorded events: a fixed sample of its entries" : null;
+      const parts = [listed != null ? `${listed.toLocaleString("en-US")} listed` : null, why].filter(Boolean);
       zones.push({ id: lane.id, label: lane.label, sublabel: parts.length ? parts.join(" \u00B7 ") : null, groups: groups.filter(entity => entity.protocol === lane.id), figures: figures.filter(entity => entity.protocol === lane.id) });
     }
   } else if (chain === "arc") {

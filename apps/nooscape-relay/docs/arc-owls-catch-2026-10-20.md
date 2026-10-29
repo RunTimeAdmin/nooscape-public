@@ -2,7 +2,7 @@
 
 Rules, words and the reads that serve them. No migration, no new table and no new worker step: the daily choice and the stored row are the ones [the Owl's Catch](./owls-catch-2026-10-15.md) already has.
 
-**Status.** Built and tested on a local branch (`feature/arc-catch`), after the arrivals. Not shipped.
+**Status.** Shipped in PR 178 on 2026-10-20, after the arrivals.
 
 **Decided:** 2026-10-20, by the operator, in chat: "Owl's Catch, watchlist, claims are good to add   lets finish the ARC arc so to say". The shape of the answer is mine.
 

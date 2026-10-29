@@ -2,7 +2,7 @@
 
 Front end, one read and the words around them. No migration, no new table, no worker step, no change to the listing rules or the gate.
 
-**Status.** Built and tested on a local branch (`visual/robinhood-lights`). Not shipped.
+**Status.** Shipped in PR 169 (merged 2026-10-20 00:25 UTC).
 
 **Decided:** 2026-10-19, by the operator, in chat: "we need to deliver visual results at the very least". The shape of the answer is mine, chosen to follow the BNB Chain and Solana lights exactly, so the operator can say no to any of it (see "What I chose").
 

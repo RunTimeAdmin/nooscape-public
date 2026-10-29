@@ -9,7 +9,7 @@ import { problems, schemaOf } from "./apiV1Testing";
 import { apiV1SpecFor } from "./apiV1Spec";
 import { resetRateLimits } from "./rateLimit";
 import { type SendResult } from "./webhookPass";
-import { ARC_ENTRY, ROBINHOOD_ENTRY, SOLANA_ENTRY, memoryEventSource, memoryWebhookStore, type MemoryLedgers } from "./webhookTesting";
+import { ARC_ENTRY, BASE_ENTRY, ETHEREUM_ENTRY, ROBINHOOD_ENTRY, SOLANA_ENTRY, memoryEventSource, memoryWebhookStore, type MemoryLedgers } from "./webhookTesting";
 import { EVENT_TYPES, WATCH_LIMIT, signature, signingSecret } from "./webhooks";
 
 /**
@@ -28,6 +28,8 @@ const SIGNING_KEY = "s".repeat(40);
 const ROBINHOOD_KEY = `eip155:4663:${API_CHAINS.robinhood.registry}:42`;
 const SOLANA_KEY = SOLANA_ENTRY.externalKey;
 const ARC_KEY = ARC_ENTRY.externalKey;
+const BASE_KEY = BASE_ENTRY.externalKey;
+const ETHEREUM_KEY = ETHEREUM_ENTRY.externalKey;
 const RECORDS: Record<string, ApiKeyRecord> = {
   [KEY_FREE]: { id: "key-free", tier: "free", prefix: "nsk_aaaaaa" },
   [KEY_BUILDER]: { id: "key-builder", tier: "builder", prefix: "nsk_bbbbbb" },
@@ -44,7 +46,7 @@ const json = async (response: Response) => (await response.json()) as Record<str
 
 function rig(options: { available?: boolean; ping?: SendResult } = {}) {
   const mem = memoryWebhookStore({ "key-free": { tier: "free" }, "key-builder": { tier: "builder" }, "key-pro": { tier: "pro" }, "key-other": { tier: "builder" } }, () => NOW);
-  const ledgers: MemoryLedgers = { entries: [{ ...ROBINHOOD_ENTRY }, { ...SOLANA_ENTRY }, { ...ARC_ENTRY }], claims: [], transfers: [], ratings: [] };
+  const ledgers: MemoryLedgers = { entries: [{ ...ROBINHOOD_ENTRY }, { ...SOLANA_ENTRY }, { ...ARC_ENTRY }, { ...BASE_ENTRY }, { ...ETHEREUM_ENTRY }], claims: [], transfers: [], ratings: [] };
   const sent: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
   let ping: SendResult = options.ping ?? { ok: true, status: 204 };
   let counter = 0;
@@ -76,6 +78,9 @@ function rig(options: { available?: boolean; ping?: SendResult } = {}) {
       if (key === ROBINHOOD_KEY) return [{ id: ROBINHOOD_ENTRY.id, protocol: "erc8004", externalKey: key }];
       // The real lookup finds an Arc listing only while Arc's switch is on, as it finds no other listing of a chain that is off.
       if (key === ARC_KEY) return protocols.includes("erc8004_arc") && servedChains().includes("arc") ? [{ id: ARC_ENTRY.id, protocol: "erc8004_arc", externalKey: key }] : [];
+      // The same for Base and Ethereum: a listing is found only while its chain's switch is on.
+      if (key === BASE_KEY) return protocols.includes("erc8004_base") && servedChains().includes("base") ? [{ id: BASE_ENTRY.id, protocol: "erc8004_base", externalKey: key }] : [];
+      if (key === ETHEREUM_KEY) return protocols.includes("erc8004_eth") && servedChains().includes("ethereum") ? [{ id: ETHEREUM_ENTRY.id, protocol: "erc8004_eth", externalKey: key }] : [];
       if (key === SOLANA_KEY && protocols.length > 1) return [{ id: SOLANA_ENTRY.id, protocol: "solana_8004", externalKey: key }, { id: "entry-sol-2", protocol: "solana_said", externalKey: key }];
       if (key === SOLANA_KEY) return [{ id: SOLANA_ENTRY.id, protocol: protocols[0]!, externalKey: key }];
       const robinhood = /:(\d+)$/.exec(key);
@@ -580,5 +585,53 @@ describe("the service the server runs", () => {
     const on = await fresh();
     expect(on).not.toBeNull();
     expect(on!.signingKey).toBe("k".repeat(40));
+  });
+});
+
+describe.each([
+  { chain: "base" as const, label: "Base", feature: "chain_base", entry: BASE_ENTRY, agentId: "21", registry: "erc8004_base", others: "chain_ethereum,chain_arc" },
+  { chain: "ethereum" as const, label: "Ethereum", feature: "chain_ethereum", entry: ETHEREUM_ENTRY, agentId: "22", registry: "erc8004_eth", others: "chain_base,chain_arc" },
+])("the watchlist on $label", ({ chain, feature, entry, agentId, registry, others }) => {
+  const add = (agents: unknown, key = KEY_BUILDER) => call("POST", "/watches", key, { agents });
+
+  it("watches an agent only while the chain's switch is on, with no other chain's switch opening it, and says which chains it may name", async () => {
+    const r = rig();
+    await start(r.deps);
+    // Switched off, or only another chain on: the chain is not one here, and the answer names the three there are.
+    for (const list of [undefined, others]) {
+      if (list === undefined) delete process.env.VITE_FEATURES;
+      else process.env.VITE_FEATURES = list;
+      const off = await json(await add([{ chain, id: agentId }]));
+      expect(off.data.results[0], String(list)).toMatchObject({ status: "bad_request", nooscape_id: null });
+      expect(off.data.results[0].message, String(list)).toMatch(/^chain must be one of robinhood, bnb, solana(, [a-z]+)*$/);
+      expect(off.data.results[0].message, String(list)).not.toContain(chain);
+    }
+    process.env.VITE_FEATURES = feature;
+    const on = await json(await add([{ chain, id: agentId }, { chain, id: agentId }, { chain, id: "not-a-number" }, { chain, id: agentId, registry: "solana_8004" }, { chain: "cosmos", id: "1" }, { chain: "robinhood", id: "42" }]));
+    expect(problems(schemaOf("WatchAddResponse"), on, "$", apiV1SpecFor(servedChains()))).toEqual([]);
+    expect(on.data.results.map((item: { status: string }) => item.status)).toEqual(["added", "already_watching", "bad_request", "bad_request", "bad_request", "added"]);
+    expect(on.data.results[0]).toMatchObject({ chain, id: agentId, nooscape_id: entry.id, message: null });
+    expect(on.data.results[2].message).toBe("id must be a registry token id (digits only)");
+    expect(on.data.results[3].message).toBe("registry applies to solana only");
+    expect(on.data.results[4].message).toBe(`chain must be one of robinhood, bnb, solana, ${chain}`);
+    expect(await r.mem.store.countWatches("key-builder")).toBe(2);
+  });
+
+  it("lists a watched agent by the chain's name while it is on, and by no chain once it is off", async () => {
+    const r = rig();
+    await start(r.deps);
+    process.env.VITE_FEATURES = feature;
+    await add([{ chain, id: agentId }, { chain: "robinhood", id: "42" }]);
+    const on = await json(await call("GET", "/watches"));
+    expect(problems(schemaOf("WatchList"), on, "$", apiV1SpecFor(servedChains()))).toEqual([]);
+    const byId = Object.fromEntries(on.data.watches.map((watch: { nooscape_id: string }) => [watch.nooscape_id, watch]));
+    expect(byId[entry.id]).toMatchObject({ chain, agent_id: agentId, registry, listed: true, page_url: `https://nooscape.si/agents/${entry.id}` });
+    // Switched off, the key still has the watch and can remove it, but the API names no chain for it.
+    delete process.env.VITE_FEATURES;
+    const off = await json(await call("GET", "/watches"));
+    expect(problems(schemaOf("WatchList"), off)).toEqual([]);
+    expect(off.data.watching).toBe(2);
+    expect(off.data.watches.find((watch: { nooscape_id: string }) => watch.nooscape_id === entry.id)).toMatchObject({ chain: null, agent_id: null, registry: null });
+    expect((await call("DELETE", `/watches/${entry.id}`)).status).toBe(200);
   });
 });

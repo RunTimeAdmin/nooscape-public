@@ -1,10 +1,12 @@
 import { Link } from "wouter";
-import { arcClaimsOn } from "@shared/features";
+import { arcClaimsOn, baseClaimsOn, ethereumClaimsOn } from "@shared/features";
 import { InfoPage, headingClass, linkClass, listClass, textClass } from "@/components/InfoPage";
 import { REPLY_WITHIN, SECURITY_EMAIL, TRUST_EMAIL } from "@/lib/contacts";
 
-/** Arc's claims are on in this build: the page says so in one more sentence, and its date is the day that sentence was written. */
+/** Arc's claims are on in this build: the page says so in one more sentence, and its date is the day that sentence was written. Base's and Ethereum's are each one more, the same way. */
 const ARC_CLAIMS = arcClaimsOn(import.meta.env.VITE_FEATURES);
+const BASE_CLAIMS = baseClaimsOn(import.meta.env.VITE_FEATURES);
+const ETHEREUM_CLAIMS = ethereumClaimsOn(import.meta.env.VITE_FEATURES);
 
 /**
  * What Nooscape stores about the people who visit it, and what it publishes about wallets. Every claim on it was read off the
@@ -15,7 +17,7 @@ const ARC_CLAIMS = arcClaimsOn(import.meta.env.VITE_FEATURES);
  */
 export default function Privacy() {
   return (
-    <InfoPage title="Privacy" eyebrow="What we keep" heading="Privacy" changed={ARC_CLAIMS ? "20 October 2026" : "19 October 2026"}>
+    <InfoPage title="Privacy" eyebrow="What we keep" heading="Privacy" changed={BASE_CLAIMS || ETHEREUM_CLAIMS ? "28 October 2026" : ARC_CLAIMS ? "20 October 2026" : "19 October 2026"}>
       <p className={textClass}>
         This page says what Nooscape keeps about the people who visit it, and what it publishes about wallets and registries. It describes the site as it is on the date above, and it changes when the site does.
       </p>
@@ -55,7 +57,7 @@ export default function Privacy() {
       <section aria-labelledby="privacy-claim">
         <h2 id="privacy-claim" className={headingClass}>When you claim an agent</h2>
         <ul className={listClass}>
-          <li>Claiming is optional. The owner of an agent on the Robinhood Chain or BNB Smart Chain registry can claim it by signing one message with their wallet. The signature proves that you control the wallet. It sends no transaction, costs no gas and gives Nooscape no access to your funds.{ARC_CLAIMS && " The owner of an agent on the Arc registry can claim it in the same way."}</li>
+          <li>Claiming is optional. The owner of an agent on the Robinhood Chain or BNB Smart Chain registry can claim it by signing one message with their wallet. The signature proves that you control the wallet. It sends no transaction, costs no gas and gives Nooscape no access to your funds.{ARC_CLAIMS && " The owner of an agent on the Arc registry can claim it in the same way."}{BASE_CLAIMS && " The owner of an agent on the Base registry can claim it in the same way."}{ETHEREUM_CLAIMS && " The owner of an agent on the Ethereum registry can claim it in the same way."}</li>
           <li>For a claim, Nooscape keeps the agent, your wallet address, the time of the claim, whether the claim is active, on hold or ended, a digest of your signature (not the signature), what you write (a name, a website, a description and up to five links), and a history of each change with the wallet that signed it and the time. The history is only added to.</li>
           <li>The one-time request that your wallet signs is kept too: your wallet address, the agent, a hash of the one-time code, the times, and the text of the edit it is for. It is kept for at least two days after it expires, then deleted by a daily step.</li>
           <li>Nooscape does not ask for your name or email address, and keeps no network address as part of a claim. The rate-limit log described above applies to claiming as it does to the rest of the site.</li>

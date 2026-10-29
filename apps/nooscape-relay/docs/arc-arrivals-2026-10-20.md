@@ -2,7 +2,7 @@
 
 Front end, the words around it and one read. No migration, no new table and no worker step. It uses the same read as the other three chains, widened to the extra chains whose switch is on.
 
-**Status.** Built and tested on a local branch (`feature/arc-arrivals`), after the Arc share card. Not shipped.
+**Status.** Shipped in PR 178 on 2026-10-20, after the Arc share card.
 
 **Decided:** 2026-10-20, by the operator, in chat: "do the lights  share card  census etc before base", and "lets finish the ARC arc so to say". The Home page's "New to the Owl" section is the part of "etc" that names each chain, so Arc belongs in it. The wording is the other chains' own.
 

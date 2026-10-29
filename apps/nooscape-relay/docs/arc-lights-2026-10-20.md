@@ -2,7 +2,7 @@
 
 Front end and the words around them. No migration, no new table, no worker step and no new read: the lights are the Arc page's own groups (`liveData.registryFleets`, [the Arc world](./chain-worlds-2026-10-20.md), stage C), so the map and the page cannot disagree.
 
-**Status.** Built and tested on a local branch (`feature/arc-lights`), after the Arc page. Not shipped.
+**Status.** Shipped in PR 178 on 2026-10-20, after the Arc page.
 
 **Decided:** 2026-10-20, by the operator, in chat: "do the lights  share card  census etc before base", and "lets finish the ARC arc so to say". The shape of the answer is mine, chosen to follow the BNB Chain, Solana and Robinhood Chain lights ([BNB](./bsc-fleet-lights-2026-10-16.md), [Solana](./solana-lights-2026-10-18.md), [Robinhood](./robinhood-lights-2026-10-19.md)), so the operator can say no to any of it.
 

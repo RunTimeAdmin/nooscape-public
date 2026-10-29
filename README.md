@@ -36,7 +36,7 @@ It states facts and never a verdict.
 - **Payment changes nothing.** A key, a payment or a claim never changes a record, a tier or an evidence level.
 - **Every answer says when it was read and where from.**
 
-On 27 October 2026 the atlas listed 59,053 agents from the chain registries (Robinhood Chain 19,888, Solana 17,605, Base 9,093, BNB Chain 6,930, Ethereum 5,185, Arc 352), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
+On 29 October 2026 the atlas listed 59,361 agents from the chain registries (Robinhood Chain 20,073, Solana 17,659, Base 9,114, BNB Chain 6,940, Ethereum 5,186, Arc 389), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
 
 ## See it
 
@@ -190,4 +190,4 @@ The code is released under the [MIT License](LICENSE). The data Nooscape serves 
 
 ## About this repository
 
-This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 27 October 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.
+This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 29 October 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.

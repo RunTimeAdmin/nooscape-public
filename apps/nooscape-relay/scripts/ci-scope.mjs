@@ -25,6 +25,7 @@ export const READ_BY_TESTS = [
   "apps/nooscape-relay/docs/bsc-b1-measurement-2026-10-16.md",
   "apps/nooscape-relay/docs/bsc-clusters-2026-10-16.md",
   "apps/nooscape-relay/docs/bsc-rater-credibility-2026-10-16.md",
+  "apps/nooscape-relay/docs/ethereum-census-2026-10-28.md",
   "apps/nooscape-relay/docs/robinhood-census-2026-10-20.md",
   "apps/nooscape-relay/docs/solana-census-2026-10-18.md",
 ];

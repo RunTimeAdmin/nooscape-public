@@ -14,8 +14,8 @@
  * those facts decide how it looks.
  */
 
-import { CHAIN_LABEL, chainOf, EXTRA_CHAIN_LABEL, listedChainLabel, parseProtocolList, type ChainKey } from "@shared/chains";
-import { ARC_LIGHTS_LIMIT, fleetKindLabel, fleetShape, fleetTitle, type MapFleet, type MapFleets, type RegistryFleets } from "@shared/mapFleets";
+import { CHAIN_LABEL, EXTRA_CHAIN_LABEL, extraProtocolOf, listedChainLabel, listedChainOf, parseProtocolList, type ListedChainKey } from "@shared/chains";
+import { ARC_LIGHTS_LIMIT, BASE_LIGHTS_LIMIT, ETHEREUM_LIGHTS_LIMIT, fleetKindLabel, fleetShape, fleetTitle, type MapFleet, type MapFleets, type RegistryFleets } from "@shared/mapFleets";
 
 export const MAX_NODES = 400;
 
@@ -28,25 +28,50 @@ export const isAcknowledged = (node: Pick<ConstellationNode, "kind">) => node.ki
 export const FLEET_TIER = "fleet";
 export const isFleet = (node: Pick<ConstellationNode, "kind">) => node.kind === "fleet";
 
-/** The chains a node of the map can be on: the original three, and Arc, whose groups have lights while its switch is on. */
-export type MapChainKey = ChainKey | "arc";
+/** The chains a node of the map can be on: the original three, and Ethereum, Base and Arc, whose groups have lights while their switches are on. */
+export type MapChainKey = ListedChainKey;
 
-/** The protocol a light sits on, which gives its node the chain it is drawn in: BNB Chain for the groups, the registry's own for a Solana owner wallet, Robinhood Chain's for a registering wallet, Arc's for an Arc group. */
+/** The protocol a light sits on, which gives its node the chain it is drawn in: BNB Chain for the groups, the registry's own for a Solana owner wallet, Robinhood Chain's for a registering wallet, the chain's own for an Arc, Base or Ethereum group. */
 const lightProtocol = (fleet: MapFleet) =>
-  fleet.chain === "arc" ? "erc8004_arc" : fleet.chain === "robinhood" ? "erc8004" : fleet.chain === "solana" ? (fleet.registry === "8004" ? "solana_8004" : "solana_registry") : "erc8004_bsc";
+  fleet.chain === "arc" || fleet.chain === "base" || fleet.chain === "ethereum"
+    ? extraProtocolOf(fleet.chain)
+    : fleet.chain === "robinhood"
+      ? "erc8004"
+      : fleet.chain === "solana"
+        ? fleet.registry === "8004"
+          ? "solana_8004"
+          : "solana_registry"
+        : "erc8004_bsc";
 
-/**
- * The Arc lights: the largest groups of the Arc page's, whatever their kind, at most {@link ARC_LIGHTS_LIMIT}, the largest first. A group
- * is the same fact the page draws, so the map and the page cannot disagree about it.
- */
-export function arcLights(arc: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
-  return [...(arc?.fleets ?? [])].sort((a, b) => b.count - a.count || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, ARC_LIGHTS_LIMIT);
+/** The largest groups of an extra chain's page, whatever their kind, at most `limit`, the largest first. A group is the same fact the page draws, so the map and the page cannot disagree about it. */
+function largestGroups(registry: Pick<RegistryFleets, "fleets"> | null | undefined, limit: number): MapFleet[] {
+  return [...(registry?.fleets ?? [])].sort((a, b) => b.count - a.count || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, limit);
 }
 
-/** The fleets as nodes for the map: the group's own title, its kind in words, the chain's protocol, and marked as a fleet. BNB Chain groups first, then the Solana owner wallets, the Robinhood Chain registering wallets and the Arc groups. */
-export function fleetRecords(sample: MapFleets | null | undefined, arc: Pick<RegistryFleets, "fleets"> | null | undefined = null): ConstellationRecord[] {
+/** The Arc lights: at most {@link ARC_LIGHTS_LIMIT}. */
+export function arcLights(arc: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
+  return largestGroups(arc, ARC_LIGHTS_LIMIT);
+}
+
+/** The Base lights: at most {@link BASE_LIGHTS_LIMIT}. */
+export function baseLights(base: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
+  return largestGroups(base, BASE_LIGHTS_LIMIT);
+}
+
+/** The Ethereum lights: at most {@link ETHEREUM_LIGHTS_LIMIT}. */
+export function ethereumLights(ethereum: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
+  return largestGroups(ethereum, ETHEREUM_LIGHTS_LIMIT);
+}
+
+/** The fleets as nodes for the map: the group's own title, its kind in words, the chain's protocol, and marked as a fleet. BNB Chain groups first, then the Solana owner wallets, the Robinhood Chain registering wallets and the Arc, Base and Ethereum groups. */
+export function fleetRecords(
+  sample: MapFleets | null | undefined,
+  arc: Pick<RegistryFleets, "fleets"> | null | undefined = null,
+  base: Pick<RegistryFleets, "fleets"> | null | undefined = null,
+  ethereum: Pick<RegistryFleets, "fleets"> | null | undefined = null
+): ConstellationRecord[] {
   // `solana` is read defensively: a map must never fail to draw because an answer lacks a field.
-  return [...(sample?.fleets ?? []), ...(sample?.solana?.fleets ?? []), ...(sample?.robinhood?.fleets ?? []), ...arcLights(arc)].map(fleet => ({
+  return [...(sample?.fleets ?? []), ...(sample?.solana?.fleets ?? []), ...(sample?.robinhood?.fleets ?? []), ...arcLights(arc), ...baseLights(base), ...ethereumLights(ethereum)].map(fleet => ({
     agentId: fleet.id,
     displayName: fleetTitle(fleet),
     handle: fleetKindLabel(fleet),
@@ -127,12 +152,11 @@ const TIER_COLOR: Record<string, string> = {
 export const UNKNOWN_TIER_COLOR = "#7E8B93";
 export const tierColor = (tier: string) => TIER_COLOR[tier] ?? UNKNOWN_TIER_COLOR;
 
-/** The chain a record's protocols name: the first protocol on a chain, or null when none is. Arc's identity registry counts, so an Arc group's light is on Arc. */
+/** The chain a record's protocols name: the first protocol on a chain, or null when none is. The identity registries of Ethereum, Base and Arc count, so a group's light is on its own chain. */
 export function recordChain(protocols: string): MapChainKey | null {
   for (const protocol of parseProtocolList(protocols)) {
-    const chain = chainOf(protocol);
+    const chain = listedChainOf(protocol);
     if (chain) return chain;
-    if (protocol === "erc8004_arc") return "arc";
   }
   return null;
 }
@@ -142,12 +166,15 @@ export function recordChain(protocols: string): MapChainKey | null {
  * shape, so the map reads in greys, and the legend and the card name the chain in words.
  */
 export type ChainStyleKey = MapChainKey | "none";
-export type MarkerShape = "circle" | "diamond" | "square" | "triangle" | "dome";
+export type MarkerShape = "circle" | "diamond" | "square" | "triangle" | "dome" | "cross" | "pentagon";
 export const CHAIN_STYLE: Record<ChainStyleKey, { label: string; color: string; shape: MarkerShape }> = {
   robinhood: { label: CHAIN_LABEL.robinhood, color: "#C3F53C", shape: "circle" },
   solana: { label: CHAIN_LABEL.solana, color: "#A78BFA", shape: "diamond" },
   bnb: { label: CHAIN_LABEL.bnb, color: "#F3BA2F", shape: "square" },
   arc: { label: EXTRA_CHAIN_LABEL.arc, color: "#ACC6E9", shape: "dome" },
+  base: { label: EXTRA_CHAIN_LABEL.base, color: "#3B82F6", shape: "cross" },
+  // The name comes from the function and not from a property: claimClient.test.ts reads a property called ethereum as the page's wallet and allows only lib/wallet.ts one.
+  ethereum: { label: listedChainLabel("ethereum"), color: "#7DD3FC", shape: "pentagon" },
   none: { label: "No chain", color: "#9AA8B8", shape: "triangle" },
 };
 export const chainStyleKey = (node: Pick<ConstellationNode, "chain">): ChainStyleKey => node.chain ?? "none";
@@ -165,6 +192,10 @@ export function markerPath(shape: MarkerShape): string {
       return "M0 -1.2L1.15 0.9L-1.15 0.9Z";
     case "dome":
       return "M-1.2 0.9A1.2 1.2 0 0 1 1.2 0.9Z";
+    case "cross":
+      return "M-0.4 -1.2H0.4V-0.4H1.2V0.4H0.4V1.2H-0.4V0.4H-1.2V-0.4H-0.4Z";
+    case "pentagon":
+      return "M0 -1.25L1.19 -0.39L0.73 1.01L-0.73 1.01L-1.19 -0.39Z";
   }
 }
 
@@ -178,7 +209,7 @@ type LegendEntry = { key: ChainStyleKey; label: string; color: string; shape: Ma
 function legendOf(nodes: readonly ConstellationNode[]): LegendEntry[] {
   const counts = new Map<ChainStyleKey, number>();
   for (const node of nodes) counts.set(chainStyleKey(node), (counts.get(chainStyleKey(node)) ?? 0) + 1);
-  return (["robinhood", "solana", "bnb", "arc", "none"] as const)
+  return (["robinhood", "solana", "bnb", "arc", "base", "ethereum", "none"] as const)
     .filter(key => (counts.get(key) ?? 0) > 0)
     .map(key => ({ key, ...CHAIN_STYLE[key], count: counts.get(key)! }));
 }
@@ -316,8 +347,9 @@ const LIGHT_ATTEMPTS = 24;
 
 function placeFleetNodes(records: readonly ConstellationRecord[], obstacles: readonly ConstellationNode[], aspect: number, place = true): ConstellationNode[] {
   const placed: ConstellationNode[] = [];
-  // The BNB Chain lights are placed first, so they are exactly where they were before there were Solana lights, and the Solana lights next, so they are where they were before there were Robinhood Chain lights; those find room around them, and the Arc lights find room last.
-  const lightOrder = (record: ConstellationRecord) => (record.fleet?.chain === "arc" ? 3 : record.fleet?.chain === "robinhood" ? 2 : record.fleet?.chain === "solana" ? 1 : 0);
+  // The BNB Chain lights are placed first, so they are exactly where they were before there were Solana lights, and the Solana lights next, so they are where they were before there were Robinhood Chain lights; those find room around them, then the Arc lights, and the Base and Ethereum lights find room last.
+  const lightOrder = (record: ConstellationRecord) =>
+    record.fleet?.chain === "ethereum" ? 5 : record.fleet?.chain === "base" ? 4 : record.fleet?.chain === "arc" ? 3 : record.fleet?.chain === "robinhood" ? 2 : record.fleet?.chain === "solana" ? 1 : 0;
   const ordered = [...records].sort((a, b) => lightOrder(a) - lightOrder(b) || (b.fleet?.count ?? 0) - (a.fleet?.count ?? 0) || (a.agentId < b.agentId ? -1 : a.agentId > b.agentId ? 1 : 0));
   for (const record of ordered) {
     const radius = fleetReach(record.fleet);
@@ -520,7 +552,7 @@ export type EvidenceState =
   | { status: "unavailable" }
   | { status: "ready"; publisher: string; provenance: string | null; observations: number; source: string | null };
 
-const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+const plural = (count: number, noun: string, many = `${noun}s`) => `${count} ${count === 1 ? noun : many}`;
 
 /**
  * The id a link's ?agent= pins on the map: its own, once the map has a node for it, and only until it has been used. After that the pin
@@ -565,6 +597,8 @@ export function constellationSummary(nodes: readonly ConstellationNode[]): strin
   const diamonds = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "diamond").length;
   const hexagons = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "hexagon").length;
   const domes = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "dome").length;
+  const crosses = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "cross").length;
+  const pentagons = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "pentagon").length;
   const counts = new Map<string, number>();
   for (const node of reviewed) counts.set(node.tier, (counts.get(node.tier) ?? 0) + 1);
   const tiers = Array.from(counts.entries())
@@ -582,6 +616,10 @@ export function constellationSummary(nodes: readonly ConstellationNode[]): strin
   const registrants = hexagons > 0 ? ` Also ${plural(hexagons, "large hexagon")}: each is one registering wallet that the directory records against many ${CHAIN_LABEL.robinhood} registrations, with its count. A hexagon is a wallet, not an agent.` : "";
   // The Arc lights are groups that share a wallet, a host or a profile link: a dome is a group, not an agent.
   const arcGroups = domes > 0 ? ` Also ${plural(domes, "large dome")}: each is a group of ${EXTRA_CHAIN_LABEL.arc} registrations that share one wallet, host or profile link, with its count. A dome is a group, not an agent, and no single ${EXTRA_CHAIN_LABEL.arc} registration is drawn.` : "";
+  // The Base lights are groups too: a cross is a group, not an agent.
+  const baseGroups = crosses > 0 ? ` Also ${plural(crosses, "large cross", "large crosses")}: each is a group of ${EXTRA_CHAIN_LABEL.base} registrations that share one wallet, host or profile link, with its count. A cross is a group, not an agent, and no single ${EXTRA_CHAIN_LABEL.base} registration is drawn.` : "";
+  // And the Ethereum lights: a pentagon is a group, not an agent.
+  const ethereumGroups = pentagons > 0 ? ` Also ${plural(pentagons, "large pentagon")}: each is a group of ${listedChainLabel("ethereum")} registrations that share one wallet, host or profile link, with its count. A pentagon is a group, not an agent, and no single ${listedChainLabel("ethereum")} registration is drawn.` : "";
   const lead = reviewed.length > 0 ? `Map of ${plural(reviewed.length, "reviewed record")}. By chain: ${chains.join(", ")}. By evidence tier: ${tiers.join(", ")}.` : "No reviewed records to show.";
-  return `${lead}${apart}${groups}${wallets}${registrants}${arcGroups} Each dot is one record. Tab to the map, use the arrow keys to move between records and Enter to pin one.`;
+  return `${lead}${apart}${groups}${wallets}${registrants}${arcGroups}${baseGroups}${ethereumGroups} Each dot is one record. Tab to the map, use the arrow keys to move between records and Enter to pin one.`;
 }

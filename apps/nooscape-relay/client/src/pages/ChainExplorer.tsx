@@ -39,7 +39,7 @@ import {
   normalizeEvmEvents,
   normalizeSolanaEvents,
   registrationShare,
-  undrawnRegistryNote,
+  sampledRegistryNote,
   worldEntityLabel,
   worldProtocolLabel,
   worldsOn,
@@ -115,13 +115,15 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
   });
   const registryFleetsQuery = trpc.liveData.registryFleets.useQuery({ chain: registryWorld ?? "arc" }, { ...READ, staleTime: 10 * 60_000, enabled: registryWorld !== null });
   const arcSampleQuery = trpc.liveData.chainSample.useQuery({ chain: "arc" }, { ...READ, staleTime: 10 * 60_000, enabled: chain === "arc" });
+  // AgenC records no events, so the fourth lane of Solana's page is a fixed sample of its entries, as Arc's entries are.
+  const agencSampleQuery = trpc.liveData.chainSample.useQuery({ chain: "agenc" }, { ...READ, staleTime: 10 * 60_000, enabled: chain === "solana" });
   const searchQuery = trpc.liveData.directorySearch.useQuery(
     { query: settledQuery, limit: 25 },
     { ...READ, enabled: CHAIN_SHOWS_ACKNOWLEDGED[chain] && settledQuery.length >= 2 }
   );
   const stats: ChainStat | ExtraChainStat | undefined = statsQuery.data?.chains.find(row => row.chain === chain) ?? statsQuery.data?.extras?.find(row => row.chain === chain);
   const registry = stats && "registry" in stats ? stats.registry : null;
-  const undrawnNote = undrawnRegistryNote(chain, stats?.registries);
+  const sampledNote = sampledRegistryNote(chain, stats?.registries);
   const baseEvents = useMemo(
     () =>
       chain === "robinhood"
@@ -135,10 +137,10 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
     () => (CHAIN_SHOWS_ACKNOWLEDGED[chain] && settledQuery.length >= 2 ? (searchQuery.data?.entries ?? []) : []),
     [chain, searchQuery.data, settledQuery]
   );
-  // Arc has no feed to draw its first figures from, so they are a fixed sample of the entries the directory lists; the search adds to them.
+  // Arc has no feed to draw its first figures from, so they are a fixed sample of the entries the directory lists; the search adds to them. So are AgenC's, in its lane on Solana's page.
   const acknowledgements = useMemo(
-    () => (chain === "arc" ? [...(arcSampleQuery.data?.entries ?? NO_ENTRIES), ...matches] : matches),
-    [chain, arcSampleQuery.data, matches]
+    () => (chain === "arc" ? [...(arcSampleQuery.data?.entries ?? NO_ENTRIES), ...matches] : chain === "solana" ? [...(agencSampleQuery.data?.entries ?? NO_ENTRIES), ...matches] : matches),
+    [chain, arcSampleQuery.data, agencSampleQuery.data, matches]
   );
   const groups = useMemo(
     () =>
@@ -221,7 +223,7 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
     new Set(entities.map(entity => entity.protocol))
   );
   const sceneStatus =
-    statsQuery.isLoading || recordsQuery.isLoading || (registryWorld !== null && registryFleetsQuery.isLoading) || (chain === "arc" && arcSampleQuery.isLoading)
+    statsQuery.isLoading || recordsQuery.isLoading || (registryWorld !== null && registryFleetsQuery.isLoading) || (chain === "arc" && arcSampleQuery.isLoading) || (chain === "solana" && agencSampleQuery.isLoading)
       ? "loading"
       : !stats || statsQuery.isError
         ? "unavailable"
@@ -362,7 +364,7 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
             </h1>
             <p className="cw-description">
               {world.subtitle} {world.description}
-              {undrawnNote && ` ${undrawnNote}`}
+              {sampledNote && ` ${sampledNote}`}
             </p>
           </div>
           <div className="cw-header-stamp">

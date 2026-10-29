@@ -81,6 +81,8 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
     // Migration 0046 is manual: it adds Arc's protocol to the four tables.
     const owner = await createConnection(process.env.DATABASE_URL);
     for (const statement of splitMigrationStatements(await readFile("drizzle/0046_multichain_erc8004_protocols.sql", "utf8"))) await owner.query(statement);
+    // Migration 0051 is manual too: it adds AgenC's protocol, whose entries fill the fourth lane of Solana's page.
+    for (const statement of splitMigrationStatements(await readFile("drizzle/0051_solana_agenc_protocol.sql", "utf8"))) await owner.query(statement);
     await owner.end();
 
     readCache = await import("./readCache");
@@ -264,6 +266,34 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
       expect(on.entries.every(entry => entry.protocol === "erc8004_arc")).toBe(true);
       features(undefined);
       expect(await caller().liveData.chainSample({ chain: "arc" })).toEqual({ entries: [], listed: 0 });
+    });
+
+    it("serves a fixed sample of AgenC's listed entries for the fourth lane of Solana's page, whatever the chain switches say, and nothing while its source is not active", async () => {
+      await writer.insert(schema.ingestionSources).values({ id: "src-agenc", sourceKey: "fleets-agenc", label: "AgenC", protocol: "solana_agenc", rootUrl: "https://agenc.example/rpc", allowedHostname: "agenc.example", state: "active", createdByUserId: operatorUserId });
+      const ids = Array.from({ length: 35 }, (_, index) => `agenc-entry-${index}`);
+      await writer.insert(schema.agentDirectoryEntries).values(ids.map(id => ({ id, sourceId: "src-agenc", externalKey: `agenc-pda-${id}`, displayName: `AgenC agent ${id}`, protocol: "solana_agenc" as const, registrant: null })));
+      // Nothing about Arc's or any chain's switch holds it back: Solana's page has none.
+      for (const list of [undefined, "chain_arc", "chain_base,chain_ethereum"]) {
+        features(list);
+        const sample = await caller().liveData.chainSample({ chain: "agenc" });
+        expect(sample.listed, String(list)).toBe(35);
+        expect(sample.entries, String(list)).toHaveLength(30);
+        expect(sample.entries.every(entry => entry.protocol === "solana_agenc")).toBe(true);
+      }
+      // The sample is the entries whose ids hash lowest, a rule that ignores quality, and the same ones every time.
+      const lowest = [...ids].sort((a, b) => (hash(a) < hash(b) ? -1 : 1)).slice(0, 30);
+      const again = await caller().liveData.chainSample({ chain: "agenc" });
+      expect(again.entries.map(entry => entry.id)).toEqual(lowest);
+      // Arc's sample is untouched by it, and the other registries' entries are never in it.
+      features("chain_arc");
+      expect((await caller().liveData.chainSample({ chain: "arc" })).entries.every(entry => entry.protocol === "erc8004_arc")).toBe(true);
+      // A source that is not active lists nothing, as for every public read.
+      await writer.update(schema.ingestionSources).set({ state: "paused" }).where(eq(schema.ingestionSources.id, "src-agenc"));
+      readCache.invalidateDirectoryReads();
+      expect(await caller().liveData.chainSample({ chain: "agenc" })).toEqual({ entries: [], listed: 0 });
+      await writer.update(schema.ingestionSources).set({ state: "active" }).where(eq(schema.ingestionSources.id, "src-agenc"));
+      readCache.invalidateDirectoryReads();
+      features(undefined);
     });
 
     it("serves Base's groups the same way, from Base's own rows and only while its switch is on, and never mixes the two chains", async () => {
