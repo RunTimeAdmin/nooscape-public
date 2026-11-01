@@ -5,7 +5,7 @@
 | Field | Recommended copy |
 |---|---|
 | Display name | **NOOSCAPE · Open Agent Observatory** |
-| Handle | **@nooscape** if available; otherwise **@nooscapeatlas** or **@nooscapelive** |
+| Handle | **@Nooscape**, the handle the site's link cards and its Contact and Checker pages name (`x.com/Nooscape`) |
 | Category | Science & Technology / Software |
 | Website | `https://nooscape.si` |
 | Location | The agent field |
@@ -29,6 +29,8 @@
 > The current Atlas shows 58 source-scoped records from approved bounded sources. Every live record has retained evidence and a signed envelope; all are clearly Tier 2 / unverified.
 >
 > Explore the Atlas: https://nooscape.si
+
+Written for the launch in October 2026. The second sentence is out of date if the post is used again: on 1 November 2026 there were 76 reviewed records, 75 Tier 2 / unverified and 1 Tier 3, beside a directory of about 289,000 acknowledged entries.
 
 **Length:** 256 characters under X’s URL-shortening rules.
 

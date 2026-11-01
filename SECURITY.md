@@ -18,7 +18,7 @@ The same address is published for researchers at <https://nooscape.si/.well-know
 
 ## Scope
 
-In scope: nooscape.si and its API under `/api/trpc`, and the code in `apps/nooscape-relay`.
+In scope: nooscape.si and its APIs under `/api/trpc` and `/api/v1` (with the x402 pay-per-call flow), and the code in `apps/nooscape-relay`.
 
 Out of scope: the services Nooscape reads (chains, registries and catalogs) and its hosting provider. Report those to their owners.
 
@@ -28,7 +28,7 @@ Nooscape signs the evidence packets it exports. The signing keys, and whether ea
 
 ## Known limitations
 
-- The operator console's browser login has one failure cap for everyone: 20 failed attempts from anywhere block that login for 15 minutes. It stops a guesser and can also be used to annoy the operator, so it is known and is not a way in. The operator's token path is separate and is not affected.
+- The operator console's browser login has one failure cap for everyone: after 20 failed attempts from anywhere within 15 minutes, every further wrong token is refused until the window ends, and 5 failures from one requester refuse that requester. A correct token is never refused, so the cap slows a guesser and cannot lock the operator out. It is known and is not a way in. The operator's token path is separate and is not affected.
 
 ## Supported versions
 
