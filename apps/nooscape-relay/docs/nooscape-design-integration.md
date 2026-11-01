@@ -102,5 +102,5 @@ Approve a **two-source pilot**: one owned or partner A2A/ANP domain and one Robi
 [2]: https://agent-network-protocol.com/specs/1.1/agent-discovery "ANP Agent Discovery Protocol Specification"
 [3]: https://eips.ethereum.org/EIPS/eip-8004 "ERC-8004 Trustless Agents"
 [4]: https://docs.agntcy.org/dir/directory-gui/ "AGNTCY Agent Directory Service Architecture"
-[5]: https://github.com/RunTimeAdmin/nooscape/blob/main/AGENT_TRUST_TIER_DESIGN.md "Agent Directory Trust-Tiered Design"
-[6]: https://github.com/RunTimeAdmin/nooscape/blob/main/ARC_MARKETPLACE_LISTING.md "Arc Marketplace Listing"
+[5]: ../../../AGENT_TRUST_TIER_DESIGN.md "Agent Directory Trust-Tiered Design"
+[6]: ../../../ARC_MARKETPLACE_LISTING.md "Arc Marketplace Listing"
