@@ -2,6 +2,8 @@
 
 Status: **BUILT AND TESTED (2026-10-26); NOT STAGED.** Operator-approved scope: a directory-only pilot, chain facts only, manual-only. Nothing runs until the owner pastes migration 0051 by hand, stages the source on /admin/sources, approves it and runs it once. The scheduled flip is a separate reviewed migration, after a clean attended period.
 
+**Update, later on 2026-10-26:** live. PR 210 merged at 14:16Z (main `3d42df4`); the operator pasted migration 0051, staged and approved the source and ran it once at 14:22Z: 256 of 256 enumerated, 0 missing (to-do item 139). No scheduled flip is recorded in the repository, and the migration number section 8 names for it (0053) went to Monad's protocol value on 2026-11-01, after this tree was taken from the private repository.
+
 ## 1. What this adds
 
 A chain pass over the AgenC program, acknowledging every registered agent into the master directory (`agent_directory_entries`) the way the SAID, 8004 and Metaplex passes do. It reads Solana mainnet only. It writes no reviewed record, no agent, no snapshot, no evidence event and no ledger row, so no run of this source can ever be projected.

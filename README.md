@@ -27,7 +27,7 @@
 
 ## What Nooscape is
 
-Nooscape is a public atlas of AI agents. It reads the public agent registries on **Robinhood Chain, BNB Chain, Solana, Ethereum, Base and Arc**, keeps what it read together with the date or block it was read at, and shows it as facts. Anyone can look an agent up, see where each fact came from, and decide for themselves.
+Nooscape is a public atlas of AI agents. It reads the public agent registries on **Robinhood Chain, BNB Chain, Solana, Ethereum, Base, Arc and Monad**, keeps what it read together with the date or block it was read at, and shows it as facts. Anyone can look an agent up, see where each fact came from, and decide for themselves.
 
 It states facts and never a verdict.
 
@@ -36,7 +36,7 @@ It states facts and never a verdict.
 - **Payment changes nothing.** A key, a payment or a claim never changes a record, a tier or an evidence level.
 - **Every answer says when it was read and where from.**
 
-On 29 October 2026 the atlas listed 59,361 agents from the chain registries (Robinhood Chain 20,073, Solana 17,659, Base 9,114, BNB Chain 6,940, Ethereum 5,186, Arc 389), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
+On 1 November 2026 the atlas listed 59,953 agents from the chain registries (Robinhood Chain 20,378, Solana 17,717, Base 9,135, BNB Chain 6,956, Ethereum 5,205, Arc 418, Monad 144), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
 
 ## See it
 
@@ -63,7 +63,7 @@ On 29 October 2026 the atlas listed 59,361 agents from the chain registries (Rob
 | **Look an agent up** | `GET /api/v1/agents/{chain}/{id}` and a search, with no key. 30 requests a minute from one address. |
 | **Check before you pay** | `POST /api/v1/check` gives dated facts about an agent, a wallet or an endpoint host. It takes a Pro key, or $0.01 a call in USDC over [x402](https://x402.org), with no account. |
 | **Use it from an AI assistant** | The [`nooscape-mcp`](https://github.com/RunTimeAdmin/nooscape-mcp) server gives MCP clients search, lookup, history and the check as tools. |
-| **Claim your agent** | The owner of an ERC-8004 agent signs one message with the wallet that owns the agent in the registry. The claim is shown beside what Nooscape observed, never in its place. |
+| **Claim your agent** | The owner of an ERC-8004 agent on Robinhood Chain, BNB Chain or Arc signs one message with the wallet that owns the agent in the registry. The claim is shown beside what Nooscape observed, never in its place. |
 | **Watch agents** | Builder keys get a watchlist and signed webhooks. |
 | **Verify evidence** | Evidence packets are signed with Ed25519. The signing keys, active and retired, are published at [`/.well-known/nooscape-keys.json`](https://nooscape.si/.well-known/nooscape-keys.json), and the [verifier](https://nooscape.si/verify) checks a packet against them. |
 
@@ -82,14 +82,14 @@ curl -i -X POST https://nooscape.si/api/v1/check \
   -d '{"agent":{"chain":"arc","id":"1"}}'
 ```
 
-Chains are `robinhood`, `bnb`, `solana`, `ethereum`, `base` and `arc`. Every answer carries `as_of`, `source` and `license`. Free, Builder and Pro keys raise the limits ([get a key](https://nooscape.si/developers/keys)). The full description is the [OpenAPI document](https://nooscape.si/api/v1/openapi.json), and [`/llms.txt`](https://nooscape.si/llms.txt) is the same API written for a model.
+Chains are `robinhood`, `bnb`, `solana`, `ethereum`, `base`, `arc` and `monad`. Every answer carries `as_of`, `source` and `license`. Free, Builder and Pro keys raise the limits ([get a key](https://nooscape.si/developers/keys)). The full description is the [OpenAPI document](https://nooscape.si/api/v1/openapi.json), and [`/llms.txt`](https://nooscape.si/llms.txt) is the same API written for a model.
 
 ## How it works
 
 ```mermaid
 flowchart LR
   subgraph Sources["Public sources"]
-    A["ERC-8004 registries<br/>Robinhood, BNB, Ethereum, Base, Arc"]
+    A["ERC-8004 registries<br/>Robinhood, BNB, Ethereum, Base, Arc, Monad"]
     B["Solana agent registries"]
     C["A2A cards and catalogs"]
   end
@@ -190,4 +190,4 @@ The code is released under the [MIT License](LICENSE). The data Nooscape serves 
 
 ## About this repository
 
-This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 29 October 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.
+This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 29 October 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note. The live site has moved on since that refresh: Monad, the seventh chain, was added to the private repository and switched on on 1 November 2026, so its code and record reach this tree with the next refresh.
