@@ -380,10 +380,13 @@ type RegistryPublishResult = { inserted: number; refreshed: number; removed: num
  * Operator-controlled state on an existing directory row (hidden) is never
  * touched, and survives a row leaving and coming back: the flag is copied onto
  * the registry row before its entry is removed, so a later re-listing inserts
- * it hidden. Only rows that are held out are removed; a pending row keeps its
- * entry until classification decides, so two overlapping runs cannot delete a
- * row the other is about to relist. Every statement is set-based and bounded by
- * the listed set; the insert runs in chunks, each a short write.
+ * it hidden. So does the entry's id: a new entry is inserted under its registry
+ * row's id, and an entry from before that gives its id to the row before it is
+ * removed, so a watch, a claim or a link that holds the id finds the agent again
+ * when it is listed. Only rows that are held out are removed; a pending row
+ * keeps its entry until classification decides, so two overlapping runs cannot
+ * delete a row the other is about to relist. Every statement is set-based and
+ * bounded by the listed set; the insert runs in chunks, each a short write.
  */
 export async function publishAgentRegistryListing(sourceId: string, options: { insertChunk?: number } = {}): Promise<RegistryPublishResult> {
   const db = requireDb(await getDb());
@@ -398,7 +401,7 @@ export async function publishAgentRegistryListing(sourceId: string, options: { i
           feedbackCount, hidden, assetClosedAt, firstSeenAt, lastSeenAt, lastRunId
         )
         SELECT
-          UUID(), r.sourceId, r.externalKey, r.displayName, r.locatorHost, r.protocol, r.sourceSignalNote, r.registrant,
+          r.id, r.sourceId, r.externalKey, r.displayName, r.locatorHost, r.protocol, r.sourceSignalNote, r.registrant,
           r.mintBlock, r.secondaryTransferCount, r.handoutCount, r.uriUpdateCount, r.accountPubkey, r.profileUriHash,
           r.feedbackCount, r.hidden, r.assetClosedAt, r.firstSeenAt, r.lastSeenAt, r.lastRunId
         FROM ${ROWS} AS r
@@ -436,11 +439,12 @@ export async function publishAgentRegistryListing(sourceId: string, options: { i
     `)
   );
   const heldOut = sql`${REGISTRY_LISTING.NO_LINK}, ${REGISTRY_LISTING.GROUPED}, ${REGISTRY_LISTING.NUMERIC_NAME}`;
+  // The flag and the id go onto the row in one statement, and both come back with the entry.
   await db.execute(sql`
     UPDATE ${ROWS} AS r
     JOIN ${ENTRIES} AS e ON e.sourceId = r.sourceId AND e.externalKey = r.externalKey
-    SET r.hidden = e.hidden
-    WHERE r.sourceId = ${sourceId} AND r.listing IN (${heldOut}) AND r.hidden <> e.hidden
+    SET r.hidden = e.hidden, r.id = e.id
+    WHERE r.sourceId = ${sourceId} AND r.listing IN (${heldOut}) AND (r.hidden <> e.hidden OR r.id <> e.id)
   `);
   const removed = affected(
     await db.execute(sql`

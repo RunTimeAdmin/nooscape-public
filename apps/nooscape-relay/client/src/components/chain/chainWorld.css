@@ -1188,6 +1188,14 @@
     linear-gradient(180deg, color-mix(in srgb, var(--cw-accent) 16%, transparent), color-mix(in srgb, var(--cw-accent) 3%, transparent) 72%),
     repeating-linear-gradient(90deg, color-mix(in srgb, var(--cw-secondary) 8%, transparent) 0 1px, transparent 1px 30px);
 }
+.cw-theater[data-chain="monad"] .cw-zone {
+  border-radius: 14px;
+  border-color: color-mix(in srgb, var(--cw-secondary) 26%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--cw-accent) 15%, transparent), color-mix(in srgb, var(--cw-accent) 3%, transparent) 72%),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--cw-secondary) 7%, transparent) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--cw-secondary) 7%, transparent) 0 1px, transparent 1px 26px);
+}
 .cw-theater[data-chain="bnb"] .cw-zone {
   border-radius: 8px;
   border-top: 3px solid color-mix(in srgb, var(--cw-accent) 55%, transparent);

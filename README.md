@@ -36,7 +36,7 @@ It states facts and never a verdict.
 - **Payment changes nothing.** A key, a payment or a claim never changes a record, a tier or an evidence level.
 - **Every answer says when it was read and where from.**
 
-On 1 November 2026 the atlas listed 59,953 agents from the chain registries (Robinhood Chain 20,378, Solana 17,717, Base 9,135, BNB Chain 6,956, Ethereum 5,205, Arc 418, Monad 144), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
+On 2 November 2026 the atlas listed 60,057 agents from the chain registries (Robinhood Chain 20,447, Solana 17,738, Base 9,144, BNB Chain 6,960, Ethereum 5,206, Arc 418, Monad 144), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
 
 ## See it
 
@@ -141,7 +141,7 @@ With no `DATABASE_URL` the server starts in a local tooling mode: the pages load
 
 ```bash
 pnpm check          # typecheck of the source and of the tests
-pnpm test           # more than 4,500 tests
+pnpm test           # more than 4,900 tests
 ```
 
 The tests that need a database use `mysql://root:nooscape@127.0.0.1:3307` and skip when none is reachable. CI runs the same checks against a throwaway MySQL 8 and builds the app.
@@ -167,7 +167,7 @@ The root of the repository also holds dated design and research notes. They reco
 |---|---|
 | [`AGENT_TRUST_TIER_DESIGN.md`](AGENT_TRUST_TIER_DESIGN.md) | The thesis, the dedup pipeline, trust tiers 0 to 3 and the phased build plan |
 | [`INGEST_POINTS.md`](INGEST_POINTS.md) | Named ingest sources, their limits and the signals each gives |
-| [`SCOPE.md`](SCOPE.md) | The v1 chain scope decided on 7 October 2026. BNB Chain, Base and Ethereum were added after it. |
+| [`SCOPE.md`](SCOPE.md) | The v1 chain scope decided on 7 October 2026. BNB Chain, Base, Ethereum and Monad were added after it. |
 | [`ARC_INGEST_RESEARCH.md`](ARC_INGEST_RESEARCH.md) | Arc: first-party evidence, source requirements and priorities |
 
 ### Independence
@@ -190,4 +190,4 @@ The code is released under the [MIT License](LICENSE). The data Nooscape serves 
 
 ## About this repository
 
-This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 29 October 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note. The live site has moved on since that refresh: Monad, the seventh chain, was added to the private repository and switched on on 1 November 2026, so its code and record reach this tree with the next refresh.
+This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 2 November 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.

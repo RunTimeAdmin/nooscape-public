@@ -54,6 +54,24 @@ describe("isClientRoutePath", () => {
     expect(isClientRoutePath("/field/base-registry-2026-10-21", "chain_ethereum")).toBe(false);
   });
 
+  it("serves Monad's page and its census report only while its own switch is on", () => {
+    expect(isClientRoutePath("/field/monad-registry-2026-11-01", undefined)).toBe(false);
+    expect(isClientRoutePath("/field/monad-registry-2026-11-01", "chain_arc,chain_base,chain_ethereum")).toBe(false);
+    expect(isClientRoutePath("/field/monad-registry-2026-11-01", "chain_monad")).toBe(true);
+    expect(isClientRoutePath("/field/monad-registry-2026-11-01/", "chain_monad")).toBe(false);
+    expect(isClientRoutePath("/field/ethereum-registry-2026-10-28", "chain_monad")).toBe(false);
+    expect(isClientRoutePath("/chains/monad", undefined)).toBe(false);
+    expect(isClientRoutePath("/chains/monad", "chain_arc,chain_base,chain_ethereum")).toBe(false);
+    expect(isClientRoutePath("/chains/monad", "chain_monad")).toBe(true);
+    expect(isClientRoutePath("/chains/monad", "chain_base,chain_ethereum,chain_arc,chain_monad")).toBe(true);
+    expect(isClientRoutePath("/chains/monad/", "chain_monad")).toBe(false);
+    expect(isClientRoutePath("/chains/Monad", "chain_monad")).toBe(false);
+    // Its switch opens no other chain's page, and no other chain's switch opens its.
+    expect(isClientRoutePath("/chains/arc", "chain_monad")).toBe(false);
+    expect(isClientRoutePath("/chains/base", "chain_monad")).toBe(false);
+    expect(isClientRoutePath("/chains/ethereum", "chain_monad")).toBe(false);
+  });
+
   it("serves Base's page and its census report only while its switch is on", () => {
     expect(isClientRoutePath("/chains/base", undefined)).toBe(false);
     expect(isClientRoutePath("/chains/base", "chain_arc,chain_ethereum")).toBe(false);

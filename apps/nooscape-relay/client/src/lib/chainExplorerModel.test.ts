@@ -229,7 +229,7 @@ describe("chain world evidence model", () => {
     expect(worldCrew(rows, null, null, 0)).toEqual([]);
   });
   it("draws BNB Chain as groups and reviewed records only, never as individual registrations", () => {
-    expect(CHAIN_SHOWS_ACKNOWLEDGED).toEqual({ robinhood: true, solana: true, bnb: false, arc: true, base: false, ethereum: false });
+    expect(CHAIN_SHOWS_ACKNOWLEDGED).toEqual({ robinhood: true, solana: true, bnb: false, arc: true, base: false, ethereum: false, monad: false });
     const group = { id: "g", kind: "platform_host" as const, chain: "bnb" as const, name: "evoevo.ai", wallet: null, registry: null, count: 7174, wallets: null };
     const bnbEntry = { id: "bnb-entry", displayName: "test", protocol: "erc8004_bsc", locatorHost: "x.example" };
     const bnbEvents = normalizeEvmEvents([{ ...evm, entryId: "bnb-entry" }], "erc8004_bsc");
@@ -275,7 +275,7 @@ describe("the zones of a world", () => {
   const solRecord = (id: string, protocol: string) => record(id, `["${protocol}"]`);
 
   it("sets Robinhood Chain out as a plate of registering wallets and a plate of identities, and leaves out the one with nothing", () => {
-    expect(WORLD_ARRANGEMENT).toEqual({ robinhood: "split", solana: "columns", bnb: "columns", arc: "columns", base: "columns", ethereum: "columns" });
+    expect(WORLD_ARRANGEMENT).toEqual({ robinhood: "split", solana: "columns", bnb: "columns", arc: "columns", base: "columns", ethereum: "columns", monad: "columns" });
     const both = buildWorldEntities("robinhood", [record("rec")], [], [], [fleet("w1", "robinhood", "wallet"), fleet("w2", "robinhood", "wallet", null, 5_593)]);
     const zones = worldZones("robinhood", both);
     expect(zones.map(zone => zone.id)).toEqual(["wallets", "identities"]);
@@ -491,7 +491,7 @@ describe("the Arc world", () => {
   });
 
   it("has no feed of its own, as BNB Chain has none, so a recorded event is shown for the selected entry", () => {
-    expect([...ENTRY_EVENT_WORLDS]).toEqual(["bnb", "arc", "base", "ethereum"]);
+    expect([...ENTRY_EVENT_WORLDS]).toEqual(["bnb", "arc", "base", "ethereum", "monad"]);
     const events = normalizeEvmEvents([{ ...evm, entryId: "a1" }], "erc8004_arc");
     expect(events.map(event => [event.protocol, event.id])).toEqual([["erc8004_arc", "erc8004_arc:0x123:2"]]);
   });
@@ -573,10 +573,10 @@ describe("the Base world", () => {
     expect(CHAIN_GROUP_REPORT.base).toEqual({ href: "/field/base-registry-2026-10-21", label: "Base registry census, 21 October 2026" });
   });
 
-  it("takes its colour from the token of Base's tab, so the page and the tab agree, and numbers the worlds one to six", () => {
+  it("takes its colour from the token of Base's tab, so the page and the tab agree, and numbers the worlds one to seven", () => {
     const css = readFileSync(new URL("../index.css", import.meta.url), "utf8").toLowerCase();
     expect(css).toContain(`--ns-chain-base: ${CHAIN_WORLDS.base.accent.toLowerCase()};`);
-    expect(Object.values(CHAIN_WORLDS).map(world => world.number)).toEqual(["01", "02", "03", "04", "05", "06"]);
+    expect(Object.values(CHAIN_WORLDS).map(world => world.number)).toEqual(["01", "02", "03", "04", "05", "06", "07"]);
   });
 
   it("says no more than the census does: no word of an agent, a score or a verdict in what the page's model words", () => {
@@ -665,5 +665,85 @@ describe("the Ethereum world", () => {
     expect(words).not.toMatch(new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`));
     expect(CHAIN_WORLDS.ethereum.description).toContain("A group is not an agent");
     expect(CHAIN_WORLDS.ethereum.description).toContain("Individual registrations are not drawn here");
+  });
+});
+
+describe("the Monad world", () => {
+  const monadFleet = (id: string, kind: "wallet" | "shared_link" | "platform_host", count: number, over: Partial<MapFleet> = {}): MapFleet => ({
+    id,
+    kind,
+    chain: "monad",
+    name: kind === "wallet" ? null : `${id}.example.io`,
+    wallet: kind === "wallet" ? "0xabc" : null,
+    registry: null,
+    count,
+    wallets: kind === "wallet" ? 1 : null,
+    ...over,
+  });
+  const monadEntry = (id: string) => ({ id, displayName: `Agent #${id}`, protocol: "erc8004_monad", locatorHost: null });
+  const original = ["robinhood", "solana", "bnb"];
+
+  it("is on offer only while its own switch is in the build's list, last when all four extra chains are on", () => {
+    expect(worldsOn("chain_monad")).toEqual([...original, "monad"]);
+    expect(worldsOn(" Watch , CHAIN_MONAD ")).toEqual([...original, "monad"]);
+    expect(worldsOn("chain_monad,chain_ethereum,chain_base,chain_arc")).toEqual([...original, "arc", "base", "ethereum", "monad"]);
+    // The other switches, and a name that only looks like it, give Monad no page.
+    for (const features of [undefined, "", "chain_arc", "chain_base", "chain_ethereum", "chain_monadx", "monad", "claims"]) expect(worldsOn(features), String(features)).not.toContain("monad");
+  });
+
+  it("is drawn as groups and reviewed records only, never as the entries a feed or the directory lists", () => {
+    expect(CHAIN_SHOWS_ACKNOWLEDGED.monad).toBe(false);
+    const rows = buildWorldEntities(
+      "monad",
+      [record("rec", '["erc8004_monad"]'), record("bnb-rec", '["erc8004_bsc"]')],
+      normalizeEvmEvents([{ ...evm, entryId: "ev" }], "erc8004_monad"),
+      [monadEntry("a1"), { ...monadEntry("b1"), protocol: "erc8004_bsc" }],
+      [monadFleet("h", "platform_host", 10_000), monadFleet("elsewhere", "wallet", 60, { chain: "base" })]
+    );
+    expect(rows.map(row => [row.kind, row.id])).toEqual([
+      ["reviewed", "rec"],
+      ["group", "group:h"],
+    ]);
+    expect(rows.at(-1)).toMatchObject({ protocol: "erc8004_monad", count: 10_000 });
+    expect(rows.at(-1)!.fleet).toMatchObject({ chain: "monad", kind: "platform_host" });
+  });
+
+  it("stands each group on the platform of the shared fact it counts, the host first, and a record on a plate after them", () => {
+    const groups = [monadFleet("w1", "wallet", 9_989), monadFleet("h1", "platform_host", 10_000), monadFleet("l1", "shared_link", 120), monadFleet("h2", "platform_host", 2_022)];
+    const zones = worldZones("monad", buildWorldEntities("monad", [], [], [], groups));
+    expect(zones.map(zone => zone.id)).toEqual(["platform_host", "shared_link", "wallet"]);
+    expect(zones.map(zone => zone.label)).toEqual(["Same host", "Same profile link", "Same registering wallet"]);
+    expect(zones.map(zone => zone.sublabel)).toEqual(["2 groups drawn", "1 group drawn", "1 group drawn"]);
+    expect(zones[0]!.groups.map(entity => entity.id)).toEqual(["group:h1", "group:h2"]);
+    expect(zones.flatMap(zone => zone.figures)).toEqual([]);
+    // A reviewed record stands on a plate of its own after the platforms. An entry the directory lists never does.
+    const withRecord = worldZones("monad", buildWorldEntities("monad", [record("rec", '["erc8004_monad"]')], [], [monadEntry("a1")], groups));
+    expect(withRecord.map(zone => zone.id)).toEqual(["platform_host", "shared_link", "wallet", "records"]);
+    expect(withRecord.at(-1)!.figures.map(entity => entity.id)).toEqual(["rec"]);
+    // A plate with nothing on it is not drawn, and a world with nothing on it is not drawn at all.
+    expect(worldZones("monad", buildWorldEntities("monad", [], [], [], [monadFleet("w1", "wallet", 60)])).map(zone => zone.id)).toEqual(["wallet"]);
+    expect(worldZones("monad", [])).toEqual([]);
+  });
+
+  it("has no feed of its own, sets its plates in columns, names its registry, and links its census report", () => {
+    expect(ENTRY_EVENT_WORLDS).toContain("monad");
+    expect(WORLD_ARRANGEMENT.monad).toBe("columns");
+    expect(worldProtocolLabel("erc8004_monad")).toBe("ERC-8004 / Monad");
+    expect(CHAIN_WORLDS.monad).toMatchObject({ number: "07", registry: "ERC-8004 / Monad", title: "The coral loom" });
+    expect(CHAIN_GROUP_REPORT.monad).toEqual({ href: "/field/monad-registry-2026-11-01", label: "Monad registry census, 1 November 2026" });
+    expect(CHAIN_IDENTITY_PROTOCOLS.monad).toEqual(["erc8004_monad"]);
+  });
+
+  it("takes its colour from the token of Monad's tab, so the page and the tab agree", () => {
+    const css = readFileSync(new URL("../index.css", import.meta.url), "utf8").toLowerCase();
+    expect(css).toContain(`--ns-chain-monad: ${CHAIN_WORLDS.monad.accent.toLowerCase()};`);
+  });
+
+  it("says no more than the registry does: no word of an agent, a score or a verdict in what the page's model words", () => {
+    const words = [CHAIN_WORLDS.monad.title, CHAIN_WORLDS.monad.subtitle, CHAIN_WORLDS.monad.description, CHAIN_WORLDS.monad.terrain].join(" ");
+    expect(words).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
+    expect(words).not.toMatch(new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`));
+    expect(CHAIN_WORLDS.monad.description).toContain("A group is not an agent");
+    expect(CHAIN_WORLDS.monad.description).toContain("Individual registrations are not drawn here");
   });
 });

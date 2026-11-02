@@ -22,6 +22,9 @@ import { cn } from "@/lib/utils";
 
 // Ethereum, Base and Arc are served only while their switch is on when the client is built (shared/features.ts). The server reads the same list.
 const EXTRA_CHAINS_ON = extraChainsOn(import.meta.env.VITE_FEATURES);
+// The registries the REST section's header names: the three the API has always served, then each extra chain that is on.
+const REST_CHAIN_NAMES = ["Robinhood Chain", "BNB Smart Chain", "Solana", ...EXTRA_CHAINS_ON.map(chain => EXTRA_CHAIN_LABEL[chain])];
+const REST_CHAINS_TEXT = `${REST_CHAIN_NAMES.slice(0, -1).join(", ")} and ${REST_CHAIN_NAMES[REST_CHAIN_NAMES.length - 1]}`;
 
 type PublisherValidation = {
   status: "allowlisted" | "expired" | "revoked" | "unverified";
@@ -256,7 +259,7 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
           </section>
 
           <section className="developer-section" id="rest">
-            <SectionHeader eyebrow="00 / REST API v1" title="Look an agent up by chain and id" detail="JSON under /api/v1 that reads the record and changes none of it, for the Robinhood Chain, BNB Smart Chain and Solana registries. No key for the public tier; a free key raises the limits and opens a few more calls. Every answer says when it was read, where from and under what terms." />
+            <SectionHeader eyebrow="00 / REST API v1" title="Look an agent up by chain and id" detail={`JSON under /api/v1 that reads the record and changes none of it, for the ${REST_CHAINS_TEXT} registries. No key for the public tier; a free key raises the limits and opens a few more calls. Every answer says when it was read, where from and under what terms.`} />
             <div className="developer-callout">
               <div><ShieldCheck size={18} /><span><strong>What this API will not do</strong> Payment never changes a record, a tier or an evidence level. Agents here are acknowledged, not reviewed: they have no tier and the API gives no verdict. Text an owner wrote is shown only as the owner&rsquo;s word. A hidden or withdrawn record is never served. The one thing a key can write is its own watchlist and webhook.</span></div>
               <a href="/api/v1/openapi.json">OpenAPI document <ArrowUpRight size={14} /></a>

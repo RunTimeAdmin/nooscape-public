@@ -85,6 +85,14 @@ export const ROUTE_HEADS: Record<string, Head> = {
       alt: `Nooscape, World 06, Ethereum: three platforms, same host, same profile link and same wallet, each with pentagon formations, beside the words The pale spire, A long ledger, read in groups, the note Illustration, not agent activity, and the line ${PROMISES}`,
     },
   },
+  "/chains/monad": {
+    title: "Monad registry groups",
+    description: "Explore the groups of Monad registrations that share a wallet, a link or a host. A group is not an agent, and a registration is not an endorsement.",
+    image: {
+      file: "nooscape-card-chain-monad.png",
+      alt: `Nooscape, World 07, Monad: three platforms, same host, same profile link and same wallet, each with star formations, beside the words The coral loom, A young registry, read in groups, the note Illustration, not agent activity, and the line ${PROMISES}`,
+    },
+  },
   "/field/arc-registry-2026-10-20": {
     title: "Arc registry census, 2026-10-20",
     description: "A dated count of the ERC-8004 identity registry on Arc as the directory holds it: who registered, what the listing rules held out and what the chain records. Counts only, with no agent, wallet or host named.",
@@ -96,6 +104,10 @@ export const ROUTE_HEADS: Record<string, Head> = {
   "/field/ethereum-registry-2026-10-28": {
     title: "Ethereum registry census, 2026-10-28",
     description: "A dated count of the ERC-8004 identity registry on Ethereum as the directory holds it: who registered, what the listing rules held out, what the chain records and when. Counts only, with no agent, wallet or host named.",
+  },
+  "/field/monad-registry-2026-11-01": {
+    title: "Monad registry census, 2026-11-01",
+    description: "A dated count of the ERC-8004 identity registry on Monad as the directory holds it: who registered, what the listing rules held out, what the chain records and when. Counts only, with no agent, wallet or host named.",
   },
   "/chains/bnb": {
     title: "BNB Chain registry groups",

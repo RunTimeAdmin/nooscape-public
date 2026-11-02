@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { agentDirectoryEntries, agentRegistrationResolutions, ingestionSources, type IngestionSource } from "../drizzle/schema";
 import { agentIdOfKey, NAME_CHAINS, newestKeyFirst, usableName } from "./chainNamesCore";
@@ -20,7 +20,8 @@ import { ENTRY_PLACEHOLDER_PATTERN, entryNameNote, entryUriFacts, NAME_RETRY_AFT
 import { stepIntervalGateMs } from "./stepInterval";
 
 /**
- * The Base, Arc and Ethereum name step of the worker (docs/approvals/2026-10-26-base-arc-names.md, extended to Ethereum on 2026-10-27).
+ * The Base, Arc, Ethereum and Monad name step of the worker (docs/approvals/2026-10-26-base-arc-names.md, extended to Ethereum on 2026-10-27
+ * and to Monad on 2026-11-01).
  * A registration on these chains whose link is a web address or an ipfs address carries no name on the chain, so its directory
  * entry is called "Agent #<n>". The step finds the name in the file the link names, in the same three parts as the Robinhood entry
  * names (docs/approvals/2026-10-17-robinhood-entry-names.md), and takes one chain a run in turn:
@@ -44,6 +45,9 @@ import { stepIntervalGateMs } from "./stepInterval";
  *
  * Nothing but the name is kept from a file. The name is the registrant's own claim. The step never throws, asks the database before it
  * asks anyone, and a failure is one log line.
+ *
+ * Whose turn it is lives in memory. After a start of the app (a deploy, or the host starting it again) the step works it out again from
+ * the data, as the chain after the one tried last (`turnAfterStart`), so a start does not send the turn back to the first chain.
  */
 
 const CHAIN_NAMES_BUDGET_MS = 20_000;
@@ -97,13 +101,14 @@ type ChainNamesResult =
 
 let running = false;
 let lastStartedAt = 0;
-let turn = 0;
+/** Whose turn it is, as an index into the chains. Null after a start of the app, until the first run works it out from the data. */
+let turn: number | null = null;
 const chainPausedUntil = new Map<string, number>();
 
-/** Forgets when the step last ran, whose turn it is and any pause of the chain reads (tests). */
+/** Forgets what the step keeps in memory, as a start of the app does: when it last ran, whose turn it is and any pause of the chain reads (tests). */
 export function resetChainNamesClock() {
   lastStartedAt = 0;
-  turn = 0;
+  turn = null;
   chainPausedUntil.clear();
 }
 
@@ -331,6 +336,35 @@ async function readLinks(db: Db, source: IngestionSource, deps: ChainNamesDeps, 
   }
 }
 
+/**
+ * Whose turn it is when the app has just started. The turn is kept in memory, so every start sent it back to the first chain, which
+ * always has a backlog, and the chains after it waited through each start (on 2026-11-01 five starts between 08:30Z and 11:06Z gave
+ * Monad three turns by 12:00Z where the rotation would have given it five). The data remembers which chain was served last: every try
+ * is kept in `agent_registration_resolutions` with its time. The turn goes to the chain after the one whose latest try is the latest of
+ * all, and to the first chain when none has been tried. A link that is only queued carries the "due at once" date and is no try. Two
+ * chains tried in the same second cannot be told apart, and the later in the list is taken as the later; the worker's runs are half
+ * an hour apart, so that can only be a test's case.
+ */
+async function turnAfterStart(db: Db, chains: readonly Erc8004Chain[]): Promise<number> {
+  const tried = await db
+    .select({ sourceKey: ingestionSources.sourceKey, last: sql<string | number | null>`MAX(UNIX_TIMESTAMP(${agentRegistrationResolutions.lastAttemptAt}))` })
+    .from(agentRegistrationResolutions)
+    .innerJoin(ingestionSources, eq(ingestionSources.id, agentRegistrationResolutions.sourceId))
+    .where(and(inArray(ingestionSources.sourceKey, chains.map(chain => chain.sourceKey)), gt(agentRegistrationResolutions.lastAttemptAt, NOT_TRIED_YET)))
+    .groupBy(ingestionSources.sourceKey);
+  const lastTry = new Map(tried.map(row => [row.sourceKey, Number(row.last)]));
+  let servedLast = -1;
+  let latest = 0;
+  chains.forEach((chain, index) => {
+    const at = lastTry.get(chain.sourceKey) ?? 0;
+    if (at > 0 && at >= latest) {
+      latest = at;
+      servedLast = index;
+    }
+  });
+  return servedLast < 0 ? 0 : (servedLast + 1) % chains.length;
+}
+
 /** Runs the name step once. Never throws. */
 export async function runChainNames(overrides: Partial<ChainNamesDeps> & { tickStartedAt?: number } = {}): Promise<ChainNamesResult> {
   if (running) return { state: "busy" };
@@ -358,8 +392,9 @@ export async function runChainNames(overrides: Partial<ChainNamesDeps> & { tickS
     let sawSource = false;
     // Take the chains in turn, starting with the one whose turn it is. A chain that asked the node or a host spends the run; one that
     // had nothing to ask (or whose node is paused) leaves the run to the next.
+    const first = (turn ??= await turnAfterStart(db, deps.chains));
     for (let offset = 0; offset < deps.chains.length; offset += 1) {
-      const index = (turn + offset) % deps.chains.length;
+      const index = (first + offset) % deps.chains.length;
       const chain = deps.chains[index]!;
       if (!erc8004ChainOn(chain, deps.features)) continue;
       const [source] = await db

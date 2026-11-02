@@ -11,6 +11,8 @@ import {
   EMPTY_SOLANA_LIGHTS,
   ETHEREUM_LIGHTS_LIMIT,
   ethereumLightsCaption,
+  MONAD_LIGHTS_LIMIT,
+  monadLightsCaption,
   FLEET_KIND_LABEL,
   FLEET_NOT_PROVED,
   FLEET_OVERLAP_NOTE,
@@ -406,6 +408,25 @@ describe("the words around a light", () => {
     expect(new Set(shapes).size).toBe(6);
   });
 
+  it("words a Monad group as a formation on the Monad page, with the facts Arc's groups state, and draws it as a star", () => {
+    const monad = (kind: MapFleet["kind"], overrides: Partial<MapFleet> = {}): MapFleet => fleet(kind, { chain: "monad", count: 2_000, ...overrides });
+    expect(fleetShape(monad("platform_host"))).toBe("star");
+    expect(fleetKindLabel(monad("platform_host"))).toBe("Same host");
+    expect(fleetFact(monad("wallet"))).toBe("2,000 registrations on Monad name the same registering wallet.");
+    expect(fleetFact(monad("shared_link"))).toBe("2,000 registrations on Monad record exactly the same profile link.");
+    expect(fleetFact(monad("platform_host", { name: "run.example.app" }))).toBe("2,000 registrations on Monad point their profile link at run.example.app.");
+    expect(fleetFact(monad("platform_host"))).toBe("2,000 registrations on Monad point their profile link at the same host.");
+    expect(fleetNotProved(monad("platform_host"))).toBe(FLEET_NOT_PROVED.platform_host);
+    // Like an Arc, Base or Ethereum group, a Monad group is a formation on a page, so it shares Arc's note.
+    expect(fleetOverlapNote(monad("wallet"))).toBe(ARC_OVERLAP_NOTE);
+    const words = MAP_FLEET_KINDS.map(kind => fleetFact(monad(kind))).join(" ");
+    expect(words).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
+    expect(words).not.toMatch(new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`));
+    // The shapes of the seven chains are seven, so a group is never told from another by colour alone.
+    const shapes = [monad("wallet"), fleet("wallet", { chain: "ethereum" }), fleet("wallet", { chain: "base" }), fleet("wallet", { chain: "arc" }), owner(), fleet("wallet", { chain: "robinhood" }), fleet("wallet")].map(fleetShape);
+    expect(new Set(shapes).size).toBe(7);
+  });
+
   it("captions the Arc lights with how many are drawn of how many groups there are, and says what a dome is", () => {
     expect(ARC_LIGHTS_LIMIT).toBe(8);
     expect(arcLightsCaption({ groups: 11 }, 8)).toBe(
@@ -418,16 +439,20 @@ describe("the words around a light", () => {
     expect(words).not.toMatch(/[–—]/);
   });
 
-  it("captions the Base and Ethereum lights the same way, naming the chain and its shape", () => {
+  it("captions the Base, Ethereum and Monad lights the same way, naming the chain and its shape", () => {
     expect(BASE_LIGHTS_LIMIT).toBe(5);
     expect(ETHEREUM_LIGHTS_LIMIT).toBe(5);
+    expect(MONAD_LIGHTS_LIMIT).toBe(5);
     expect(baseLightsCaption({ groups: 121 }, 5)).toBe(
       "Large crosses are Base groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 121 groups, as the registry held them at its last read. Each cross is one group, not one agent. No individual Base registration is drawn."
     );
     expect(ethereumLightsCaption({ groups: 63 }, 5)).toBe(
       "Large pentagons are Ethereum groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 63 groups, as the registry held them at its last read. Each pentagon is one group, not one agent. No individual Ethereum registration is drawn."
     );
-    for (const caption of [baseLightsCaption, ethereumLightsCaption]) {
+    expect(monadLightsCaption({ groups: 40 }, 5)).toBe(
+      "Large stars are Monad groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 40 groups, as the registry held them at its last read. Each star is one group, not one agent. No individual Monad registration is drawn."
+    );
+    for (const caption of [baseLightsCaption, ethereumLightsCaption, monadLightsCaption]) {
       expect(caption({ groups: 0 }, 1)).toContain("1 of 1 group,");
       expect(caption({ groups: 3 }, 0)).toBeNull();
       const words = caption({ groups: 9 }, 8)!;

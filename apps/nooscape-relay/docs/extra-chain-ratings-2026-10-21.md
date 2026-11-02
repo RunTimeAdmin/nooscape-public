@@ -1,5 +1,7 @@
 # Ratings on Ethereum, Base and Arc (21 October 2026)
 
+Update 2026-11-01: Monad's reputation registry is read by the same step ([the record](./monad-ratings-2026-11-01.md)).
+
 Status: built, with the tests below. A step of the worker counts the NewFeedback and FeedbackRevoked events of the ERC-8004 reputation registry on
 each chain the identity pass reads beyond BNB Chain, and the chain's "Ratings recorded" figure shows the count instead of "not measured" once the
 read has reached the finalized head. The decision is in `docs/approvals/2026-10-21-extra-chain-ratings.md`.

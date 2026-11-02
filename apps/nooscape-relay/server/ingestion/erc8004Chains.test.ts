@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BSC_LISTING_RULES } from "../agentRegistryRows";
 import { BNB_FETCH_SENTENCE } from "../bscSourceNote";
 import {
@@ -14,6 +14,8 @@ import {
   ERC8004_REPUTATION_REGISTRY,
   ETHEREUM_LISTING_RULES,
   FLOOD_HOST_ROW_CAP,
+  MONAD_CHAIN,
+  MONAD_LISTING_RULES,
   erc8004ChainOfProtocol,
   erc8004ChainOn,
   validateErc8004Chains,
@@ -191,6 +193,47 @@ describe("the Arc entry", () => {
   });
 });
 
+describe("the Monad entry", () => {
+  it("holds the facts measured on 2026-11-01", () => {
+    expect(MONAD_CHAIN).toMatchObject({
+      protocol: "erc8004_monad",
+      chainKey: "monad",
+      chainId: 143,
+      chainIdHex: "0x8f",
+      label: "Monad",
+      chainLabel: "Monad",
+      identityRegistry: REGISTRY,
+      deployBlock: 52_952_790,
+      maxLogRange: 50_000,
+      maxWindowLogs: 10_000,
+      handoutBlockWindow: 11_918,
+      sourceKey: "monad-erc8004-identity-registry",
+      provider: { kind: "pinned", rootUrl: "https://monad-mainnet.g.alchemy.com", allowedHostname: "monad-mainnet.g.alchemy.com" },
+      rpcEnvVar: "MONAD_RPC_URL",
+      cursorPrefix: "monad",
+      errorPrefix: "Monad",
+      logTag: "MONAD",
+      feature: "chain_monad",
+    });
+    expect(MONAD_CHAIN.rpc).toEqual({ timeoutMs: 30_000, maxResponseBytes: 8 * MIB, retryStatuses: [429, 500, 502, 503, 504], backoffMs: [1_000, 3_000], readErrorBodies: true });
+    expect(MONAD_CHAIN.budget).toEqual({ maxWindows: 100, concurrency: 3, maxElapsedMs: 30_000, maxEvents: 10_000 });
+    expect(MONAD_CHAIN.listingRules).toBe(MONAD_LISTING_RULES);
+  });
+
+  it("is a chain id the registry's own chain answers with, in the hex form a node gives", () => {
+    expect(Number.parseInt(MONAD_CHAIN.chainIdHex.slice(2), 16)).toBe(MONAD_CHAIN.chainId);
+  });
+
+  it("plans windows under the provider's cap of 10,000 logs a response, from the busiest window measured on 2026-11-01", () => {
+    // The whole history was read in 1,308 windows of 50,000 blocks: the busiest held 2,944 of the three event kinds the pass asks for (2.2 MB as JSON).
+    const BUSIEST = { events: 2_944, bytes: 2_218_946 };
+    expect(MONAD_CHAIN.maxLogRange).toBe(50_000);
+    expect(MONAD_CHAIN.maxWindowLogs).toBeLessThanOrEqual(10_000);
+    expect(MONAD_CHAIN.maxWindowLogs).toBeGreaterThanOrEqual(3 * BUSIEST.events);
+    expect(MONAD_CHAIN.rpc.maxResponseBytes).toBeGreaterThanOrEqual(3 * BUSIEST.bytes);
+  });
+});
+
 describe("what the measurements ask of the caps", () => {
   // The densest windows measured on 2026-10-20. A cap below one of these would stall the walk at that window.
   const ETHEREUM_DENSEST_2000 = { events: 19_200, bytes: 12_994_910 };
@@ -218,7 +261,7 @@ describe("what the measurements ask of the caps", () => {
 });
 
 describe("every chain after BNB Chain", () => {
-  const later: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN];
+  const later: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN];
 
   it("has a switch named for its key, its own listing rules and a note that says only what happened", () => {
     for (const chain of later) {
@@ -229,8 +272,8 @@ describe("every chain after BNB Chain", () => {
   });
 
   it("has listing rules of its own: a constant each, equal to BNB Chain's for now, which are provisional until its first census", () => {
-    expect(new Set([ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES]).size).toBe(3);
-    for (const rules of [ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES]) {
+    expect(new Set([ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES]).size).toBe(4);
+    for (const rules of [ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES]) {
       expect(rules).toEqual(BSC_LISTING_RULES);
       expect(rules).not.toBe(BSC_LISTING_RULES);
     }
@@ -251,11 +294,13 @@ describe("every chain after BNB Chain", () => {
       ["erc8004_eth", { registry: REPUTATION_REGISTRY, window: 50_000 }],
       ["erc8004_base", { registry: REPUTATION_REGISTRY, window: 50_000 }],
       ["erc8004_arc", { registry: REPUTATION_REGISTRY, window: 100_000 }],
+      ["erc8004_monad", { registry: REPUTATION_REGISTRY, window: 50_000 }],
     ]);
     // BNB Chain keeps its own internal ratings read (docs/bsc-rater-credibility-2026-10-16.md) and is not counted by this step.
     expect(BSC_CHAIN.reputation).toBeUndefined();
     // No window is wider than the ceiling its provider gives the identity pass for a call.
     expect(ETHEREUM_CHAIN.reputation!.window).toBeLessThanOrEqual(50_000);
+    expect(MONAD_CHAIN.reputation!.window).toBeLessThanOrEqual(MONAD_CHAIN.maxLogRange);
     // Base's is wider than Alchemy's 10,000-block answer in full: the plan answers any range of 10,000 logs or fewer, and a refusal halves the window.
   });
 
@@ -309,10 +354,33 @@ describe("a chain's switch", () => {
   });
 });
 
+describe("the endpoint each chain reads", () => {
+  it("is the variable the entry names and no other: each chain, with every variable set to a value of its own, reads its own", async () => {
+    const names = ["BSC_RPC_URL", "ETH_RPC_URL", "BASE_RPC_URL", "MONAD_RPC_URL"];
+    const before = Object.fromEntries(names.map(name => [name, process.env[name]]));
+    const value = (name: string) => `https://node.example/${name}`;
+    for (const name of names) process.env[name] = value(name);
+    try {
+      // The environment is read when the module is first loaded, so load a fresh one.
+      vi.resetModules();
+      const fresh = await import("./erc8004Chains");
+      const withVariable = fresh.ERC8004_CHAINS.filter(chain => names.includes(chain.rpcEnvVar));
+      expect(withVariable.map(chain => chain.rpcEnvVar).sort()).toEqual([...names].sort());
+      for (const chain of withVariable) expect(chain.readRpcUrl(), chain.protocol).toBe(value(chain.rpcEnvVar));
+    } finally {
+      for (const name of names) {
+        if (before[name] === undefined) delete process.env[name];
+        else process.env[name] = before[name];
+      }
+      vi.resetModules();
+    }
+  });
+});
+
 describe("the list of chains", () => {
   it("is sound", () => {
     expect(validateErc8004Chains(ERC8004_CHAINS)).toEqual([]);
-    expect(ERC8004_CHAINS.map(chain => chain.protocol)).toEqual(["erc8004_bsc", "erc8004_eth", "erc8004_base", "erc8004_arc"]);
+    expect(ERC8004_CHAINS.map(chain => chain.protocol)).toEqual(["erc8004_bsc", "erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_monad"]);
   });
 
   it("stays sound with a further chain beside the others, so a chain can be added by an entry alone", () => {

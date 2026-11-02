@@ -491,7 +491,7 @@ One JSON body, the same on every try: `api_version`, `id`, `type`, `created_at`,
 | `ownership.changed` | Secondary transfers on the Robinhood ledger (`agent_directory_chain_activity`); transfers on the Solana ledger (`agent_solana_activity`) | `from`, `to`, and `block_number`, `transaction_hash` and `is_handout` (the same hand-out rule the history uses) on an EVM registry, or `transaction_signature` on Solana |
 | `feedback.added`, `feedback.revoked` | The Robinhood reputation ledger (`agent_reputation_events`) | empty. The API gives counts and not the rating, who made it or where it is, so the event says only that one was added or taken back, and the counts are in the agent's answer. |
 | `claim.changed` | The claim history (`agent_claim_edits`) | `seq`, `kind` (claim, edit, freeze, unfreeze, redact, revoke), `field`, `wallet`, `reason`, `occurred_at`. **Never the old or new text**: an owner's words are not sent, and the history says what the field became. The wallet is given only for a claim and an edit, as the public history does, and is null for the rest. |
-| `listing.removed`, `listing.restored` | The public-view rule every public read uses (hidden, closed, inactive source) | empty. It says that a listing left or returned, and not why. |
+| `listing.removed`, `listing.restored` | The public-view rule every public read uses (hidden, closed, inactive source), and a registration the listing rules hold out (its registry row keeps the entry's id) | empty. It says that a listing left or returned, and not why. |
 
 ## How a run goes
 

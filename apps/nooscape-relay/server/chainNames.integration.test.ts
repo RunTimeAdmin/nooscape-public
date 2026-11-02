@@ -5,13 +5,13 @@ import { createConnection, createPool } from "mysql2/promise";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import * as schema from "../drizzle/schema";
 import { externalKey } from "./ingestion/erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
 import { Erc8004RpcBusyError, Erc8004RpcHttpError } from "./ingestion/erc8004Rpc";
 import type { RegistrationNameResult } from "./ingestion/registrationFetch";
 import { entryNameNote, uriHashOf } from "./robinhoodNamesCore";
 
 /**
- * The Base, Arc and Ethereum name step against a real database (docs/approvals/2026-10-26-base-arc-names.md): the links read from the chain for
+ * The Base, Arc, Ethereum and Monad name step against a real database (docs/approvals/2026-10-26-base-arc-names.md): the links read from the chain for
  * the entries that show the placeholder, newest first; the check that a link is the one the registry row recorded; the links queued,
  * read and kept; the names written where the name is still the placeholder; the names laid back over an entry the listing published
  * again; the pace of the reads; a node that limits its callers; and the gates of the step: the chain's switch, its source, its node and
@@ -38,6 +38,7 @@ const dbReachable = await (async () => {
 const CID = "QmcsZip4oMCkS8UhrXDmG2Bo1WMaJzbQa35RX2h5QRn1xx";
 const BOTH = "chain_base,chain_arc";
 const ALL = "chain_base,chain_arc,chain_ethereum";
+const WITH_MONAD = "chain_base,chain_arc,chain_ethereum,chain_monad";
 const keyOf = (chain: Erc8004Chain, id: number) => externalKey(chain, String(id));
 const linkOf = (host: string, id: number) => `https://${host}/agent/${id}.json`;
 const inline = (record: Record<string, unknown>) => `data:application/json;base64,${Buffer.from(JSON.stringify(record)).toString("base64")}`;
@@ -45,7 +46,7 @@ const NOTE = "Base ERC-8004 registration. The registry-recorded URI is a web lin
 const ZERO_WIDTH = String.fromCharCode(0x200b);
 const BELL = String.fromCharCode(7);
 
-describe.skipIf(!dbReachable)("the Base, Arc and Ethereum name step against a real database", { timeout: 60_000 }, () => {
+describe.skipIf(!dbReachable)("the Base, Arc, Ethereum and Monad name step against a real database", { timeout: 60_000 }, () => {
   let names: typeof import("./chainNames");
   let listing: typeof import("./agentRegistryRows");
   let writer: MySql2Database;
@@ -54,6 +55,7 @@ describe.skipIf(!dbReachable)("the Base, Arc and Ethereum name step against a re
     [BASE_CHAIN.chainKey, "src-base"],
     [ARC_CHAIN.chainKey, "src-arc"],
     [ETHEREUM_CHAIN.chainKey, "src-ethereum"],
+    [MONAD_CHAIN.chainKey, "src-monad"],
   ]);
   const idOf = (chain: Erc8004Chain) => sourceIds.get(chain.chainKey)!;
 
@@ -86,7 +88,7 @@ describe.skipIf(!dbReachable)("the Base, Arc and Ethereum name step against a re
       sourceId: idOf(chain),
       externalKey: keyOf(chain, id),
       displayName: over.name ?? `Agent #${id}`,
-      protocol: chain.protocol as "erc8004_base" | "erc8004_arc" | "erc8004_eth",
+      protocol: chain.protocol as "erc8004_base" | "erc8004_arc" | "erc8004_eth" | "erc8004_monad",
       sourceSignalNote: over.note === undefined ? NOTE : over.note,
       profileUriHash: recorded === null ? null : uriHashOf(recorded),
       hidden: over.hidden ?? false,
@@ -117,9 +119,12 @@ describe.skipIf(!dbReachable)("the Base, Arc and Ethereum name step against a re
     }
     await baselineReplay.end();
     await applyPendingMigrations(process.env.DATABASE_URL);
-    // Migration 0046 is the owner's to paste (the boot runner skips it): it adds the protocol values of Ethereum, Base and Arc.
+    // Migrations 0046, 0051 and 0053 are the owner's to paste (the boot runner skips them): 0046 adds the protocol values of Ethereum, Base and Arc,
+    // and 0053, which restates 0051's list, adds Monad's.
     const manual = await createConnection(process.env.DATABASE_URL);
-    for (const statement of splitMigrationStatements(await readFile("drizzle/0046_multichain_erc8004_protocols.sql", "utf8"))) await manual.query(statement);
+    for (const file of ["0046_multichain_erc8004_protocols.sql", "0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql"]) {
+      for (const statement of splitMigrationStatements(await readFile(`drizzle/${file}`, "utf8"))) await manual.query(statement);
+    }
     await manual.end();
 
     names = await import("./chainNames");
@@ -131,13 +136,13 @@ describe.skipIf(!dbReachable)("the Base, Arc and Ethereum name step against a re
     };
     await writer.insert(schema.users).values({ openId: "chain-names-operator", role: "admin" });
     const [operator] = await writer.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.openId, "chain-names-operator"));
-    for (const chain of [BASE_CHAIN, ARC_CHAIN, ETHEREUM_CHAIN]) {
+    for (const chain of [BASE_CHAIN, ARC_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN]) {
       const host = chain.provider.kind === "pinned" ? chain.provider.allowedHostname : "arc-node.example";
       await writer.insert(schema.ingestionSources).values({
         id: idOf(chain),
         sourceKey: chain.sourceKey,
         label: `${chain.label} names test`,
-        protocol: chain.protocol as "erc8004_base" | "erc8004_arc" | "erc8004_eth",
+        protocol: chain.protocol as "erc8004_base" | "erc8004_arc" | "erc8004_eth" | "erc8004_monad",
         rootUrl: `https://${host}`,
         allowedHostname: host,
         state: "active",
@@ -571,6 +576,88 @@ describe.skipIf(!dbReachable)("the Base, Arc and Ethereum name step against a re
     }
     names.resetChainNamesClock();
     expect(await run({ ...only(ETHEREUM_CHAIN), features: ALL })).toMatchObject({ chain: "ethereum", chainRead: "read", entriesNamed: 1 });
+  });
+
+  it("takes Monad in its turn after Ethereum, and only while its switch is on", async () => {
+    await seedLink(BASE_CHAIN, 1200, linkOf("hosta.example", 1200), "Base Fourth");
+    await seedLink(ARC_CHAIN, 1201, linkOf("arc-agents.example", 1201), "Arc Fourth");
+    await seedLink(ETHEREUM_CHAIN, 1202, linkOf("eth-agents.example", 1202), "Ethereum Fourth");
+    await seedLink(MONAD_CHAIN, 1203, linkOf("monad-agents.example", 1203), "Monad Fourth");
+    // Its switch is off: its entry is left alone however many runs there are, and the run it would have had goes unspent.
+    for (const chain of ["base", "arc", "ethereum"]) expect(await run({ features: ALL })).toMatchObject({ chain, entriesNamed: 1 });
+    expect(await run({ features: ALL })).toMatchObject({ chain: null, discovered: 0, read: 0 });
+    expect(chainCalls.map(call => call.chain)).toEqual(["base", "arc", "ethereum"]);
+    expect((await entry(MONAD_CHAIN, 1203)).displayName).toBe("Agent #1203");
+    // Switched on, it takes the turn that came round to it, and it is named from its own file.
+    expect(await run({ features: WITH_MONAD })).toMatchObject({ chain: "monad", chainRead: "read", discovered: 1, read: 1, entriesNamed: 1 });
+    expect((await entry(MONAD_CHAIN, 1203)).displayName).toBe("Monad Fourth");
+    expect(chainCalls.map(call => call.chain)).toEqual(["base", "arc", "ethereum", "monad"]);
+    expect(asked).toContain(linkOf("monad-agents.example", 1203));
+  });
+
+  it("keeps the turn across a restart of the app: the chain after the one served last goes next, not the first chain again", async () => {
+    // A restart (a deploy, or the host starting the app again) forgot the turn, and the first chain always has a backlog. On 2026-11-01 five
+    // starts between 08:30Z and 11:06Z gave Monad three turns by 12:00Z where the rotation would have given it five.
+    for (let id = 1300; id < 1303; id += 1) await seedLink(BASE_CHAIN, id, linkOf("hosta.example", id), `Base ${id}`);
+    for (let id = 1310; id < 1313; id += 1) await seedLink(ETHEREUM_CHAIN, id, linkOf("eth-agents.example", id), `Ethereum ${id}`);
+    for (let id = 1320; id < 1323; id += 1) await seedLink(MONAD_CHAIN, id, linkOf("monad-agents.example", id), `Monad ${id}`);
+    const small = { maxDiscover: 1, maxNames: 1, features: WITH_MONAD };
+    // A run keeps its tries at the time it was made, and these runs are a second apart; this spaces them as the worker does.
+    const triedAgo = (chain: Erc8004Chain, minutes: number) =>
+      writer
+        .update(schema.agentRegistrationResolutions)
+        .set({ lastAttemptAt: new Date(Date.now() - minutes * 60_000) })
+        .where(eq(schema.agentRegistrationResolutions.sourceId, idOf(chain)));
+
+    expect(await run(small)).toMatchObject({ chain: "base" });
+    await triedAgo(BASE_CHAIN, 90);
+    names.resetChainNamesClock(); // the app starts again
+    // Arc has nothing to ask, so Ethereum is the chain after Base that has work. Base does not get the run again.
+    expect(await run(small)).toMatchObject({ chain: "ethereum" });
+    await triedAgo(ETHEREUM_CHAIN, 60);
+    names.resetChainNamesClock();
+    expect(await run(small)).toMatchObject({ chain: "monad" });
+    await triedAgo(MONAD_CHAIN, 30);
+    names.resetChainNamesClock();
+    // After the last chain the turn comes round to the first, and with no restart it goes on in memory as it did.
+    expect(await run(small)).toMatchObject({ chain: "base" });
+    expect(await run(small)).toMatchObject({ chain: "ethereum" });
+    expect(chainCalls.map(call => call.chain)).toEqual(["base", "ethereum", "monad", "base", "ethereum"]);
+  });
+
+  it("does not take a link that is queued and not yet tried for a turn, when the turn is worked out after a restart", async () => {
+    await seedLink(BASE_CHAIN, 1330, linkOf("hosta.example", 1330), "Base First");
+    await seedLink(MONAD_CHAIN, 1331, linkOf("monad-agents.example", 1331), "Monad Later");
+    // Ethereum has a link queued by a run that never got to read it: its date is the one that says "due at once", not a try.
+    const queued = linkOf("eth-agents.example", 1332);
+    await seed(ETHEREUM_CHAIN, 1332, queued);
+    await writer.insert(schema.agentRegistrationResolutions).values({
+      id: "queued-1332", sourceId: idOf(ETHEREUM_CHAIN), externalKey: keyOf(ETHEREUM_CHAIN, 1332), uriHash: uriHashOf(queued), uriKind: "web", uri: queued,
+      status: "failed", failReason: "not read yet", resolvedName: null, attempts: 0, lastAttemptAt: new Date(1000),
+    });
+    names.resetChainNamesClock();
+    // Nothing was tried yet, so the first chain goes first. Counted as a try, Ethereum would hand the turn to Monad.
+    expect(await run({ features: WITH_MONAD })).toMatchObject({ chain: "base" });
+  });
+
+  it("names Monad's agent id 0, the first registration on the chain, from the link the chain gives back for it", async () => {
+    await seedLink(MONAD_CHAIN, 0, linkOf("monad-agents.example", 0), "Monad Zero");
+    expect(await run({ ...only(MONAD_CHAIN), features: WITH_MONAD })).toMatchObject({ chain: "monad", chainRead: "read", discovered: 1, read: 1, entriesNamed: 1 });
+    expect(chainCalls).toEqual([{ chain: "monad", ids: ["0"] }]);
+    expect((await entry(MONAD_CHAIN, 0)).displayName).toBe("Monad Zero");
+  });
+
+  it("holds a Monad source to Alchemy's host, and leaves the chain alone when the row records another", async () => {
+    await seedLink(MONAD_CHAIN, 1210, linkOf("monad-agents.example", 1210), "Monad Host");
+    await writer.update(schema.ingestionSources).set({ rootUrl: "https://elsewhere.example" }).where(eq(schema.ingestionSources.id, idOf(MONAD_CHAIN)));
+    try {
+      expect(await run({ ...only(MONAD_CHAIN), features: WITH_MONAD })).toMatchObject({ chainRead: "skipped", discovered: 0, read: 0 });
+      expect(chainCalls).toEqual([]);
+    } finally {
+      await writer.update(schema.ingestionSources).set({ rootUrl: "https://monad-mainnet.g.alchemy.com" }).where(eq(schema.ingestionSources.id, idOf(MONAD_CHAIN)));
+    }
+    names.resetChainNamesClock();
+    expect(await run({ ...only(MONAD_CHAIN), features: WITH_MONAD })).toMatchObject({ chain: "monad", chainRead: "read", entriesNamed: 1 });
   });
 
   it("never lays one chain's name on another chain's entry, even for the same link", async () => {

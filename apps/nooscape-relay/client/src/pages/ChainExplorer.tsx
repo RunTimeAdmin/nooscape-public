@@ -62,7 +62,7 @@ const READ = {
 } as const;
 const EMPTY_GROUPS = [] as const;
 const NO_ENTRIES: readonly AcknowledgedWorldRecord[] = [];
-// Arc, Base and Ethereum have a page only while their switches are in the build (shared/features.ts); the server answers 404 for them otherwise (server/clientRoutes.ts).
+// Arc, Base, Ethereum and Monad have a page only while their switches are in the build (shared/features.ts); the server answers 404 for them otherwise (server/clientRoutes.ts).
 const FEATURES: string | undefined = import.meta.env.VITE_FEATURES;
 function Figure({
   value,
@@ -84,7 +84,7 @@ function Figure({
 }
 export default function ChainExplorer({ chain }: { chain: WorldKey }) {
   const world = CHAIN_WORLDS[chain];
-  // BNB Chain, Arc, Base and Ethereum have no global feed: an event is shown for the entry that is selected, from that entry's own activity.
+  // BNB Chain, Arc, Base, Ethereum and Monad have no global feed: an event is shown for the entry that is selected, from that entry's own activity.
   const entryEvents = ENTRY_EVENT_WORLDS.includes(chain);
   const entryProtocol = CHAIN_IDENTITY_PROTOCOLS[chain][0]!;
   const [query, setQuery] = useState("");
@@ -106,8 +106,8 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
     undefined,
     { ...READ, enabled: chain === "solana" }
   );
-  // Arc, Base and Ethereum read their groups from their own registries (registryFleets); the other three from the map's reads.
-  const registryWorld: "arc" | "base" | "ethereum" | null = chain === "arc" || chain === "base" || chain === "ethereum" ? chain : null;
+  // Arc, Base, Ethereum and Monad read their groups from their own registries (registryFleets); the other three from the map's reads.
+  const registryWorld: "arc" | "base" | "ethereum" | "monad" | null = chain === "arc" || chain === "base" || chain === "ethereum" || chain === "monad" ? chain : null;
   const fleetsQuery = trpc.liveData.mapFleets.useQuery(undefined, {
     ...READ,
     staleTime: 10 * 60_000,
@@ -375,9 +375,9 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
                   ? "READING THE INDEX"
                   : "NO DATA INVENTED"}
             </strong>
-            {chain === "bnb" || chain === "base" || chain === "ethereum" ? "Formations are illustrations." : chain === "arc" ? "Characters and formations are illustrations." : "Characters are illustrations."}
+            {chain === "bnb" || chain === "base" || chain === "ethereum" || chain === "monad" ? "Formations are illustrations." : chain === "arc" ? "Characters and formations are illustrations." : "Characters are illustrations."}
             <br />
-            {chain === "bnb" || chain === "arc" || chain === "base" || chain === "ethereum" ? "Counts are Nooscape’s grouping of the registry." : "Activity comes from the ledgers."}
+            {chain === "bnb" || chain === "arc" || chain === "base" || chain === "ethereum" || chain === "monad" ? "Counts are Nooscape’s grouping of the registry." : "Activity comes from the ledgers."}
           </div>
         </div>
         <nav className="cw-navigation" aria-label="Chain worlds">

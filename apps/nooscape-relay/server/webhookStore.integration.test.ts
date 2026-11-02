@@ -1,7 +1,8 @@
 import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createConnection, createPool } from "mysql2/promise";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../drizzle/schema";
 import { API_CHAINS } from "./apiChains";
@@ -471,6 +472,64 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
       expect(sent.at(-1)!.type).toBe("listing.removed");
       expect(await pass.runWebhookPass(deps)).toMatchObject({ created: 0, sent: 0 });
       expect((await store.listWatches("key-b")).find(watch => watch.entryId === "rh-42")!.visible).toBe(false);
+    });
+
+    it("tells a key that a registration the listing rules hold out has left and that it is back, and the watch follows it", async () => {
+      const registry = await import("./agentRegistryRows");
+      const bnb = (await (await import("./db")).getIngestionSource("src-bnb"))!;
+      const rules = { sharedProfileLinkFrom: 2, sharedHostFrom: 4, sharedWalletFrom: 3 };
+      const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+      const draft = (n: number) => ({ externalKey: BNB_KEY(n), displayName: `BNB agent ${n}`, locatorHost: null, registrant: `0x${n.toString(16).padStart(40, "0")}`, profileUriHash: sha(`bnb-uri-${n}`), sourceSignalNote: "Seeded." });
+      const publish = async () => {
+        await registry.classifyAgentRegistryListing(bnb.id, rules);
+        return registry.publishAgentRegistryListing(bnb.id);
+      };
+      const move = (n: number, profileUriHash: string) =>
+        registry.applyAgentRegistryUriUpdates({ source: bnb, runId: `run-${profileUriHash.slice(0, 6)}`, updates: [{ externalKey: BNB_KEY(n), locatorHost: null, profileUriHash, hasProfileLink: true }], rules });
+      const entryIdOf = async (n: number) => {
+        const [row] = await writer.select({ id: schema.agentDirectoryEntries.id }).from(schema.agentDirectoryEntries).where(and(eq(schema.agentDirectoryEntries.sourceId, "src-bnb"), eq(schema.agentDirectoryEntries.externalKey, BNB_KEY(n))));
+        return row?.id;
+      };
+
+      await registry.insertAgentRegistryRows({ source: bnb, runId: "run-seed", drafts: [draft(901), draft(902)] });
+      expect(await publish()).toMatchObject({ inserted: 2, removed: 0 });
+      const watched = (await entryIdOf(901))!;
+      await raw("DELETE FROM api_deliveries");
+      await raw("DELETE FROM api_watches");
+      await raw("DELETE FROM api_webhooks");
+      await store.addWatches("key-b", [watched]);
+      await store.setWebhook("key-b", "https://hooks.example.com/relist");
+      await raw("UPDATE api_watches SET createdAt = DATE_SUB(NOW(), INTERVAL 1 MINUTE)");
+      const sent: Array<{ type: string; agent: Record<string, unknown> | null }> = [];
+      const deps = {
+        signingKey: SIGNING_KEY,
+        send: async (_url: string, input: { body: string; headers: Record<string, string> }) => {
+          const body = JSON.parse(input.body);
+          sent.push({ type: body.type, agent: body.agent });
+          return { ok: true as const, status: 200 };
+        },
+      };
+      expect(await pass.runWebhookPass(deps)).toMatchObject({ created: 0, sent: 0 });
+
+      // A clone of registration 901's profile link appears: both registrations are grouped and both entries go.
+      await move(902, sha("bnb-uri-901"));
+      expect(await publish()).toMatchObject({ removed: 2 });
+      expect(await entryIdOf(901)).toBeUndefined();
+      // The watch still names the listing that left, because its registry row kept the entry's id.
+      expect(await source.entries([watched])).toEqual([{ id: watched, protocol: "erc8004_bsc", sourceId: "src-bnb", externalKey: BNB_KEY(901), visible: false }]);
+      expect(await pass.runWebhookPass(deps)).toMatchObject({ created: 1, sent: 1 });
+      expect(sent.at(-1)).toMatchObject({ type: "listing.removed", agent: { chain: "bnb", agent_id: "901", registry: "erc8004_bsc", nooscape_id: watched } });
+      expect((await store.listWatches("key-b"))[0]).toMatchObject({ entryId: watched, visible: false });
+      expect(await pass.runWebhookPass(deps)).toMatchObject({ created: 0, sent: 0 });
+
+      // The clone moves to a link of its own: the registration is listed again under the same id, and the same watch hears of it.
+      await move(902, sha("bnb-uri-902-moved"));
+      expect(await publish()).toMatchObject({ inserted: 2 });
+      expect(await entryIdOf(901)).toBe(watched);
+      expect(await pass.runWebhookPass(deps)).toMatchObject({ created: 1, sent: 1 });
+      expect(sent.at(-1)).toMatchObject({ type: "listing.restored", agent: { chain: "bnb", agent_id: "901", nooscape_id: watched } });
+      expect((await store.listWatches("key-b"))[0]).toMatchObject({ entryId: watched, visible: true });
+      expect(await pass.runWebhookPass(deps)).toMatchObject({ created: 0, sent: 0 });
     });
   });
 });

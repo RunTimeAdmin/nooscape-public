@@ -17,9 +17,12 @@ import { TRPC_MAX_BATCH_SIZE } from "@shared/trpcBatch";
 import { describeDatabaseTarget } from "../databaseTarget";
 import { applyPendingMigrations } from "../dbMigrations";
 import { startReadWarming } from "../warmReads";
+import { startLifecycleLog } from "../lifecycleLog";
 import { preferIPv4 } from "./ipv4First";
 
 preferIPv4();
+// In production the host's runtime log is the only record of why the process stopped or was restarted (docs/lifecycle-logging-2026-11-01.md).
+if (process.env.NODE_ENV === "production") startLifecycleLog();
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {

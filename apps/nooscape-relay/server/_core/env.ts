@@ -46,4 +46,10 @@ export const ENV = {
    * from block 41,663,783. Same rules as the other two: environment only, never printed, unset means the Base pass refuses to run.
    */
   baseRpcUrl: process.env.BASE_RPC_URL ?? "",
+  /**
+   * Monad mainnet endpoint for the ERC-8004 identity pass: an Alchemy endpoint whose path carries the key. The pass walks the registry's
+   * history from block 52,952,790 in windows of 50,000 blocks, so the plan must allow `eth_getLogs` over wide ranges. Same rules as the
+   * others: environment only, never printed, unset means the Monad pass refuses to run.
+   */
+  monadRpcUrl: process.env.MONAD_RPC_URL ?? "",
 };

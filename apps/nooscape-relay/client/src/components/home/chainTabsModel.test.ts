@@ -131,7 +131,7 @@ describe("the regions", () => {
     expect(REGION_ORDER.map(chain => CHAIN_LABEL[chain].split(" ")[0])).toEqual(["Robinhood", "BNB", "Solana"]);
   });
 
-  it("link to a page of their own for the original three, and for Arc, Base and Ethereum while their switches are on", () => {
+  it("link to a page of their own for the original three, and for Arc, Base, Ethereum and Monad while their switches are on", () => {
     // The page links are the only use of REGION_ORDER in the component besides the import.
     expect(tabs.match(/REGION_ORDER\.map\(/g)).toHaveLength(1);
     expect(tabs).toContain("href={`/chains/${chain}`}");
@@ -141,6 +141,8 @@ describe("the regions", () => {
     expect(tabs).toContain('href="/chains/base"');
     expect(tabs).toContain('regions.includes("ethereum")');
     expect(tabs).toContain('href="/chains/ethereum"');
+    expect(tabs).toContain('regions.includes("monad")');
+    expect(tabs).toContain('href="/chains/monad"');
   });
 });
 
@@ -155,10 +157,11 @@ describe("the extra chains' tabs", () => {
     }
   });
 
-  it("appear after the original three for each switch that is on, in the order Ethereum, Base, Arc", () => {
+  it("appear after the original three for each switch that is on, in the order Ethereum, Base, Arc, Monad", () => {
     expect(regionsShown(extraRows, "chain_base")).toEqual(["robinhood", "bnb", "solana", "base"]);
     expect(regionsShown(extraRows, "chain_arc, chain_ethereum")).toEqual(["robinhood", "bnb", "solana", "ethereum", "arc"]);
     expect(regionsShown(extraRows, "claims,chain_base,chain_ethereum,chain_arc")).toEqual(["robinhood", "bnb", "solana", "ethereum", "base", "arc"]);
+    expect(regionsShown(null, "chain_monad,chain_arc,chain_base,chain_ethereum")).toEqual(["robinhood", "bnb", "solana", "ethereum", "base", "arc", "monad"]);
   });
 
   it("are left out when the server sent no row for them, and are all planned from the switches before the answer is in", () => {
@@ -170,6 +173,7 @@ describe("the extra chains' tabs", () => {
   it("are named in the heading, with the number of skies counted", () => {
     expect(regionsHeading(["robinhood", "bnb", "solana", "base"])).toBe("Robinhood, BNB, Solana, Base. Same Owl, four skies.");
     expect(regionsHeading(["robinhood", "bnb", "solana", "ethereum", "base", "arc"])).toBe("Robinhood, BNB, Solana, Ethereum, Base, Arc. Same Owl, six skies.");
+    expect(regionsHeading(["robinhood", "bnb", "solana", "ethereum", "base", "arc", "monad"])).toBe("Robinhood, BNB, Solana, Ethereum, Base, Arc, Monad. Same Owl, seven skies.");
   });
 
   it("each have a shape and a colour of their own, different from the three on the map and from each other", () => {

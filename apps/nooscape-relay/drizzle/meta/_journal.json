@@ -372,6 +372,20 @@
       "when": 1793160314431,
       "tag": "0052_ethereum_scheduled_flip",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "5",
+      "when": 1793497577608,
+      "tag": "0053_monad_erc8004_protocol",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "5",
+      "when": 1793545343800,
+      "tag": "0054_monad_scheduled_flip",
+      "breakpoints": true
     }
   ]
 }

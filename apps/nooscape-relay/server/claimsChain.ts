@@ -1,10 +1,10 @@
-import { arcClaimsOn, baseClaimsOn, ethereumClaimsOn } from "@shared/features";
+import { arcClaimsOn, baseClaimsOn, ethereumClaimsOn, monadClaimsOn } from "@shared/features";
 import { callArcRpcOnce } from "./claimsArc";
-import { callBaseRpcOnce, callEthereumRpcOnce } from "./claimsPinned";
+import { callBaseRpcOnce, callEthereumRpcOnce, callMonadRpcOnce } from "./claimsPinned";
 import { BscRpcError, callBscRpc } from "./ingestion/bscRpc";
 import { BSC_CHAIN_ID, BSC_IDENTITY_REGISTRY } from "./ingestion/bscChain";
 import { bscReadBucket, BSC_CU } from "./ingestion/bscBudget";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN } from "./ingestion/erc8004Chains";
 import { callRobinhoodRpcOnce, ROBINHOOD_IDENTITY_REGISTRY, ROBINHOOD_REGISTRY_CHAIN } from "./ingestion/robinhood";
 import { decodeOwnerOf, encodeIsValidSignature, encodeOwnerOf, isValidSignatureAnswer } from "./claimsCrypto";
 import { consumeRateLimit } from "./rateLimit";
@@ -13,19 +13,20 @@ import { consumeRateLimit } from "./rateLimit";
  * What a claim reads from a chain (docs/claims-2026-10-18.md), and nothing else: who the registry says owns an agent now
  * (`ownerOf`), whether an address is a contract, and whether a contract wallet accepts a signature (EIP-1271). Three read-only
  * `eth_call` and `eth_getCode` requests through the paced clients the passes already use: a BNB Chain read spends from the same
- * compute-unit bucket as the worker's own reads, and a Robinhood Chain, Arc, Base or Ethereum read is one attempt with no retry ladder, so a visitor
+ * compute-unit bucket as the worker's own reads, and a Robinhood Chain, Arc, Base, Ethereum or Monad read is one attempt with no retry ladder, so a visitor
  * never waits out a throttle. It asks for no transaction, holds no key and sends nothing.
  */
 
-export type ClaimChain = { protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth"; chainId: number; registry: string; label: string };
+export type ClaimChain = { protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "erc8004_monad"; chainId: number; registry: string; label: string };
 
-/** The EVM registries a claim can be made on. A directory entry of any other protocol cannot be claimed here. Arc's, Base's and Ethereum's count only while their claims are switched on. */
+/** The EVM registries a claim can be made on. A directory entry of any other protocol cannot be claimed here. Arc's, Base's, Ethereum's and Monad's count only while their claims are switched on. */
 export const CLAIM_CHAINS: Record<ClaimChain["protocol"], ClaimChain> = {
   erc8004: { protocol: "erc8004", chainId: ROBINHOOD_REGISTRY_CHAIN.chainId, registry: ROBINHOOD_IDENTITY_REGISTRY, label: "Robinhood Chain" },
   erc8004_bsc: { protocol: "erc8004_bsc", chainId: BSC_CHAIN_ID, registry: BSC_IDENTITY_REGISTRY, label: "BNB Smart Chain" },
   erc8004_arc: { protocol: "erc8004_arc", chainId: ARC_CHAIN.chainId, registry: ARC_CHAIN.identityRegistry, label: "Arc" },
   erc8004_base: { protocol: "erc8004_base", chainId: BASE_CHAIN.chainId, registry: BASE_CHAIN.identityRegistry, label: "Base" },
   erc8004_eth: { protocol: "erc8004_eth", chainId: ETHEREUM_CHAIN.chainId, registry: ETHEREUM_CHAIN.identityRegistry, label: "Ethereum" },
+  erc8004_monad: { protocol: "erc8004_monad", chainId: MONAD_CHAIN.chainId, registry: MONAD_CHAIN.identityRegistry, label: "Monad" },
 };
 
 /** The registries claimable now, in the order the words name them: each extra chain's only while its own switch and its claims switch are both on in the list. */
@@ -35,6 +36,7 @@ export const claimableChains = (features: string | undefined = process.env.VITE_
   ...(arcClaimsOn(features) ? [CLAIM_CHAINS.erc8004_arc] : []),
   ...(baseClaimsOn(features) ? [CLAIM_CHAINS.erc8004_base] : []),
   ...(ethereumClaimsOn(features) ? [CLAIM_CHAINS.erc8004_eth] : []),
+  ...(monadClaimsOn(features) ? [CLAIM_CHAINS.erc8004_monad] : []),
 ];
 
 export const claimChainOf = (protocol: string, features: string | undefined = process.env.VITE_FEATURES): ClaimChain | null => claimableChains(features).find(chain => chain.protocol === protocol) ?? null;
@@ -85,6 +87,7 @@ function makeCallChain(options: { admit: boolean }): EvmCall {
       if (chainId === ARC_CHAIN.chainId) return { revert: false, result: await callArcRpcOnce(method, params) };
       if (chainId === BASE_CHAIN.chainId) return { revert: false, result: await callBaseRpcOnce(method, params) };
       if (chainId === ETHEREUM_CHAIN.chainId) return { revert: false, result: await callEthereumRpcOnce(method, params) };
+      if (chainId === MONAD_CHAIN.chainId) return { revert: false, result: await callMonadRpcOnce(method, params) };
       throw new ChainUnavailableError();
     } catch (error) {
       if (error instanceof ChainUnavailableError) throw error;

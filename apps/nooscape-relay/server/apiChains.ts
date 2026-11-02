@@ -1,6 +1,6 @@
 import { extraChainsOn, type ExtraChainKey } from "@shared/chains";
 import { BSC_CHAIN_ID, BSC_IDENTITY_REGISTRY } from "./ingestion/bscChain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
 import { ROBINHOOD_IDENTITY_REGISTRY, ROBINHOOD_REGISTRY_CHAIN } from "./ingestion/robinhood";
 
 /**
@@ -46,6 +46,7 @@ export const API_CHAINS: Record<ApiChain, ApiChainTable> = {
   ethereum: chainPassTable(ETHEREUM_CHAIN),
   base: chainPassTable(BASE_CHAIN),
   arc: chainPassTable(ARC_CHAIN),
+  monad: chainPassTable(MONAD_CHAIN),
 };
 
 /**
@@ -56,8 +57,8 @@ export const API_CHAINS: Record<ApiChain, ApiChainTable> = {
 export const CHAIN_KEYS: readonly ApiChain[] = ["robinhood", "bnb", "solana"];
 
 /**
- * The chains the API serves under this switch list (shared/features.ts): the three above, then each of Ethereum, Base and Arc that is
- * on. The list is read as the server runs, so a request sees the switches as they are now; with all three off it is {@link CHAIN_KEYS}.
+ * The chains the API serves under this switch list (shared/features.ts): the three above, then each of Ethereum, Base, Arc and Monad that
+ * is on. The list is read as the server runs, so a request sees the switches as they are now; with all four off it is {@link CHAIN_KEYS}.
  */
 export function servedChains(features: string | undefined = process.env.VITE_FEATURES): readonly ApiChain[] {
   const extra = extraChainsOn(features);
