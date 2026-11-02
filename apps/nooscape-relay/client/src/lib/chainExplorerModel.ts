@@ -64,25 +64,36 @@ export const CHAIN_WORLDS = {
     terrain: "Spire observatory",
     registry: "ERC-8004 / Ethereum",
   },
+  monad: {
+    title: "The coral loom",
+    subtitle: "A young registry, read in groups.",
+    description: "Inspect the groups of Monad registrations that share a wallet, a link or a host. A group is not an agent, and a registration is not an endorsement. Individual registrations are not drawn here.",
+    accent: "#FB7185",
+    secondary: "#A5B4FC",
+    number: "07",
+    terrain: "Loom observatory",
+    registry: "ERC-8004 / Monad",
+  },
 } as const;
 export const isChainWorld = (value: string): value is ChainKey => (CHAINS as readonly string[]).includes(value);
 
-/** The chains that have a page of their own: the original three, and Arc, Base and Ethereum while their switches are on. */
-export type WorldKey = ChainKey | "arc" | "base" | "ethereum";
+/** The chains that have a page of their own: the original three, and Arc, Base, Ethereum and Monad while their switches are on. */
+export type WorldKey = ChainKey | "arc" | "base" | "ethereum" | "monad";
 
-/** The worlds a build offers, in the order their pages are numbered. Arc, Base and Ethereum are there only while `chain_arc`, `chain_base` and `chain_ethereum` are in the build's switch list (shared/features.ts). */
+/** The worlds a build offers, in the order their pages are numbered. Arc, Base, Ethereum and Monad are there only while `chain_arc`, `chain_base`, `chain_ethereum` and `chain_monad` are in the build's switch list (shared/features.ts). */
 export const worldsOn = (features: string | undefined): WorldKey[] => [
   ...CHAINS,
   ...(featureOn("chain_arc", features) ? (["arc"] as const) : []),
   ...(featureOn("chain_base", features) ? (["base"] as const) : []),
   ...(featureOn("chain_ethereum", features) ? (["ethereum"] as const) : []),
+  ...(featureOn("chain_monad", features) ? (["monad"] as const) : []),
 ];
 
 /**
  * The worlds that have no feed of their own: a recorded event is shown only for the entry that is selected, from the entry's own activity.
- * BNB Chain has no global feed, and Arc, Base and Ethereum have none yet.
+ * BNB Chain has no global feed, and Arc, Base, Ethereum and Monad have none yet.
  */
-export const ENTRY_EVENT_WORLDS: readonly WorldKey[] = ["bnb", "arc", "base", "ethereum"];
+export const ENTRY_EVENT_WORLDS: readonly WorldKey[] = ["bnb", "arc", "base", "ethereum", "monad"];
 
 /** Only protocols that register identities belong in the character field. Reputation and settlement ledgers are separate. */
 export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {
@@ -92,6 +103,7 @@ export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {
   arc: ["erc8004_arc"],
   base: ["erc8004_base"],
   ethereum: ["erc8004_eth"],
+  monad: ["erc8004_monad"],
 };
 
 /**
@@ -100,8 +112,9 @@ export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {
  * groups appear there. Base is groups only too, as the operator asked ("similar to bnb"): the directory lists 2.3 percent of the registrations
  * its registry holds (docs/base-census-2026-10-21.md), so no single Base registration is drawn either. Ethereum is groups only as well:
  * the directory lists 9.4 percent of its registrations (docs/ethereum-go-live-2026-10-27.md), and most of those still show a number for a name.
+ * Monad is groups only too: the directory lists 1.4 percent of its registrations (docs/monad-erc8004-2026-11-01.md), and many of those still show a number for a name.
  */
-export const CHAIN_SHOWS_ACKNOWLEDGED: Record<WorldKey, boolean> = { robinhood: true, solana: true, bnb: false, arc: true, base: false, ethereum: false };
+export const CHAIN_SHOWS_ACKNOWLEDGED: Record<WorldKey, boolean> = { robinhood: true, solana: true, bnb: false, arc: true, base: false, ethereum: false, monad: false };
 
 /** The dated report that describes a chain's groups, where there is one. */
 export const CHAIN_GROUP_REPORT: Record<WorldKey, { href: string; label: string } | null> = {
@@ -111,6 +124,7 @@ export const CHAIN_GROUP_REPORT: Record<WorldKey, { href: string; label: string 
   arc: { href: "/field/arc-registry-2026-10-20", label: "Arc registry census, 20 October 2026" },
   base: { href: "/field/base-registry-2026-10-21", label: "Base registry census, 21 October 2026" },
   ethereum: { href: "/field/ethereum-registry-2026-10-28", label: "Ethereum registry census, 28 October 2026" },
+  monad: { href: "/field/monad-registry-2026-11-01", label: "Monad registry census, 1 November 2026" },
 };
 
 export type ChainWorldEvent = {
@@ -242,11 +256,13 @@ const groupProtocol = (chain: WorldKey, group: MapFleet): string =>
         ? "erc8004_base"
         : chain === "ethereum"
           ? "erc8004_eth"
-          : chain === "robinhood"
-            ? "erc8004"
-            : group.registry === "8004"
-              ? "solana_8004"
-              : "solana_registry";
+          : chain === "monad"
+            ? "erc8004_monad"
+            : chain === "robinhood"
+              ? "erc8004"
+              : group.registry === "8004"
+                ? "solana_8004"
+                : "solana_registry";
 
 /** Only real, visible record IDs become selectable entities. No hash-only samples or invented agents. */
 export function buildWorldEntities(
@@ -354,6 +370,7 @@ export function worldProtocolLabel(protocol: string) {
         erc8004_arc: "ERC-8004 / Arc",
         erc8004_base: "ERC-8004 / Base",
         erc8004_eth: "ERC-8004 / Ethereum",
+        erc8004_monad: "ERC-8004 / Monad",
         solana_registry: "Metaplex",
         solana_8004: "8004 Solana",
         solana_said: "SAID",
@@ -376,7 +393,7 @@ export function sampledRegistryNote(chain: WorldKey, registries: ReadonlyArray<{
 }
 
 /** How each world sets its zones out: Robinhood Chain a narrow plate of wallets beside a wide plate of identities, the others in a row of lanes or platforms. */
-export const WORLD_ARRANGEMENT: Record<WorldKey, Arrangement> = { robinhood: "split", solana: "columns", bnb: "columns", arc: "columns", base: "columns", ethereum: "columns" };
+export const WORLD_ARRANGEMENT: Record<WorldKey, Arrangement> = { robinhood: "split", solana: "columns", bnb: "columns", arc: "columns", base: "columns", ethereum: "columns", monad: "columns" };
 
 /** A zone of a world: a plate with a name, the formations of its groups and the figures of its records. */
 export type WorldZone = { id: string; label: string; sublabel: string | null; groups: ChainWorldEntity[]; figures: ChainWorldEntity[] };
@@ -396,6 +413,8 @@ const ARC_PLATFORMS = ["wallet", "platform_host", "shared_link"] as const;
 const BASE_PLATFORMS = ["platform_host", "shared_link", "wallet"] as const;
 /** The same for an Ethereum group, in the order BNB Chain's and Base's pages use: the host first. Ethereum has no template groups. */
 const ETHEREUM_PLATFORMS = BASE_PLATFORMS;
+/** The same for a Monad group. Monad has no template groups. */
+const MONAD_PLATFORMS = BASE_PLATFORMS;
 
 /**
  * The zones of a world, and what stands in each. A place means only what its zone says: on Solana a registry (the one a record or a wallet
@@ -425,11 +444,11 @@ export function worldZones(chain: WorldKey, entities: readonly ChainWorldEntity[
     }
     zones.push({ id: "entries", label: "Entries", sublabel: "Reviewed records first, then a fixed sample of the entries the directory lists", groups: [], figures });
   } else {
-    for (const kind of chain === "base" ? BASE_PLATFORMS : chain === "ethereum" ? ETHEREUM_PLATFORMS : BNB_PLATFORMS) {
+    for (const kind of chain === "base" ? BASE_PLATFORMS : chain === "ethereum" ? ETHEREUM_PLATFORMS : chain === "monad" ? MONAD_PLATFORMS : BNB_PLATFORMS) {
       const here = groups.filter(entity => entity.fleet?.kind === kind);
       zones.push({ id: kind, label: FLEET_KIND_LABEL[kind], sublabel: `${here.length} ${here.length === 1 ? "group" : "groups"} drawn`, groups: here, figures: [] });
     }
-    // A reviewed BNB Chain, Base or Ethereum record would stand on a plate of its own. There is none today, and no unreviewed registration is ever drawn.
+    // A reviewed BNB Chain, Base, Ethereum or Monad record would stand on a plate of its own. There is none today, and no unreviewed registration is ever drawn.
     zones.push({ id: "records", label: "Reviewed records", sublabel: null, groups: [], figures });
   }
   return zones.filter(zone => zone.groups.length + zone.figures.length > 0);

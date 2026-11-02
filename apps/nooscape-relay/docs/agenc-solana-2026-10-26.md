@@ -2,7 +2,7 @@
 
 Status: **BUILT AND TESTED (2026-10-26); NOT STAGED.** Operator-approved scope: a directory-only pilot, chain facts only, manual-only. Nothing runs until the owner pastes migration 0051 by hand, stages the source on /admin/sources, approves it and runs it once. The scheduled flip is a separate reviewed migration, after a clean attended period.
 
-**Update, later on 2026-10-26:** live. PR 210 merged at 14:16Z (main `3d42df4`); the operator pasted migration 0051, staged and approved the source and ran it once at 14:22Z: 256 of 256 enumerated, 0 missing (to-do item 139). No scheduled flip is recorded in the repository, and the migration number section 8 names for it (0053) went to Monad's protocol value on 2026-11-01, after this tree was taken from the private repository.
+**Update, later on 2026-10-26:** live. PR 210 merged at 14:16Z (main `3d42df4`); the operator pasted migration 0051, staged and approved the source and ran it once at 14:22Z: 256 of 256 enumerated, 0 missing (to-do item 139). No scheduled flip is recorded in the repository. The migration number this record first gave it (0053) went to Monad's protocol value on 2026-11-01 ([the Monad record](./monad-erc8004-2026-11-01.md)), so section 8 now says the next free number.
 
 ## 1. What this adds
 
@@ -102,7 +102,7 @@ The `endpoint` is required by the program and nothing in its task flow uses it (
    - Staging the source before the file is pasted answers "The database does not have the AgenC protocol value yet. Paste migration 0051 first", and creates nothing.
 3. On /admin/sources, **Stage AgenC Solana registry** (in review, manual only), approve it, and press **Fill chain state** once. Expect 256 or more agents acknowledged (`registeredAgents` on AgenC's own `/api/stats` reads 256 on 26 October, and registrations have run at 7 to 17 a month since August), 2 requests, 0 rejected, and a cursor `agenc:<slot>`.
 4. Compare the acknowledged count with a fresh census before any scheduling: the program has exactly as many AgentRegistration accounts as the pass acknowledges, and `deregister_agent` never reduces it.
-5. After several clean attended runs, the scheduled flip is a reviewed migration (0053, the 0050 pattern: a guarded UPDATE that names no protocol; 0052 went to the Ethereum flip) at a daily cadence, with `solana_agenc: 36` added to the live check's freshness table in the same change. Until then the worker cannot claim the source, and the runner refuses a scheduled trigger from a source that is not scheduled.
+5. After several clean attended runs, the scheduled flip is a reviewed migration (0054 or later, the 0050 pattern: a guarded UPDATE that names no protocol; 0052 went to the Ethereum flip and 0053 to Monad's protocol value) at a daily cadence, with `solana_agenc: 36` added to the live check's freshness table in the same change. Until then the worker cannot claim the source, and the runner refuses a scheduled trigger from a source that is not scheduled.
 
 ### What the migration was tested against
 

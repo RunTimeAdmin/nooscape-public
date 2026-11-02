@@ -47,6 +47,7 @@ const protocolTones: Record<string, string> = {
   erc8004_eth: "#7DD3FC",
   erc8004_base: "#3B82F6",
   erc8004_arc: "#ACC6E9",
+  erc8004_monad: "#FB7185",
 };
 
 function protocolLabel(protocol: string) {

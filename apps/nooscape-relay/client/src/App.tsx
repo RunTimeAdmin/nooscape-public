@@ -32,6 +32,7 @@ const RobinhoodRegistryReport = lazy(() => import("./pages/RobinhoodRegistryRepo
 const ArcRegistryReport = lazy(() => import("./pages/ArcRegistryReport"));
 const BaseRegistryReport = lazy(() => import("./pages/BaseRegistryReport"));
 const EthereumRegistryReport = lazy(() => import("./pages/EthereumRegistryReport"));
+const MonadRegistryReport = lazy(() => import("./pages/MonadRegistryReport"));
 const Disputes = lazy(() => import("./pages/Disputes"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Terms = lazy(() => import("./pages/Terms"));
@@ -55,6 +56,7 @@ function Router() {
         {featureOn("chain_arc", FEATURES) && <Route path="/chains/arc">{() => <ChainExplorer key="arc" chain="arc" />}</Route>}
         {featureOn("chain_base", FEATURES) && <Route path="/chains/base">{() => <ChainExplorer key="base" chain="base" />}</Route>}
         {featureOn("chain_ethereum", FEATURES) && <Route path="/chains/ethereum">{() => <ChainExplorer key="ethereum" chain="ethereum" />}</Route>}
+        {featureOn("chain_monad", FEATURES) && <Route path="/chains/monad">{() => <ChainExplorer key="monad" chain="monad" />}</Route>}
         <Route path="/field/bnb-registry-2026-10-16" component={BnbRegistryReport} />
         <Route path="/field/bnb-ratings-2026-10-16" component={BnbRatingsReport} />
         <Route path="/field/solana-registries-2026-10-18" component={SolanaRegistryReport} />
@@ -62,6 +64,7 @@ function Router() {
         {featureOn("chain_arc", FEATURES) && <Route path="/field/arc-registry-2026-10-20" component={ArcRegistryReport} />}
         {featureOn("chain_base", FEATURES) && <Route path="/field/base-registry-2026-10-21" component={BaseRegistryReport} />}
         {featureOn("chain_ethereum", FEATURES) && <Route path="/field/ethereum-registry-2026-10-28" component={EthereumRegistryReport} />}
+        {featureOn("chain_monad", FEATURES) && <Route path="/field/monad-registry-2026-11-01" component={MonadRegistryReport} />}
         <Route path="/developers" component={DeveloperApi} />
         <Route path="/developers/keys" component={DeveloperKeys} />
         <Route path="/verify" component={VerifyEvidence} />

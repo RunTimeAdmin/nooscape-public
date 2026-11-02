@@ -34,8 +34,9 @@ const BASELINE_VERSION = 14;
  * 46: the `erc8004_base`, `erc8004_eth` and `erc8004_arc` protocol values on the four tables that carry the protocol list, for the Base, Ethereum and Arc identity passes (docs/multichain-erc8004-2026-10-20.md, "The migration (0046) is run by hand").
  * 49: drops `ingestion_worker_config`.`tickSeconds`, which the operator console set and nothing read (docs/worker-operations.md). The code no longer names it and runs the same with or without the column, so the operator runs this when it suits.
  * 51: the `solana_agenc` protocol value on the four tables that carry the protocol list, for the AgenC registry pass (docs/agenc-solana-2026-10-26.md, "The migration (0051) is run by hand"). It restates the whole list, which ends with the 0046 values, so it needs 0046 first.
+ * 53: the `erc8004_monad` protocol value on the four tables that carry the protocol list, for the Monad identity pass (docs/monad-erc8004-2026-11-01.md, "The migration (0053) is run by hand"). It restates the whole list, which ends with the 0046 and 0051 values, so it needs both first.
  */
-export const MANUAL_MIGRATIONS: readonly number[] = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 49, 51];
+export const MANUAL_MIGRATIONS: readonly number[] = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 49, 51, 53];
 
 /**
  * Versions an operator recorded by hand under a name other than their file's, and left so. The runner counts a recorded version as applied and

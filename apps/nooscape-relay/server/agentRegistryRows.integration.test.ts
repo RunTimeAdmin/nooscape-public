@@ -384,6 +384,40 @@ describe.skipIf(!dbReachable)("the registry rows listing against a real database
       expect((await entryOf(source, 2))!.hidden).toBe(false);
     });
 
+    it("gives an entry the id it had when a registration leaves the listing and comes back, whichever id the entry was born with", async () => {
+      const source = await newSource();
+      await seed(source, [draft(1), draft(2)]);
+      await classify(source);
+      await registry.publishAgentRegistryListing(source.id);
+      const one = (await entryOf(source, 1))!;
+      const two = (await entryOf(source, 2))!;
+      // A new entry is born under its registry row's id, so the row still has the id while the entry is out.
+      expect(one.id).toBe((await rowOf(source, 1)).id);
+      // An entry published before that rule has an id of its own. The row learns it when the entry goes.
+      const legacy = "00000000-0000-4000-8000-0000000000e2";
+      await writer.update(schema.agentDirectoryEntries).set({ id: legacy }).where(eq(schema.agentDirectoryEntries.id, two.id));
+      const link = (await rowOf(source, 1)).profileUriHash!;
+      await registry.applyAgentRegistryUriUpdates({
+        source,
+        runId: "run-id-1",
+        updates: [{ externalKey: keyOf(2), locatorHost: null, profileUriHash: link, hasProfileLink: true }],
+        rules: RULES,
+      });
+      await classify(source);
+      expect((await registry.publishAgentRegistryListing(source.id)).removed).toBe(2);
+      expect([await entryOf(source, 1), await entryOf(source, 2)]).toEqual([undefined, undefined]);
+      expect([(await rowOf(source, 1)).id, (await rowOf(source, 2)).id]).toEqual([one.id, legacy]);
+      await registry.applyAgentRegistryUriUpdates({
+        source,
+        runId: "run-id-2",
+        updates: [{ externalKey: keyOf(2), locatorHost: null, profileUriHash: sha("a-link-of-its-own"), hasProfileLink: true }],
+        rules: RULES,
+      });
+      await classify(source);
+      expect((await registry.publishAgentRegistryListing(source.id)).inserted).toBe(2);
+      expect([(await entryOf(source, 1))!.id, (await entryOf(source, 2))!.id]).toEqual([one.id, legacy]);
+    });
+
     it("keeps the entry of a row that is pending again until classification decides, so overlapping runs cannot delete it", async () => {
       const source = await newSource();
       await seed(source, [draft(1)]);

@@ -352,7 +352,7 @@ describe("runRateLimitedIngestionTick", () => {
     }
   });
 
-  it("runs the Base, Arc and Ethereum name step after the SAID names, on a tick that claimed sources, never on a paused or held-back one, and never lets it fail the tick or be stopped by the steps before it", async () => {
+  it("runs the Base, Arc, Ethereum and Monad name step after the SAID names, on a tick that claimed sources, never on a paused or held-back one, and never lets it fail the tick or be stopped by the steps before it", async () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const s8004 = scheduledSource("src-8004", "solana_8004");

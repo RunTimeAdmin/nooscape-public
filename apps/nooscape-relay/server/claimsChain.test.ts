@@ -7,13 +7,14 @@ const mocks = vi.hoisted(() => ({
   callArcRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
   callBaseRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
   callEthereumRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
+  callMonadRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
 }));
 
 vi.mock("./ingestion/bscRpc", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/bscRpc")>()), callBscRpc: mocks.callBscRpc }));
 vi.mock("./ingestion/robinhood", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/robinhood")>()), callRobinhoodRpcOnce: mocks.callRobinhoodRpcOnce }));
 vi.mock("./ingestion/bscBudget", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/bscBudget")>()), bscReadBucket: { take: mocks.take, spent: () => 0 } }));
 vi.mock("./claimsArc", () => ({ callArcRpcOnce: mocks.callArcRpcOnce }));
-vi.mock("./claimsPinned", () => ({ callBaseRpcOnce: mocks.callBaseRpcOnce, callEthereumRpcOnce: mocks.callEthereumRpcOnce }));
+vi.mock("./claimsPinned", () => ({ callBaseRpcOnce: mocks.callBaseRpcOnce, callEthereumRpcOnce: mocks.callEthereumRpcOnce, callMonadRpcOnce: mocks.callMonadRpcOnce }));
 
 import { BscRpcError } from "./ingestion/bscRpc";
 import { Erc8004RpcError } from "./ingestion/erc8004Rpc";
@@ -218,13 +219,14 @@ describe("the production call", () => {
 describe.each([
   { label: "Base", protocol: "erc8004_base", chainId: 8453, chain: "chain_base", claims: "claims_base", node: mocks.callBaseRpcOnce },
   { label: "Ethereum", protocol: "erc8004_eth", chainId: 1, chain: "chain_ethereum", claims: "claims_ethereum", node: mocks.callEthereumRpcOnce },
+  { label: "Monad", protocol: "erc8004_monad", chainId: 143, chain: "chain_monad", claims: "claims_monad", node: mocks.callMonadRpcOnce },
 ])("$label's registry", ({ label, protocol, chainId, chain, claims, node }) => {
   const ON = `${chain},${claims}`;
 
   beforeEach(() => resetRateLimits());
 
   it("is a claim chain with the chain's own id and the registry's address", () => {
-    expect(CLAIM_CHAINS[protocol as "erc8004_base" | "erc8004_eth"]).toMatchObject({ protocol, chainId, registry: REGISTRY, label });
+    expect(CLAIM_CHAINS[protocol as "erc8004_base" | "erc8004_eth" | "erc8004_monad"]).toMatchObject({ protocol, chainId, registry: REGISTRY, label });
   });
 
   it("can be claimed only while the chain is on and its claims are on, each named in the list, and no other chain's switches open it", () => {
@@ -281,10 +283,10 @@ describe.each([
 });
 
 describe("every extra chain's claims together", () => {
-  it("name the registries in the order Arc, Base, Ethereum after the first two, and the words for an entry that cannot be claimed follow", () => {
-    const all = "chain_arc,claims_arc,chain_base,claims_base,chain_ethereum,claims_ethereum";
-    expect(claimableChains(all).map(candidate => candidate.label)).toEqual(["Robinhood Chain", "BNB Smart Chain", "Arc", "Base", "Ethereum"]);
-    expect(claimableChains(all).map(candidate => candidate.chainId)).toEqual([4663, 56, 5042, 8453, 1]);
+  it("name the registries in the order Arc, Base, Ethereum, Monad after the first two, and the words for an entry that cannot be claimed follow", () => {
+    const all = "chain_arc,claims_arc,chain_base,claims_base,chain_ethereum,claims_ethereum,chain_monad,claims_monad";
+    expect(claimableChains(all).map(candidate => candidate.label)).toEqual(["Robinhood Chain", "BNB Smart Chain", "Arc", "Base", "Ethereum", "Monad"]);
+    expect(claimableChains(all).map(candidate => candidate.chainId)).toEqual([4663, 56, 5042, 8453, 1, 143]);
     expect(claimableChains(undefined).map(candidate => candidate.label)).toEqual(["Robinhood Chain", "BNB Smart Chain"]);
   });
 });

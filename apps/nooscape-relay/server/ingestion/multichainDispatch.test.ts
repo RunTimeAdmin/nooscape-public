@@ -17,7 +17,7 @@ describe("the scheduled worker", () => {
 
   it("sends Ethereum, Base and Arc to the one chain pass, looked up by the source's protocol, as a scheduled trigger", () => {
     const block = worker.slice(worker.indexOf('case "erc8004_eth":'), worker.indexOf('case "solana_said":'));
-    for (const protocol of ["erc8004_eth", "erc8004_base", "erc8004_arc"]) expect(block).toContain(`case "${protocol}":`);
+    for (const protocol of ["erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_monad"]) expect(block).toContain(`case "${protocol}":`);
     expect(block).toContain("erc8004ChainOfProtocol(source.protocol)");
     expect(block).toContain('runApprovedErc8004ChainSource(chain, source, "scheduled")');
     expect(block).not.toContain("runApprovedBscRegistrySource");
@@ -33,13 +33,29 @@ describe("the scheduled worker", () => {
   });
 });
 
+describe("the operator's page", () => {
+  it("has, for every chain of the pass, a label, a Run chain pass button for its source and, for each chain with a switch, a Stage button behind that switch", () => {
+    const page = read("client", "src", "pages", "SourceOperations.tsx");
+    const runLine = page.split(String.fromCharCode(10)).find(line => line.includes("Run chain pass"))!;
+    expect(runLine).toBeDefined();
+    for (const chain of ERC8004_CHAINS) {
+      expect(page, chain.protocol).toContain(`if (protocol === "${chain.protocol}") return "${chain.label === "BNB Smart Chain" ? "BNB Chain" : chain.label} ERC-8004 registry";`);
+      expect(runLine, chain.protocol).toContain(`source.protocol === "${chain.protocol}"`);
+      if (chain.feature === null) continue;
+      expect(page, chain.protocol).toContain(`featureOn("${chain.feature}", import.meta.env.VITE_FEATURES)`);
+      expect(page, chain.protocol).toContain(`Stage ${chain.label} ERC-8004 registry`);
+    }
+  });
+});
+
 describe("every chain of the pass is a protocol the database knows", () => {
-  it("is in the list of ingestion protocols, in the schema's enum on every table that carries it, and in migration 0046 if it is a later one", () => {
+  it("is in the list of ingestion protocols, in the schema's enum on every table that carries it, and in the migration that added it if it is a later one (0046, or 0053 for Monad)", () => {
     const schema = read("drizzle", "schema.ts");
-    const migration = read("drizzle", "0046_multichain_erc8004_protocols.sql");
+    const addedBy: Record<string, string> = { erc8004_monad: "0053_monad_erc8004_protocol.sql" };
     for (const chain of ERC8004_CHAINS) {
       expect(INGESTION_PROTOCOLS as readonly string[], chain.protocol).toContain(chain.protocol);
       expect(schema.split(`"${chain.protocol}"`).length - 1, chain.protocol).toBeGreaterThanOrEqual(3);
+      const migration = read("drizzle", addedBy[chain.protocol] ?? "0046_multichain_erc8004_protocols.sql");
       if (chain.protocol !== "erc8004_bsc") expect(migration.split(`'${chain.protocol}'`).length - 1, chain.protocol).toBe(4);
     }
   });

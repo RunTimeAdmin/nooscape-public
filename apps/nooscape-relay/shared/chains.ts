@@ -43,7 +43,7 @@ export function protocolsOf(chain: ChainKey): string[] {
 }
 
 /**
- * Ethereum, Base and Arc: the chains the ERC-8004 identity pass reads besides the three above (docs/multichain-erc8004-2026-10-20.md).
+ * Ethereum, Base, Arc and Monad: the chains the ERC-8004 identity pass reads besides the three above (docs/multichain-erc8004-2026-10-20.md).
  * Each is behind a switch in `VITE_FEATURES` that is off until the owner turns it on, and while it is off nothing of it is listed,
  * counted or served. They are kept apart from {@link ChainKey} on purpose: a chain in that list gets a map light, a page and a
  * place in the Owl's Catch, and an extra chain takes each of those on its own. Arc has a page (`WorldKey` in
@@ -51,18 +51,19 @@ export function protocolsOf(chain: ChainKey): string[] {
  * (docs/chain-worlds-2026-10-20.md and the arc-*.md records it links). Every extra chain that is on is in "just arrived", in the
  * Owl's Catch's round numbers and in the watchlist and the webhook, and is otherwise listed and counted.
  */
-export type ExtraChainKey = "ethereum" | "base" | "arc";
+export type ExtraChainKey = "ethereum" | "base" | "arc" | "monad";
 
 /** Every chain the directory lists: the three that need no switch, then the extra ones. */
 export type ListedChainKey = ChainKey | ExtraChainKey;
 
 /** The extra chains in the order the tabs and the API list them. */
-export const EXTRA_CHAINS: readonly ExtraChainKey[] = ["ethereum", "base", "arc"];
+export const EXTRA_CHAINS: readonly ExtraChainKey[] = ["ethereum", "base", "arc", "monad"];
 
 export const EXTRA_CHAIN_LABEL: Record<ExtraChainKey, string> = {
   ethereum: "Ethereum",
   base: "Base",
   arc: "Arc",
+  monad: "Monad",
 };
 
 /** The switch that turns each extra chain on (shared/features.ts). */
@@ -70,12 +71,14 @@ export const EXTRA_CHAIN_SWITCH: Record<ExtraChainKey, Feature> = {
   ethereum: "chain_ethereum",
   base: "chain_base",
   arc: "chain_arc",
+  monad: "chain_monad",
 };
 
 const EXTRA_CHAIN_OF_PROTOCOL: Record<string, ExtraChainKey> = {
   erc8004_eth: "ethereum",
   erc8004_base: "base",
   erc8004_arc: "arc",
+  erc8004_monad: "monad",
 };
 
 /** The extra chains whose switch is on in this list, in {@link EXTRA_CHAINS} order. Empty for an unset list. */
@@ -106,7 +109,7 @@ export function protocolsOfChainsOff(features: string | undefined): string[] {
 
 /** The name a chain goes by, for any listed chain. */
 export function listedChainLabel(chain: ListedChainKey): string {
-  return chain === "ethereum" || chain === "base" || chain === "arc" ? EXTRA_CHAIN_LABEL[chain] : CHAIN_LABEL[chain];
+  return chain === "ethereum" || chain === "base" || chain === "arc" || chain === "monad" ? EXTRA_CHAIN_LABEL[chain] : CHAIN_LABEL[chain];
 }
 
 /** The `protocols` text a reviewed record stores (a JSON array of strings); anything else is no protocols. */

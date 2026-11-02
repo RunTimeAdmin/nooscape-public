@@ -59,6 +59,7 @@ The reader and the file step were run from the operator's machine on 2026-10-26 
 
 - **BNB Chain.** Its listed entries show "Agent #n" too, but its file step keeps no name by an earlier decision. Adding names there is a change to that decision.
 - **Ethereum.** It joined this step on 2026-10-27 (see the addendum at the end).
+- **Monad.** It joined this step on 2026-11-01 (see the second addendum at the end).
 - **Held-out registrations,** which have no entry and so no name.
 - **Anything but the name** (see above).
 - **A check of the name against anything.** A name is whatever the file says, so an entry can call itself after a known project. The note says it is the registrant's own claim, as on the other chains, and the name changes nothing about the entry's tier, whether it is listed, or its place on the map. Search by name will now find these names, which makes this more visible than it was with "Agent #n".
@@ -68,8 +69,8 @@ The reader and the file step were run from the operator's machine on 2026-10-26 
 A run that did anything writes one `nooscape_chain_names` line to the runtime log, and a failure one `nooscape_chain_names_failed` line. Progress, read-only:
 
 ```sql
-SELECT protocol, COUNT(*) AS still_nameless FROM agent_directory_entries WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth') AND displayName REGEXP '^Agent #[0-9]+$' GROUP BY protocol;
-SELECT s.protocol, r.uriKind, r.status, COUNT(*) AS links FROM agent_registration_resolutions r JOIN ingestion_sources s ON s.id = r.sourceId WHERE s.protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth') GROUP BY s.protocol, r.uriKind, r.status;
+SELECT protocol, COUNT(*) AS still_nameless FROM agent_directory_entries WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad') AND displayName REGEXP '^Agent #[0-9]+$' GROUP BY protocol;
+SELECT s.protocol, r.uriKind, r.status, COUNT(*) AS links FROM agent_registration_resolutions r JOIN ingestion_sources s ON s.id = r.sourceId WHERE s.protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad') GROUP BY s.protocol, r.uriKind, r.status;
 ```
 
 To stop it without a deploy, pause the chain's source. To undo it, revert the change, then put the placeholders back and clear the reads:
@@ -78,8 +79,8 @@ To stop it without a deploy, pause the chain's source. To undo it, revert the ch
 UPDATE agent_directory_entries
 SET sourceSignalNote = REGEXP_REPLACE(sourceSignalNote, ' Its name was read from its registration link on [0-9]{4}-[0-9]{2}-[0-9]{2}; it is the registrant''s own claim[.]', ''),
     displayName = CONCAT('Agent #', SUBSTRING_INDEX(externalKey, ':', -1))
-WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth') AND sourceSignalNote LIKE '% Its name was read from its registration link on %';
-DELETE FROM agent_registration_resolutions WHERE sourceId IN (SELECT id FROM ingestion_sources WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth'));
+WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad') AND sourceSignalNote LIKE '% Its name was read from its registration link on %';
+DELETE FROM agent_registration_resolutions WHERE sourceId IN (SELECT id FROM ingestion_sources WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad'));
 ```
 
 An entry that was named at registration, from JSON inside its link, has no such sentence in its note and is not touched. An entry named from JSON set after its registration has the sentence and goes back to "Agent #n", which is what it showed before.
@@ -106,3 +107,32 @@ An entry that was named at registration, from JSON inside its link, has no such 
 **Chosen by Claude, so the operator can say no.** Ethereum last in the turn, so Base and Arc keep their order, and no limit of its own.
 
 **Undo.** As above: the SQL there now lists `erc8004_eth` too. Pausing the source stops the names along with its pass.
+
+## Addendum, 2026-11-01: Monad joins the step
+
+**Decided:** 2026-11-01, by the operator, in chat ("yes start on the names step", after the list of what follows Monad's go-live put Monad's names first). The Monad record (`docs/monad-erc8004-2026-11-01.md`, section 7) said Monad's entries would stay "Agent #n" until this step read it.
+**Changes:** Monad is added to the chains the step takes in turn, fourth after Base, Arc and Ethereum. Four sentences on `/checker` and one on the sources page that name the chains now name it, and the checker page's test holds them to the step's own chain list. Nothing in the table of limits above changes: the same sixteen reads a run, six to a host, a run every thirty minutes at most, one attempt at the chain, the same pauses. No migration (0053 is already applied for the pass), no new source and no new setting: the step asks Monad's own node through `MONAD_RPC_URL`, the variable the pass reads, and the chain's switch (`chain_monad`) and an active source decide, as they do for the other three.
+**Does not change:** which registrations are listed, any tier, BNB Chain and Robinhood Chain.
+
+**Checked against the real chain on 2026-11-01.** The step's own chain read (`readTokenUrisFromChain`, one Multicall3 `eth_call` at the finalized block, 16 ids a call as the step makes it) was run on Monad through the operator's Alchemy account for 40 agent ids: id 0, which is the first registration on the chain, ids 1, 2, 3, 4, 9 and 34, and 33 more spread over the registry's history. It answered for all 40. For all 40 the link was the same as a plain `tokenURI` call at the finalized block gave, and the same as the latest link in the registry's own events; three of the 40 had been updated after they were registered, so the read is of the link now and not the first one. Multicall3 is deployed on Monad at the usual address.
+
+**The whole step against the real hosts, on 2026-11-01.** On a scratch MariaDB 10.11 holding the first Monad pass as it was run live (144 entries listed, 95 of them showing "Agent #n"), the step was run for Monad alone with its own constants, through the real chain read and the real safe fetch: 7 runs and about two minutes in all. It named 22 of the 95 (21 from the files their web links name and 1 from JSON held inside its link), each with the dated sentence in the note. Of the other 73:
+- 24 had a file with no usable name in it, or a link of another kind that is settled and not read again;
+- 27 were ipfs links, which the public gateway ipfs.io refused with HTTP 429 (the step reads ipfs links through the configured gateway, `NOOSCAPE_IPFS_GATEWAY`, which is Nooscape's own in production, so these are expected to do better there);
+- 22 were web files that could not be read: HTTP 500 for 10, a name that did not resolve for 6, a timeout for 2, a port the safe fetch does not allow (5173 and 5174) for 2, a robots.txt that answered 522 for 1, and 1 other.
+The names are the registrants' own claims, as on the other chains. A sample read as agent names (for example "MonadGuard", "Headwater" and "Marginal Edge").
+
+**What it has to do.** 95 entries show "Agent #n". The first pass listed 144, and 49 of them were already named from JSON inside their link.
+
+**Pace.** The four chains share the same sixteen reads every thirty minutes, 768 files a day in all, and a chain with nothing to ask leaves the run to the next. At sixteen entries a run, Monad's 95 take about six of its turns, which is about half a day with the chains taking turns, and the end of Base's backlog moves about that much later. Once Monad has nothing waiting it costs the others nothing.
+
+**Chosen by Claude, so the operator can say no.** Monad last in the turn, so Base, Arc and Ethereum keep their order, and no limit of its own.
+
+**Undo.** As above: the SQL there now lists `erc8004_monad` too. Pausing the source stops the names along with its pass.
+
+**Outcome, 2026-11-01.**
+- [x] Merged and deployed: PR 234 was rebase-merged at 04:18Z (main `0d18b15`), the site redeployed at 04:19Z and `verify-live` passed 47 of 47. The runtime log shows no failed step.
+- [x] The first Monad run, at 05:30Z, read the links of 16 entries from the chain, read 12 of the files they name and named 3 entries; 2 files had no usable name and 7 could not be read. The rehearsal's first run read 12 and named 2, so the live step behaves as the rehearsal did. The three entries carry the dated sentence in their notes, and a search for each new name finds it.
+- [ ] The rest of the 95. Two more runs, at 07:00Z and 11:00Z, named 5 and 11 more. Counted on the public API against the 95 ids noted before the first run, 19 now carry a name, 76 still show "Agent #n" and no entry outside the 95 does; that agrees with the 3, 5 and 11 the log reports. Both later runs stopped at the 20-second budget with entries waiting, which the next turn takes. The final count goes here when the step has nothing left to read.
+
+**What differed from the forecast.** The turn is kept in memory, so a restart of the app sends it back to Base. The log shows the app starting again without a deploy at 08:30Z (twice), 09:18Z, 09:49Z and 11:06Z, and Monad had 3 turns between 05:30Z and 12:00Z (at 05:30Z, 07:00Z and 11:00Z). A restart delays Monad's next turn and changes nothing about which entries are waiting. What started the app again is not known. Update 2026-11-01 (later): the step now works the turn out from the data when the app has started, as the chain after the one tried last, so a start no longer sends it back to Base.

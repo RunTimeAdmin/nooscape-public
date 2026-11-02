@@ -148,7 +148,7 @@ describe("what it says about itself", () => {
     expect(page).toContain("or of an agent in the ERC-8004 registry on Robinhood Chain, Ethereum, Base or Arc, to find the agent&rsquo;s name");
     expect(page).toContain("or a registration in the ERC-8004 registry on Robinhood Chain, Ethereum, Base or Arc, names");
     expect(page).toContain("For a registration on Robinhood Chain, Ethereum, Base or Arc it first finds the link by reading the registry on the chain, which asks nothing of your site.");
-    expect(page).toContain("The 8004 and SAID registries on Solana and the ERC-8004 registries on Robinhood Chain, Ethereum, Base and Arc are public too, and so is the ERC-8004 registry on BNB Chain.");
+    expect(page).toContain("The 8004 and SAID registries on Solana and the ERC-8004 registries on Robinhood Chain, Ethereum, Base, Arc and Monad are public too, and so is the ERC-8004 registry on BNB Chain.");
     expect(page).toContain("Nooscape shows the name it read in place of the number on the agent&rsquo;s page, on the map and in the directory, says on the agent&rsquo;s page when it read it");
     // The agent's page does say when, and the explanation of what a record shows names the exception.
     expect(read("../client/src/pages/DirectoryAgent.tsx")).toContain("This name was read from the agent&rsquo;s registration link on {formatWhen(record.nameReadAt)}");
@@ -172,12 +172,12 @@ describe("what it says about itself", () => {
     expect(read("./db.ts")).toContain("Only the display name changes: the retained observation, the evidence packet");
   });
 
-  it("says it also reads the registration link of an agent on Base, Arc or Ethereum for its name, and the step does what the page says", () => {
-    expect(page).toContain("For an agent on Base, Arc or Ethereum that is shown only as a number, Nooscape shows the name it read in place of the number on the agent&rsquo;s page and in the directory, and the note on the agent&rsquo;s page says when it read it.");
-    expect(page).toContain("Each of the three registration reads, the Robinhood names, the Base, Arc and Ethereum names and the BNB Chain files, reads at most");
-    expect(page).toContain("The Base, Arc and Ethereum names take the three chains in turn, one chain in each run.");
+  it("says it also reads the registration link of an agent on Base, Arc, Ethereum or Monad for its name, and the step does what the page says", () => {
+    expect(page).toContain("For an agent on Base, Arc, Ethereum or Monad that is shown only as a number, Nooscape shows the name it read in place of the number on the agent&rsquo;s page and in the directory, and the note on the agent&rsquo;s page says when it read it.");
+    expect(page).toContain("Each of the three registration reads, the Robinhood names, the Base, Arc, Ethereum and Monad names and the BNB Chain files, reads at most");
+    expect(page).toContain("The Base, Arc, Ethereum and Monad names take the four chains in turn, one chain in each run.");
     // The chains the page names are the chains the step takes.
-    expect(NAME_CHAINS.map(chain => chain.chainLabel)).toEqual(["Base", "Arc", "Ethereum"]);
+    expect(NAME_CHAINS.map(chain => chain.chainLabel)).toEqual(["Base", "Arc", "Ethereum", "Monad"]);
     // The pace the page promises is the pace the step keeps: it takes the Robinhood step's constants and has none of its own.
     const step = read("./chainNames.ts");
     expect(step).toContain('from "./robinhoodNames"');
@@ -271,7 +271,7 @@ describe("the rest of the site, on what Nooscape fetches", () => {
     expect(sources).not.toContain("<span>A2A</span>");
     expect(sources).toContain("{directoryProtocolLabel(source.protocol)}");
     expect(sources).toContain("For an A2A source it also allows a check once a day");
-    expect(sources).toContain("For the 8004 registries on Solana, Robinhood Chain, BNB Chain, Ethereum, Base and Arc, and the SAID registry on Solana, it also allows reading the registration link of an entry, a few at a time, to find its name or to group look-alike entries (Nooscape-Checker).");
+    expect(sources).toContain("For the 8004 registries on Solana, Robinhood Chain, BNB Chain, Ethereum, Base, Arc and Monad, and the SAID registry on Solana, it also allows reading the registration link of an entry, a few at a time, to find its name or to group look-alike entries (Nooscape-Checker).");
   });
 
   it("does not say the Solana 8004 pass fetches nothing, which its name fetch makes untrue, or that an entry is reachable because it has a locator", () => {

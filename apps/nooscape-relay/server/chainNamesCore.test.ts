@@ -1,22 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { agentIdOfKey, NAME_CHAINS, newestKeyFirst, usableName } from "./chainNamesCore";
 import { directoryDraft } from "./ingestion/erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, BSC_CHAIN, ETHEREUM_CHAIN } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, BSC_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN } from "./ingestion/erc8004Chains";
 import { ENTRY_PLACEHOLDER_PATTERN } from "./robinhoodNamesCore";
 
 /**
- * The pure rules of the Base, Arc and Ethereum name step (docs/approvals/2026-10-26-base-arc-names.md): which chains it names, how it reads the
+ * The pure rules of the Base, Arc, Ethereum and Monad name step (docs/approvals/2026-10-26-base-arc-names.md): which chains it names, how it reads the
  * agent id out of a directory key, which registration it takes first, and which names it will not show. The step itself is held by
  * chainNames.integration.test.ts and the chain read by chainNamesRead.test.ts.
  */
 const registration = (agentId: string) => ({ agentId, owner: "0x00000000000000000000000000000000000000aa", uri: "ipfs://x", blockNumber: 1, transactionHash: "0x", logIndex: 0 });
 
 describe("the chains the step names", () => {
-  it("are Base, Arc and Ethereum, in that order, and neither Robinhood Chain nor BNB Chain, whose reads keep their own rules", () => {
-    expect(NAME_CHAINS.map(chain => chain.chainKey)).toEqual(["base", "arc", "ethereum"]);
+  it("are Base, Arc, Ethereum and Monad, in that order, and neither Robinhood Chain nor BNB Chain, whose reads keep their own rules", () => {
+    expect(NAME_CHAINS.map(chain => chain.chainKey)).toEqual(["base", "arc", "ethereum", "monad"]);
     expect(NAME_CHAINS).toContain(BASE_CHAIN);
     expect(NAME_CHAINS).toContain(ARC_CHAIN);
     expect(NAME_CHAINS).toContain(ETHEREUM_CHAIN);
+    expect(NAME_CHAINS).toContain(MONAD_CHAIN);
     expect(NAME_CHAINS).not.toContain(BSC_CHAIN);
   });
 
@@ -31,6 +32,12 @@ describe("the agent id of a directory key", () => {
       const draft = directoryDraft(chain, registration("1135673"));
       expect(agentIdOfKey(chain, draft.externalKey), chain.chainKey).toBe("1135673");
     }
+  });
+
+  it("reads agent id 0, which is the first registration on Monad, and puts it last among the newest first", () => {
+    const first = directoryDraft(MONAD_CHAIN, registration("0")).externalKey;
+    expect(agentIdOfKey(MONAD_CHAIN, first)).toBe("0");
+    expect(["a:0", "a:3", "a:10"].sort(newestKeyFirst)).toEqual(["a:10", "a:3", "a:0"]);
   });
 
   it("is not read from another chain's key, another registry's key, or a key that is not an id", () => {

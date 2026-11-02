@@ -8,7 +8,7 @@ import * as schema from "../drizzle/schema";
 import { ARC_CHAIN } from "./ingestion/erc8004Chains";
 
 /**
- * The groups behind the formations on Arc's, Base's and Ethereum's own pages, counted over the registry rows of a real database (docs/chain-worlds-2026-10-20.md,
+ * The groups behind the formations on Arc's, Base's, Ethereum's and Monad's own pages, counted over the registry rows of a real database (docs/chain-worlds-2026-10-20.md,
  * "The Arc world", and docs/base-world-2026-10-21.md): the registering wallets, hosts and profile links that 50 or more registrations share, every registration counted
  * whether it is listed or held out, and a registration that is hidden counted in none. Skips when no database is reachable.
  */
@@ -83,6 +83,8 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
     for (const statement of splitMigrationStatements(await readFile("drizzle/0046_multichain_erc8004_protocols.sql", "utf8"))) await owner.query(statement);
     // Migration 0051 is manual too: it adds AgenC's protocol, whose entries fill the fourth lane of Solana's page.
     for (const statement of splitMigrationStatements(await readFile("drizzle/0051_solana_agenc_protocol.sql", "utf8"))) await owner.query(statement);
+    // And 0053, which restates 0051's list and adds Monad's protocol, for the Monad page's groups.
+    for (const statement of splitMigrationStatements(await readFile("drizzle/0053_monad_erc8004_protocol.sql", "utf8"))) await owner.query(statement);
     await owner.end();
 
     readCache = await import("./readCache");
@@ -369,6 +371,44 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
       expect(arc.fleets.some(fleet => fleet.wallet === wallet(9) || fleet.name === "eth-host.example.app")).toBe(false);
       expect((await caller().liveData.registryFleets({ chain: "base" })).fleets.map(fleet => fleet.count)).toEqual([70, 55]);
       expect((await caller().liveData.registryFleets({ chain: "ethereum" })).fleets.map(fleet => fleet.count)).toEqual([90, 60]);
+      features(undefined);
+    });
+
+    it("serves Monad's groups the same way, from Monad's own rows and only while its switch is on, and never mixes the chains", async () => {
+      await writer.insert(schema.ingestionSources).values({ id: "src-monad", sourceKey: "fleets-monad", label: "Monad", protocol: "erc8004_monad", rootUrl: "https://monad-mainnet.g.alchemy.com", allowedHostname: "monad-mainnet.g.alchemy.com", state: "active", createdByUserId: operatorUserId });
+      const [row] = await writer.select().from(schema.ingestionSources).where(eq(schema.ingestionSources.id, "src-monad"));
+      const monadSource = row!;
+      // A wallet of 80, a host of 55 and three registrations that stand alone, which the pass publishes.
+      await register(monadSource, 80, { owner: () => wallet(11) });
+      await register(monadSource, 55, { host: "monad-host.example.app" });
+      await register(monadSource, 3);
+      await registry.refreshAgentRegistryListing(monadSource, { classify: true, publish: true });
+
+      features(undefined);
+      expect(await caller().liveData.registryFleets({ chain: "monad" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, asOf: null });
+      features("chain_arc,chain_base,chain_ethereum");
+      expect((await caller().liveData.registryFleets({ chain: "monad" })).fleets).toEqual([]);
+      features("chain_monad");
+      const monad = await caller().liveData.registryFleets({ chain: "monad" });
+      expect(monad.fleets.map(fleet => [fleet.chain, fleet.kind, fleet.count])).toEqual([
+        ["monad", "wallet", 80],
+        ["monad", "platform_host", 55],
+      ]);
+      expect(monad.recorded).toBe(138);
+      expect(monad.groups).toBe(2);
+      expect(monad.walletGroups).toBe(1);
+      expect(monad.fleets.every(fleet => /^monad-fleet-[0-9a-f]{16}$/.test(fleet.id))).toBe(true);
+      // The other chains' switches are off, so they answer nothing, and none of their wallets or hosts is among Monad's groups.
+      for (const chain of ["arc", "base", "ethereum"] as const) expect((await caller().liveData.registryFleets({ chain })).fleets, chain).toEqual([]);
+      expect(monad.fleets.some(fleet => fleet.wallet === wallet(1) || fleet.wallet === wallet(7) || fleet.wallet === wallet(9) || fleet.name === "busy.example.app" || fleet.name === "base-host.example.app" || fleet.name === "eth-host.example.app")).toBe(false);
+      // With all four on, each chain answers from its own rows only.
+      features("chain_arc,chain_base,chain_ethereum,chain_monad");
+      const ethereum = await caller().liveData.registryFleets({ chain: "ethereum" });
+      expect(ethereum.fleets.every(fleet => fleet.chain === "ethereum")).toBe(true);
+      expect(ethereum.fleets.some(fleet => fleet.wallet === wallet(11) || fleet.name === "monad-host.example.app")).toBe(false);
+      expect((await caller().liveData.registryFleets({ chain: "base" })).fleets.map(fleet => fleet.count)).toEqual([70, 55]);
+      expect(ethereum.fleets.map(fleet => fleet.count)).toEqual([90, 60]);
+      expect((await caller().liveData.registryFleets({ chain: "monad" })).fleets.map(fleet => fleet.count)).toEqual([80, 55]);
       features(undefined);
     });
   });

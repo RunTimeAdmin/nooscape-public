@@ -90,6 +90,11 @@ export function ChainTabs({ bnbProfile }: Props) {
               Open the Ethereum page <span aria-hidden="true">&rarr;</span>
             </Link>
           )}
+          {regions.includes("monad") && (
+            <Link href="/chains/monad" className={PAGE_LINK_CLASS}>
+              Open the Monad page <span aria-hidden="true">&rarr;</span>
+            </Link>
+          )}
         </nav>
       </div>
 
@@ -152,6 +157,12 @@ export function ChainTabs({ bnbProfile }: Props) {
                       <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
                         A dated count of what the registry holds: the{" "}
                         <Link href="/field/ethereum-registry-2026-10-28" className="underline underline-offset-4 hover:text-ns-ink">Ethereum registry census, 28 October 2026</Link>.
+                      </p>
+                    )}
+                    {chain === "monad" && (
+                      <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
+                        A dated count of what the registry holds: the{" "}
+                        <Link href="/field/monad-registry-2026-11-01" className="underline underline-offset-4 hover:text-ns-ink">Monad registry census, 1 November 2026</Link>.
                       </p>
                     )}
                     {chain === "bnb" && bnbSentence(bnbProfile) && <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">{bnbSentence(bnbProfile)}</p>}

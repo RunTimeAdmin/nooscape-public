@@ -89,7 +89,7 @@ describe("the strings of the new code", () => {
   it("say none of the four words in what a chain is called, what its notes say about a link, or what its source is called", () => {
     vi.stubEnv("X402_RPC", "https://arc-node.example/v1/x");
     for (const chain of chains) {
-      const preset = chainSourcePreset(chain, "chain_ethereum,chain_base,chain_arc");
+      const preset = chainSourcePreset(chain, "chain_ethereum,chain_base,chain_arc,chain_monad");
       for (const text of [chain.label, chain.chainLabel, chain.fetchSentence, preset.label, preset.sourceKey]) expect(text, chain.protocol).not.toMatch(FORBIDDEN);
     }
   });

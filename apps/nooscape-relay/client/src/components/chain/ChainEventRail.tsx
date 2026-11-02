@@ -67,6 +67,18 @@ function EmptyState({
     );
   }
 
+  if (chain === "monad" && status === "unsupported") {
+    return (
+      <div className="cw-event-empty" role="status">
+        <span className="cw-event-empty-kicker">Global feed unavailable</span>
+        <p>
+          No global Monad activity feed is published. No event is shown in
+          its place.
+        </p>
+      </div>
+    );
+  }
+
   if (chain === "arc" && status === "unsupported") {
     return (
       <div className="cw-event-empty" role="status">

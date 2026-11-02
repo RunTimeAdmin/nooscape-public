@@ -1,5 +1,5 @@
 import { and, asc, eq, gt, gte, inArray, sql } from "drizzle-orm";
-import { agentClaimEdits, agentDirectoryChainActivity, agentDirectoryEntries, agentReputationEvents, agentSolanaActivity } from "../drizzle/schema";
+import { agentClaimEdits, agentDirectoryChainActivity, agentDirectoryEntries, agentDirectoryRegistryRows, agentReputationEvents, agentSolanaActivity } from "../drizzle/schema";
 import { getDb, isHandoutEvent, listVisibleDirectoryKeys, requireDb, type DirectoryMintAnchor } from "./db";
 import { evmIdentityChain } from "./ingestion/evmIdentityChains";
 
@@ -49,7 +49,18 @@ export const dbEventSource: EventSource = {
     }
     const visible = new Set<string>();
     for (const part of chunks(found.map(entry => entry.id))) (await listVisibleDirectoryKeys(part)).forEach((_key, id) => visible.add(id));
-    return found.map(entry => ({ ...entry, visible: visible.has(entry.id) }));
+    // A registration the listing rules hold out has no entry, but its registry row keeps the entry's id (publishAgentRegistryListing). So a
+    // watch on it still names the agent, and is told that it left and, when it is listed again under the same id, that it is back.
+    const known = new Set(found.map(entry => entry.id));
+    const heldOut: WatchedEntry[] = [];
+    for (const part of chunks(ids.filter(id => !known.has(id)))) {
+      const rows = await db
+        .select({ id: agentDirectoryRegistryRows.id, protocol: agentDirectoryRegistryRows.protocol, sourceId: agentDirectoryRegistryRows.sourceId, externalKey: agentDirectoryRegistryRows.externalKey })
+        .from(agentDirectoryRegistryRows)
+        .where(inArray(agentDirectoryRegistryRows.id, part));
+      heldOut.push(...rows.map(row => ({ ...row, visible: false })));
+    }
+    return [...found.map(entry => ({ ...entry, visible: visible.has(entry.id) })), ...heldOut];
   },
 
   maxClaimSeq: async () => {

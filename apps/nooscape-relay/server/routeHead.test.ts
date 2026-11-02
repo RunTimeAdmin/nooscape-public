@@ -123,12 +123,13 @@ describe("the card of a chain page", () => {
     ["/chains/arc", "Arc"],
     ["/chains/base", "Base"],
     ["/chains/ethereum", "Ethereum"],
+    ["/chains/monad", "Monad"],
   ];
   const publicDir = path.resolve(import.meta.dirname, "../client/public");
   const cardOf = (route: string) => ROUTE_HEADS[route]!.image!;
   const IMAGE_TAGS = [/<meta property="og:image"[^>]*>/, /<meta property="og:image:secure_url"[^>]*>/, /<meta property="og:image:alt"[^>]*>/, /<meta name="twitter:image"[^>]*>/, /<meta name="twitter:image:alt"[^>]*>/];
 
-  it("belongs to the six chain pages and to no other fixed page", () => {
+  it("belongs to the seven chain pages and to no other fixed page", () => {
     expect(Object.keys(ROUTE_HEADS).filter(route => ROUTE_HEADS[route]!.image).sort()).toEqual(CHAINS.map(([route]) => route).sort());
   });
 
@@ -401,6 +402,31 @@ describe("the routes", () => {
       const url = `https://nooscape.si/${card.file}`;
       const html = flat(page.body);
       expect(card.file).toBe("nooscape-card-chain-ethereum.png");
+      for (const pattern of [/<meta property="og:image"[^>]*>/, /<meta property="og:image:secure_url"[^>]*>/, /<meta name="twitter:image"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${url}"`);
+      for (const pattern of [/<meta property="og:image:alt"[^>]*>/, /<meta name="twitter:image:alt"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${card.alt}"`);
+    } finally {
+      if (saved === undefined) delete process.env.VITE_FEATURES;
+      else process.env.VITE_FEATURES = saved;
+    }
+  });
+
+  it("serves the Monad page's head only while its switch is on, and indexes it with its own card", async () => {
+    const saved = process.env.VITE_FEATURES;
+    try {
+      delete process.env.VITE_FEATURES;
+      expect((await get("/chains/monad")).body).toBe("FALLBACK");
+      process.env.VITE_FEATURES = "chain_arc,chain_base,chain_ethereum";
+      expect((await get("/chains/monad")).body).toBe("FALLBACK");
+      process.env.VITE_FEATURES = "claims, chain_monad";
+      const page = await get("/chains/monad");
+      expect(page.status).toBe(200);
+      expect(page.body).toContain("<title>Monad registry groups | Nooscape</title>");
+      expect(tag(page.body, /<link rel="canonical"[^>]*>/)).toContain('href="https://nooscape.si/chains/monad"');
+      expect(tag(page.body, /<meta name="robots"[^>]*>/)).toContain(`content="${INDEXED}"`);
+      const card = ROUTE_HEADS["/chains/monad"]!.image!;
+      const url = `https://nooscape.si/${card.file}`;
+      const html = flat(page.body);
+      expect(card.file).toBe("nooscape-card-chain-monad.png");
       for (const pattern of [/<meta property="og:image"[^>]*>/, /<meta property="og:image:secure_url"[^>]*>/, /<meta name="twitter:image"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${url}"`);
       for (const pattern of [/<meta property="og:image:alt"[^>]*>/, /<meta name="twitter:image:alt"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${card.alt}"`);
     } finally {

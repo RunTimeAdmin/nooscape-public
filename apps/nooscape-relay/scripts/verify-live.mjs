@@ -37,6 +37,8 @@ const FRESHNESS_HOURS = {
   erc8004_arc: 36,
   // So does the Ethereum identity pass (migration 0052).
   erc8004_eth: 36,
+  // And the Monad identity pass (migration 0054).
+  erc8004_monad: 36,
 };
 
 const results = [];

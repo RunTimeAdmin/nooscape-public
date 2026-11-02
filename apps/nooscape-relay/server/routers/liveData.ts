@@ -77,7 +77,7 @@ import { BSC_ALLOWED_HOSTNAME, BSC_ROOT_URL, BSC_SOURCE_KEY, BscRegistryValidati
 import { BscRpcError, BscRpcNotConfiguredError } from "../ingestion/bscRpc";
 import { runApprovedErc8004ChainSource } from "../ingestion/runErc8004Chain";
 import { Erc8004ChainOffError } from "../ingestion/erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, erc8004ChainOfProtocol } from "../ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, erc8004ChainOfProtocol } from "../ingestion/erc8004Chains";
 import { Erc8004RpcNotConfiguredError } from "../ingestion/erc8004Rpc";
 import { chainSourcePreset } from "../ingestion/chainPresets";
 import { runApprovedMetaplexRegistrySource } from "../ingestion/runMetaplex";
@@ -253,7 +253,7 @@ const approvedPublicSources = {
  * The chains of the identity pass that have a switch (docs/multichain-erc8004-2026-10-20.md), by the name the staging action gives them.
  * Their sources are made from the chain's entry (ingestion/chainPresets.ts), not from a constant here.
  */
-const switchedChains = { ethereum: ETHEREUM_CHAIN, base: BASE_CHAIN, arc: ARC_CHAIN } as const;
+const switchedChains = { ethereum: ETHEREUM_CHAIN, base: BASE_CHAIN, arc: ARC_CHAIN, monad: MONAD_CHAIN } as const;
 
 /** The preset for one of them, with the two refusals it can make (switched off; endpoint not set) put to the operator as what they are. */
 function stageableChainSource(name: keyof typeof switchedChains) {
@@ -551,7 +551,7 @@ export const liveDataRouter = router({
   // more of its registrations share, from the registry rows (docs/chain-worlds-2026-10-20.md). No registration is returned, only the
   // shared fact. Fails closed to no groups, which is also what it answers while the chain's switch is off or before its first
   // complete pass has published.
-  registryFleets: publicProcedure.input(z.object({ chain: z.enum(["arc", "base", "ethereum"]) })).query(async ({ input }) => {
+  registryFleets: publicProcedure.input(z.object({ chain: z.enum(["arc", "base", "ethereum", "monad"]) })).query(async ({ input }) => {
     try {
       if (!extraChainsOn(process.env.VITE_FEATURES).includes(input.chain)) return EMPTY_REGISTRY_FLEETS;
       return await readRegistryFleets(input.chain);
@@ -746,10 +746,10 @@ export const liveDataRouter = router({
       }
     }),
     registerApprovedPublicSource: operatorProcedure
-      .input(z.object({ source: z.enum(["agenstry", "agentEconomy", "metaplex", "robinhood", "usdgSettlements", "robinhoodReputation", "solana8004", "said", "agenc", "bsc", "ethereum", "base", "arc"]) }))
+      .input(z.object({ source: z.enum(["agenstry", "agentEconomy", "metaplex", "robinhood", "usdgSettlements", "robinhoodReputation", "solana8004", "said", "agenc", "bsc", "ethereum", "base", "arc", "monad"]) }))
       .mutation(async ({ ctx, input }) => {
         const candidate =
-          input.source === "ethereum" || input.source === "base" || input.source === "arc"
+          input.source === "ethereum" || input.source === "base" || input.source === "arc" || input.source === "monad"
             ? stageableChainSource(input.source)
             : approvedPublicSources[input.source];
         try {
@@ -762,6 +762,10 @@ export const liveDataRouter = router({
           // operator is told which step is missing instead of that live data is unavailable.
           if (input.source === "agenc" && driverErrorHas(error, "WARN_DATA_TRUNCATED") && describeFailure(error).includes("'protocol'")) {
             throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The database does not have the AgenC protocol value yet. Paste migration 0051 first (docs/agenc-solana-2026-10-26.md), then stage the source again." });
+          }
+          // The same for Monad's value (migration 0053).
+          if (input.source === "monad" && driverErrorHas(error, "WARN_DATA_TRUNCATED") && describeFailure(error).includes("'protocol'")) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The database does not have the Monad protocol value yet. Paste migration 0053 first (docs/monad-erc8004-2026-11-01.md), then stage the source again." });
           }
           return databaseFailure(error);
         }

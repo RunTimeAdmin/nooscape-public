@@ -47,15 +47,16 @@ vi.mock("../agentRegistryRows", () => ({
 }));
 
 import { Erc8004ChainOffError } from "./erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, type Erc8004Chain } from "./erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./erc8004Chains";
 import { Erc8004RpcRangeError } from "./erc8004Rpc";
-import { ARC_FIXTURES, BASE_FIXTURES, ETHEREUM_FIXTURES, type ChainFixtureLog, type ChainFixtures } from "./erc8004ChainFixtures";
+import { ARC_FIXTURES, BASE_FIXTURES, ETHEREUM_FIXTURES, MONAD_FIXTURES, type ChainFixtureLog, type ChainFixtures } from "./erc8004ChainFixtures";
 import { runApprovedErc8004ChainSource } from "./runErc8004Chain";
 
 const CASES: Array<[string, Erc8004Chain, ChainFixtures]> = [
   ["Ethereum", ETHEREUM_CHAIN, ETHEREUM_FIXTURES],
   ["Base", BASE_CHAIN, BASE_FIXTURES],
   ["Arc", ARC_CHAIN, ARC_FIXTURES],
+  ["Monad", MONAD_CHAIN, MONAD_FIXTURES],
 ];
 const hex = (value: number) => `0x${value.toString(16)}`;
 const blockOf = (log: ChainFixtureLog) => Number.parseInt(log.blockNumber as string, 16);
@@ -108,7 +109,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.order.length = 0;
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  vi.stubEnv("VITE_FEATURES", "chain_ethereum,chain_base,chain_arc");
+  vi.stubEnv("VITE_FEATURES", "chain_ethereum,chain_base,chain_arc,chain_monad");
 });
 afterEach(() => vi.unstubAllEnvs());
 

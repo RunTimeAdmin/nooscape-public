@@ -103,7 +103,7 @@ describe("the chain a claim can be made on", () => {
       expect(claimChainLabel("erc8004", features), String(features)).toBe("Robinhood Chain");
       expect(claimChainLabel("erc8004_bsc", features), String(features)).toBe("BNB Smart Chain");
     }
-    for (const protocol of ["solana_8004", "solana_said", "a2a", "catalog", "erc8004_reputation", "erc8004_base", "erc8004_eth", ""]) expect(claimChainLabel(protocol, "chain_arc,claims_arc,chain_base,chain_ethereum"), protocol).toBeNull();
+    for (const protocol of ["solana_8004", "solana_said", "a2a", "catalog", "erc8004_reputation", "erc8004_base", "erc8004_eth", "erc8004_monad", ""]) expect(claimChainLabel(protocol, "chain_arc,claims_arc,chain_base,chain_ethereum,chain_monad"), protocol).toBeNull();
   });
 
   it("names Arc only while Arc and its claims are both on in the build", () => {
@@ -120,6 +120,13 @@ describe("the chain a claim can be made on", () => {
     for (const features of [undefined, "", "claims", "chain_ethereum", "claims_ethereum", "claims,chain_ethereum", "chain_base,claims_base,chain_arc,claims_arc"]) expect(claimChainLabel("erc8004_eth", features), String(features)).toBeNull();
     // Each chain's switches open that chain only.
     expect(claimChainLabel("erc8004_arc", "chain_base,claims_base,chain_ethereum,claims_ethereum")).toBeNull();
+  });
+
+  it("names Monad only while Monad and its claims are both on in the build, and no other chain's switches open it", () => {
+    expect(claimChainLabel("erc8004_monad", "chain_monad,claims_monad")).toBe("Monad");
+    expect(claimChainLabel("erc8004_monad", " Claims , CLAIMS_MONAD , Chain_Monad ")).toBe("Monad");
+    for (const features of [undefined, "", "claims", "chain_monad", "claims_monad", "claims,chain_monad", "chain_base,claims_base,chain_ethereum,claims_ethereum,chain_arc,claims_arc"]) expect(claimChainLabel("erc8004_monad", features), String(features)).toBeNull();
+    expect(claimChainLabel("erc8004_eth", "chain_monad,claims_monad")).toBeNull();
   });
 
   it("reads the build's own list when none is given, which is none in a test", () => {

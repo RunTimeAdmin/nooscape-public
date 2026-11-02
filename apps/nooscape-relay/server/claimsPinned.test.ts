@@ -4,12 +4,12 @@ const mocks = vi.hoisted(() => ({ assertPublicHostname: vi.fn(async (_host: stri
 vi.mock("./ingestion/a2a", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/a2a")>()), assertPublicHostname: mocks.assertPublicHostname }));
 
 import { ENV } from "./_core/env";
-import { callBaseRpcOnce, callEthereumRpcOnce, forgetCheckedPinnedNodes } from "./claimsPinned";
+import { callBaseRpcOnce, callEthereumRpcOnce, callMonadRpcOnce, forgetCheckedPinnedNodes } from "./claimsPinned";
 import { Erc8004RpcError, Erc8004RpcHttpError } from "./ingestion/erc8004Rpc";
 
 /**
- * One read on Base's node and one on Ethereum's for the claim flow (docs/base-ethereum-claims-2026-10-28.md): the endpoint is the one the
- * chain's identity pass reads (BASE_RPC_URL, ETH_RPC_URL), pinned to a vendor's host, called once with no retry ladder, held to what a
+ * One read on Base's node, one on Ethereum's and one on Monad's for the claim flow (docs/base-ethereum-claims-2026-10-28.md, docs/monad-claims-2026-11-01.md): the endpoint is the one the
+ * chain's identity pass reads (BASE_RPC_URL, ETH_RPC_URL, MONAD_RPC_URL), pinned to a vendor's host, called once with no retry ladder, held to what a
  * claim needs of it (it answers as the chain and is at the head), given a gas limit for what a visitor can make it run, and never named
  * in what is thrown. The node is replaced by a stand-in for `fetch` that answers the chain id, the latest block and the call as each
  * test sets. These are the same checks claimsArc.test.ts makes of Arc's node, which shares their code (claimsNode.ts).
@@ -32,7 +32,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let sent: Sent[];
 /** What the stand-in node says: its chain id, how old its latest block is, and the answer to anything else. */
 let node: { chainId: unknown; headAgeSeconds: number | null; answer: () => Response };
-const SAVED = { base: ENV.baseRpcUrl, ethereum: ENV.ethRpcUrl };
+const SAVED = { base: ENV.baseRpcUrl, ethereum: ENV.ethRpcUrl, monad: ENV.monadRpcUrl };
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -58,6 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   ENV.baseRpcUrl = SAVED.base;
   ENV.ethRpcUrl = SAVED.ethereum;
+  ENV.monadRpcUrl = SAVED.monad;
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -84,6 +85,16 @@ describe.each([
     chainId: "0x1",
     otherChainId: "0x2105",
     variable: "ETH_RPC_URL",
+  },
+  {
+    label: "Monad",
+    read: callMonadRpcOnce,
+    set: (value: string) => (ENV.monadRpcUrl = value),
+    host: "monad-mainnet.g.alchemy.com",
+    path: `/v2/${KEY}`,
+    chainId: "0x8f",
+    otherChainId: "0x1",
+    variable: "MONAD_RPC_URL",
   },
 ])("a read on $label's node", ({ label, read, set, host, path, chainId, otherChainId, variable }) => {
   const NODE = `https://${host}${path}`;
@@ -269,7 +280,21 @@ describe.each([
   });
 });
 
-describe("the two nodes are separate", () => {
+describe("the nodes are separate", () => {
+  it("Monad's has its own address and its own checks: Base's being right says nothing of Monad's", async () => {
+    ENV.baseRpcUrl = `https://base-mainnet.g.alchemy.com/v2/${KEY}`;
+    ENV.monadRpcUrl = "";
+    node.chainId = "0x2105";
+    expect(await callBaseRpcOnce("eth_call", [])).toBe("0xabc");
+    expect((await thrown(callMonadRpcOnce("eth_call", []))).message).toBe("Monad's node is not configured.");
+    // Base's chain id answer is not kept for Monad, which asks for its own.
+    ENV.monadRpcUrl = `https://monad-mainnet.g.alchemy.com/v2/${KEY}`;
+    sent.length = 0;
+    expect((await thrown(callMonadRpcOnce("eth_call", []))).message).toBe("Monad's node did not answer as Monad.");
+    expect(methods()).toEqual(["eth_chainId"]);
+  });
+
+
   it("each has its own address and its own checks: Base's being right says nothing of Ethereum's", async () => {
     ENV.baseRpcUrl = `https://base-mainnet.g.alchemy.com/v2/${KEY}`;
     ENV.ethRpcUrl = "";

@@ -3,8 +3,8 @@ import type { FleetShape } from "@shared/mapFleets";
 
 /**
  * The mark for a group of registrations that share one fact: three stacked plates in the group's chain outline (a disc for BNB Chain, a
- * diamond for Solana, a hexagon for Robinhood Chain, the same outlines as the lights on the home map, a dome for Arc, a cross for Base and a
- * pentagon for Ethereum, which have no lights on the map and take the shapes of their home tabs). It is a landmark, not an agent:
+ * diamond for Solana, a hexagon for Robinhood Chain, the same outlines as the lights on the home map, a dome for Arc, a cross for Base, a
+ * pentagon for Ethereum and a four-pointed star for Monad, which take the shapes of their home tabs). It is a landmark, not an agent:
  * its size says how many registrations share the fact, and nothing else.
  */
 const PLATE: Record<FleetShape, string> = {
@@ -14,6 +14,7 @@ const PLATE: Record<FleetShape, string> = {
   dome: "M-44 10A44 34 0 0 1 44 10Z",
   cross: "M-14 -19H14V-8H44V8H14V19H-14V8H-44V-8H-14Z",
   pentagon: "M0 -22L44 -6L27 19L-27 19L-44 -6Z",
+  star: "M0 -21L11 -5.5L44 0L11 5.5L0 21L-11 5.5L-44 0L-11 -5.5Z",
 };
 
 type FormationMarkProps = { shape: FleetShape; size: number; tone: string };

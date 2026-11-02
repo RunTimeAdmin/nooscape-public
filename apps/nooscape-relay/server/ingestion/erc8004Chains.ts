@@ -190,6 +190,7 @@ export const BSC_CHAIN: PinnedErc8004Chain = {
 export const ETHEREUM_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
 export const BASE_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
 export const ARC_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
+export const MONAD_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
 
 /**
  * The most registry rows one host may hold on the chains added after BNB Chain (docs/flood-host-cap-2026-10-21.md). One platform
@@ -199,7 +200,7 @@ export const ARC_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 
  */
 export const FLOOD_HOST_ROW_CAP = 2_000;
 
-/** The ERC-8004 reputation registry, at the same address on Ethereum, Base and Arc (Arc's contract page names it; each had code there on 2026-10-21). */
+/** The ERC-8004 reputation registry, at the same address on Ethereum, Base, Arc and Monad (Arc's contract page names it; the first three had code there on 2026-10-21, and Monad on 2026-11-01). */
 export const ERC8004_REPUTATION_REGISTRY = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63";
 
 /**
@@ -412,8 +413,70 @@ export const ARC_CHAIN: Erc8004Chain = {
   feature: "chain_arc",
 };
 
+/**
+ * Monad mainnet (chain id 143, `eth_chainId` 0x8f; https://docs.monad.xyz/guides/erc-8004 and the erc-8004-contracts README name the registry).
+ * Read through Alchemy, the plan the Base pass already uses. Facts measured 2026-11-01 (docs/monad-erc8004-2026-11-01.md):
+ *  - the identity registry is the same 130-byte proxy at the same address, and its implementation (0x7274e874ca62410a93bd8bf61c69d8045e399c02)
+ *    has the same 14,474 bytes of code as Ethereum's, so the decoding is shared.
+ *  - deploy block 52,952,790 (2026-02-03 11:36:02 UTC), found by binary search on `eth_getCode` (empty at 52,952,789, 130 bytes at
+ *    52,952,790) on two archive nodes. 118.3 million blocks exist; 65.4 million of them are the registry's history.
+ *  - 0.3021 s per block over the last million blocks, so an hour is 11,918 blocks. `finalized` is served and sat 2 blocks behind the head.
+ *  - Alchemy answered a window of 20,000 blocks in the busiest stretch (386 logs) and one of 500,000 blocks in a quiet one (58 logs); it caps
+ *    a response at 10,000 logs. The public Monad nodes allow only 100 to 10,000 blocks, which is why the pass reads the keyed endpoint.
+ *  - the whole history, read in 1,308 windows of 50,000 blocks (65 s, none failed): 43,661 logs of every kind. The three kinds the pass asks
+ *    for are 21,047 of them (10,420 Registered, 10,506 Transfer, 121 URIUpdated), 772 bytes each as JSON, in 301 windows; the other 1,007 hold
+ *    none. The registry holds 10,420 tokens, ids 0 to 10,419. The busiest window holds 2,944 of those events (2.2 MB; blocks 55,802,790 to
+ *    55,852,789, on 16 February), and eight windows hold 17,474 of the 21,047. The window is therefore 50,000 blocks: the busiest is far
+ *    under Alchemy's 10,000-log cap, and the response cap below is 3.6 times it.
+ *  - almost nothing is new: 8004scan counts no new Monad agent a day.
+ */
+export const MONAD_CHAIN: PinnedErc8004Chain = {
+  protocol: "erc8004_monad",
+  chainKey: "monad",
+  chainId: 143,
+  chainIdHex: "0x8f",
+  label: "Monad",
+  chainLabel: "Monad",
+  identityRegistry: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+  deployBlock: 52_952_790,
+  maxLogRange: 50_000,
+  /** Alchemy's own cap on one response. A read that comes back holding more is a provider fault. */
+  maxWindowLogs: 10_000,
+  handoutBlockWindow: 11_918,
+  sourceKey: "monad-erc8004-identity-registry",
+  provider: { kind: "pinned", rootUrl: "https://monad-mainnet.g.alchemy.com", allowedHostname: "monad-mainnet.g.alchemy.com" },
+  rpcEnvVar: "MONAD_RPC_URL",
+  readRpcUrl: () => ENV.monadRpcUrl,
+  rpc: {
+    timeoutMs: 30_000,
+    /** 3.6 times the busiest window measured (2.2 MB). A read that passes it is split in halves, not failed. */
+    maxResponseBytes: 8 * MIB,
+    retryStatuses: [429, 500, 502, 503, 504],
+    backoffMs: [1_000, 3_000],
+    /** Alchemy explains a refused range, in words, in the body of an HTTP 400. */
+    readErrorBodies: true,
+  },
+  budget: {
+    /** 100 windows of 50,000 blocks: 5,000,000 blocks a run, so the quiet part of the 65 million blocks is read in about thirteen runs. */
+    maxWindows: 100,
+    concurrency: 3,
+    maxElapsedMs: 30_000,
+    /** Between three and four of the busiest windows. The eight busiest hold 17,474 events, so that stretch is read in a few runs. */
+    maxEvents: 10_000,
+  },
+  cursorPrefix: "monad",
+  errorPrefix: "Monad",
+  logTag: "MONAD",
+  fetchSentence: RECORDED_ONLY_SENTENCE,
+  listingRules: MONAD_LISTING_RULES,
+  hostRowCap: FLOOD_HOST_ROW_CAP,
+  /** Read from the identity registry's deploy block, where the reputation registry was deployed with it. Window: Alchemy's ceiling is 50,000 blocks, and the registry had 9,432 ratings in all on 2026-11-01. */
+  reputation: { registry: ERC8004_REPUTATION_REGISTRY, window: 50_000 },
+  feature: "chain_monad",
+};
+
 /** Every chain the pass reads, in the order they were added. */
-export const ERC8004_CHAINS: readonly Erc8004Chain[] = [BSC_CHAIN, ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN];
+export const ERC8004_CHAINS: readonly Erc8004Chain[] = [BSC_CHAIN, ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN];
 
 /** The chain a source protocol belongs to, or null when the protocol is not read by this pass. */
 export function erc8004ChainOfProtocol(protocol: string): Erc8004Chain | null {

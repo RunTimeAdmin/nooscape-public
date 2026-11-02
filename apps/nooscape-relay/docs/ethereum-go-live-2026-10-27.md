@@ -93,4 +93,4 @@ The source `ethereum-erc8004-identity-registry` was `manual_only` after the go-l
 - **At the deploy.** The migration runs at the first boot, the source is due at once, and the worker's next tick (every 15 minutes) claims it. The first run reads from the stored cursor, where the last manual pass stopped, to the finalized head. The next is due a day after it finishes.
 - **The live check.** `scripts/verify-live.mjs` gets `erc8004_eth: 36`, so a scheduled Ethereum source that has not succeeded within 36 hours fails the check. Between the deploy and the end of the first run the source still shows its old success, so run the check again after the first tick.
 - **Rolling back.** Set the source back to operator-paced with `UPDATE ingestion_sources SET executionPolicy = 'manual_only' WHERE sourceKey = 'ethereum-erc8004-identity-registry';`. The cursor is not touched.
-- **The AgenC flip** was to be 0052. It is 0053 now, and its record says so.
+- **The AgenC flip** was to be 0052. It is 0053 now, and its record says so. Update 2026-11-01: Monad's protocol value took 0053, so the flip takes the next free number (0054 or later), and its record says so.

@@ -2863,7 +2863,7 @@ export async function getDirectoryEntryForClaim(id: string) {
 }
 
 /** How many entries the directory lists for one registering wallet on one protocol, under the public visibility rule. The fleet rule of the claim flow reads it. */
-export async function countVisibleEntriesOfRegistrant(protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth", registrant: string): Promise<number> {
+export async function countVisibleEntriesOfRegistrant(protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "erc8004_monad", registrant: string): Promise<number> {
   const db = requireDb(await getDb());
   const [row] = await db
     .select({ total: sql<number>`count(*)` })

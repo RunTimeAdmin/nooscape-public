@@ -1,5 +1,5 @@
 import { normalizeClaimEdit, CLAIM_LIMITS, type ClaimEdit, type ClaimField, type ClaimProfile } from "@shared/claimProfile";
-import { arcClaimsOn, baseClaimsOn, ethereumClaimsOn } from "@shared/features";
+import { arcClaimsOn, baseClaimsOn, ethereumClaimsOn, monadClaimsOn } from "@shared/features";
 import { shortWallet } from "@shared/mapFleets";
 
 /**
@@ -20,7 +20,7 @@ type ClaimPanelView = "loading" | "hidden" | "open" | "claimed" | "yours" | "hel
 
 /**
  * The chain name for an entry that can be claimed, or null for any other protocol. The server holds the same (`CLAIM_CHAINS`) and decides.
- * Arc's, Base's and Ethereum's are named only while that chain's claims are on in the build.
+ * Arc's, Base's, Ethereum's and Monad's are named only while that chain's claims are on in the build.
  */
 export const claimChainLabel = (protocol: string, features: string | undefined = import.meta.env.VITE_FEATURES): string | null =>
   protocol === "erc8004"
@@ -33,7 +33,9 @@ export const claimChainLabel = (protocol: string, features: string | undefined =
           ? "Base"
           : protocol === "erc8004_eth" && ethereumClaimsOn(features)
             ? "Ethereum"
-            : null;
+            : protocol === "erc8004_monad" && monadClaimsOn(features)
+              ? "Monad"
+              : null;
 
 const sameWallet = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
