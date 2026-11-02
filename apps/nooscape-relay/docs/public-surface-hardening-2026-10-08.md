@@ -4,18 +4,18 @@
 
 > **Update 2026-10-14:** the limiter's client key is now Express's `req.ip` (with `trust proxy` at 1), not the leftmost `X-Forwarded-For` entry, and that the Hostinger edge is a single hop is unconfirmed: responses carry `server: hcdn`, so a CDN is in front. `/admin/sources` now shows how the app sees the operator's own request; see [pressure-test-2026-10-14](./pressure-test-2026-10-14.md).
 
-> **Update 2026-10-17 (consulting review):** the AI brief procedure is deleted along with the demo atlas, and the Manus runtime and debug collector are no longer in the build (CI fails if they return), so the policy no longer pins an inline script by hash. The per-client limits are keyed by the network a client is on (an IPv6 client by its /64, a bounded table, an overflow bucket), a tRPC batch is at most 10 procedures, `/.well-known/security.txt` is a route, and `/.well-known/nooscape-keys.json` sends CORS and a cross-origin resource policy so a verifier on another site can read it. See [consulting-review-2026-10-16.md](./consulting-review-2026-10-16.md).
+> **Update 2026-10-17 (consulting review):** the AI brief procedure is deleted along with the demo atlas, and the template's dev runtime and debug collector are no longer in the build (CI fails if they return), so the policy no longer pins an inline script by hash. The per-client limits are keyed by the network a client is on (an IPv6 client by its /64, a bounded table, an overflow bucket), a tRPC batch is at most 10 procedures, `/.well-known/security.txt` is a route, and `/.well-known/nooscape-keys.json` sends CORS and a cross-origin resource policy so a verifier on another site can read it. See [consulting-review-2026-10-16.md](./consulting-review-2026-10-16.md).
 
 ## What shipped
 
-- **Per-client rate limiting** (`server/rateLimit.ts`, mounted in `server/_core/index.ts`): fixed 5-minute windows — 600 requests on `/api/trpc` and 120 on `/manus-storage`. Exceeded requests get HTTP 429 with `Retry-After`. The client key matches the operatorAuth convention (leftmost `X-Forwarded-For`, then the socket address).
+- **Per-client rate limiting** (`server/rateLimit.ts`, mounted in `server/_core/index.ts`): fixed 5-minute windows — 600 requests on `/api/trpc` and 120 on the storage proxy (since removed). Exceeded requests get HTTP 429 with `Retry-After`. The client key matches the operatorAuth convention (leftmost `X-Forwarded-For`, then the socket address).
 - **Bounded AI brief** (`server/routers.ts`): `atlas.summarizeComparison` remains a public procedure but now sits behind a strict 10-per-15-minutes per-client window, an in-memory cache of the seed-only pairs (at most 15 — cached answers never call the model again), and an IP-independent budget of **100 real LLM calls per UTC day**. Invalid (non-seed) agent IDs are rejected before any budget is spent.
 - **Request-body caps**: JSON 50 MB → **1 MB**; urlencoded 50 MB → **100 KB**. The storage proxy is GET-only (presigned redirects) and the largest known body is a 256 KB evidence packet, so no legitimate flow is affected.
 - **Security headers** (`server/_core/securityHeaders.ts`): `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, HSTS `max-age=31536000` (production only; `includeSubDomains` deliberately omitted until every `nooscape.si` subdomain is confirmed HTTPS-only), and `x-powered-by` disabled. `app.set("trust proxy", 1)` reflects the single Hostinger edge hop.
 
 ## Content Security Policy design
 
-The served `index.html` embeds the ~367 KB Manus runtime as an inline script (injected by `vite-plugin-manus-runtime`), so the policy pins it by SHA-256 hash instead of allowing `'unsafe-inline'`:
+The served `index.html` embeds the ~367 KB template runtime as an inline script (injected by the template's Vite plugin), so the policy pins it by SHA-256 hash instead of allowing `'unsafe-inline'`:
 
 - Inline-script hashes are computed **at server startup from the file being served** (`dist/public/index.html`), so they stay correct across every rebuild and CDN pass-through — there are no hand-maintained hashes.
 - External script and stylesheet origins are parsed from the same HTML (Google Fonts stylesheet + gstatic fonts today).
@@ -42,7 +42,7 @@ base-uri 'self'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'
 
 ## Observations (out of scope, deliberately unfixed)
 
-- **The AI brief has never been functional in production.** The endpoint responds `OPENAI_API_KEY is not configured` (HTTP 500) because the Manus LLM proxy key (`ENV.forgeApiKey`, `server/_core/llm.ts`) was never configured on Hostinger; the client surfaces it as “AI brief unavailable”. The new bounds apply the moment a key is configured — enabling it is an explicit operator cost decision, not a code change.
+- **The AI brief has never been functional in production.** The endpoint responds `OPENAI_API_KEY is not configured` (HTTP 500) because the template's LLM proxy key (`ENV.forgeApiKey`, `server/_core/llm.ts`) was never configured on Hostinger; the client surfaces it as “AI brief unavailable”. The new bounds apply the moment a key is configured — enabling it is an explicit operator cost decision, not a code change.
 - The umami analytics tag ships with unresolved `%VITE_ANALYTICS_ENDPOINT%` / `%VITE_ANALYTICS_WEBSITE_ID%` placeholders and 400s on every page load; wiring analytics requires setting the build-time Vite variables.
 - Rate-limit keys trust the leftmost `X-Forwarded-For` entry, so a non-browser client that forges the header can rotate buckets. This is acceptable while the LLM path is additionally bounded by the IP-independent daily budget; revisit if the public surface grows.
 - Limiter state is per-process and in-memory (single node today); it resets on deploy or restart.

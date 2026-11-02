@@ -4,18 +4,18 @@ Status: **LIVE** (merged 2026-10-13 in #6; the `main` ruleset below is active). 
 `main` deploys to production. Every safety property depended on someone running the gate locally and
 looking at the site afterward.
 
-> **Update 2026-10-17:** the gate has grown since this was written (a secret scan, a type check of the tests, a check that no Manus tooling is in the build, Actions pinned to commit SHAs), Dependabot runs monthly (weekly until 2026-10-20), the live check runs every six hours (every three until then), `verify-live` has 38 checks, and the agent merges directly or queues a rebase merge. The sections below say what is true now.
+> **Update 2026-10-17:** the gate has grown since this was written (a secret scan, a type check of the tests, a check that no template tooling is in the build, Actions pinned to commit SHAs), Dependabot runs monthly (weekly until 2026-10-20), the live check runs every six hours (every three until then), `verify-live` has 38 checks, and the agent merges directly or queues a rebase merge. The sections below say what is true now.
 
 ## What exists
 
 | Piece | Where | What it does |
 | --- | --- | --- |
-| CI | `.github/workflows/ci.yml` | On every pull request and on `main`, in the one job `gate`: a secret scan (`scripts/scan-secrets.mjs`, which names the rule, file and line and never the value), `pnpm check` (the type check of the app and of the tests), `pnpm test` against a throwaway MySQL 8 (so the database-backed gate tests run instead of skipping), `pnpm build`, a check that no Manus tooling is in the build output, and `pnpm audit --prod` as an advisory step that never blocks. Every GitHub Action is pinned to a commit SHA. |
+| CI | `.github/workflows/ci.yml` | On every pull request and on `main`, in the one job `gate`: a secret scan (`scripts/scan-secrets.mjs`, which names the rule, file and line and never the value), `pnpm check` (the type check of the app and of the tests), `pnpm test` against a throwaway MySQL 8 (so the database-backed gate tests run instead of skipping), `pnpm build`, a check that no template tooling is in the build output, and `pnpm audit --prod` as an advisory step that never blocks. Every GitHub Action is pinned to a commit SHA. |
 | Live health | `.github/workflows/health.yml` | Every six hours (every three until 2026-10-20) and on demand: runs `scripts/verify-live.mjs` against https://nooscape.si. A failure opens, or comments on, one issue titled "Live health check is failing". |
 | The check | `apps/nooscape-relay/scripts/verify-live.mjs` | Read-only, public endpoints only, no credential. Run by hand with `node scripts/verify-live.mjs`. |
 
 `verify-live.mjs` fails when: the home page is not the small production shell or carries the dev runtime;
-HSTS, CSP, nosniff, or frame protection is missing; `/admin`, `/manus-storage/*`, or the OAuth callback stops
+HSTS, CSP, nosniff, or frame protection is missing; `/admin`, the old storage proxy, or the OAuth callback stops
 answering 404; an operator procedure stops refusing an unauthenticated caller; storage is not configured;
 the reviewed census or directory is not served, or a reviewed record lacks retained evidence; or a
 **scheduled** source is not active, has a recorded failure, or has not succeeded recently. A manual-only

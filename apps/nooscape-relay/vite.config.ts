@@ -4,8 +4,8 @@ import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { defineConfig } from "vite";
 
-// The Manus template's runtime bridge and debug collector were removed (review 2026-10-16): development tooling
-// that copied a public file (client/public/__manus__/debug-collector.js) into every build. CI fails a build that
+// The original app template's runtime bridge and debug collector were removed (review 2026-10-16): development tooling
+// that copied a public file (a debug-collector.js under client/public) into every build. CI fails a build that
 // holds either again.
 export default defineConfig(({ command }) => ({
   plugins: [

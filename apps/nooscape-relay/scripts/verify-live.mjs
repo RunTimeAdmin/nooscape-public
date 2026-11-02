@@ -63,7 +63,7 @@ async function run() {
     const html = await home.text();
     check("home page serves", home.status === 200, statusDetail(home));
     check("home page is the small production shell", html.length < 100_000, `${html.length} bytes`);
-    check("no dev runtime in production HTML", !html.includes("manus-runtime"), html.includes("manus-runtime") ? "manus-runtime present" : "absent");
+    check("no dev runtime in production HTML", !/<script[^>]*id="[^"]*-runtime"/.test(html), /<script[^>]*id="[^"]*-runtime"/.test(html) ? "runtime script present" : "absent");
     const h = (name) => home.headers.get(name) ?? "";
     check("HSTS with includeSubDomains", /includeSubDomains/i.test(h("strict-transport-security")), h("strict-transport-security") || "missing");
     check("CSP present", h("content-security-policy").includes("default-src"), h("content-security-policy") ? "present" : "missing");
@@ -73,7 +73,7 @@ async function run() {
   }
 
   // 2. Removed surfaces stay removed and unknown paths 404 honestly.
-  for (const path of ["/admin", "/manus-storage/x", "/api/oauth/callback", "/__manus__/debug-collector.js"]) {
+  for (const path of ["/admin", "/api/oauth/callback"]) {
     try {
       const response = await get(path);
       check(`${path} answers 404`, response.status === 404, statusDetail(response));

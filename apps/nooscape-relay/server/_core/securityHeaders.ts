@@ -7,7 +7,7 @@ import type { Express } from "express";
  * Security response headers for the public relay surface.
  *
  * The content security policy is derived from the built client HTML so the
- * strict `script-src` can pin inline scripts (the Manus runtime bundle baked
+ * strict `script-src` can pin inline scripts (the template's runtime bundle baked
  * into index.html) by SHA-256 hash instead of allowing `'unsafe-inline'`.
  * Hashes are computed from the file that this server actually serves
  * (dist/public/index.html), so they stay correct across rebuilds and CDN

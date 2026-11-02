@@ -109,8 +109,6 @@ temp/
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
 
-# Manus version file (auto-generated, not part of source)
-client/public/__manus__/version.json
 .project-config.json
 
 # PR-B1 measurement output (docs/bsc-b1-measurement-2026-10-16.md): chain cache, fetched registrations, per-entry csv

@@ -7,7 +7,7 @@ vi.mock("node:fs", () => ({
   default: { readFileSync: vi.fn() },
 }));
 
-const inlineScript = "window.__MANUS_HOST_DEV__ = false;\n(function(){ /* runtime */ })();";
+const inlineScript = "window.__TEMPLATE_HOST_DEV__ = false;\n(function(){ /* runtime */ })();";
 
 const html = [
   "<!doctype html><html><head>",
@@ -16,7 +16,7 @@ const html = [
   '<link rel="stylesheet" crossorigin href="/assets/index-abc.css" />',
   '<script defer src="%VITE_ANALYTICS_ENDPOINT%/umami" data-website-id="x"></script>',
   "</head><body>",
-  `<script id="manus-runtime">${inlineScript}</script>`,
+  `<script id="dev-runtime">${inlineScript}</script>`,
   '<script type="module" crossorigin src="/assets/index-abc.js"></script>',
   '<script defer src="https://analytics.example.com/umami" data-website-id="x"></script>',
   "</body></html>",

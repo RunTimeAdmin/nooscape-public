@@ -206,7 +206,7 @@ Type check clean. The production build passes, and the built server boots agains
 
 **Query plans.** On a 243,000-row copy of the directory, the breakdown query has the same access path with and without the new predicate (the entries by their hidden index, the source by its primary key) and the same time, because the predicate is on the source row, a table of seven.
 
-**Other checks.** The differential check against main's BNB files was run again after stage 3 and is still equal on all 52 comparisons. 32 planted changes in the stage 3 code (9 of them needing the real database) were each caught, with every file put back byte for byte, as were 37 planted in the stage 2 code. The repo's secret scan is clean, a scan of the added lines and new files finds no long dash, control byte, Manus text or token-shaped string, and `rpc.mainnet.arc.io` is nowhere in the code.
+**Other checks.** The differential check against main's BNB files was run again after stage 3 and is still equal on all 52 comparisons. 32 planted changes in the stage 3 code (9 of them needing the real database) were each caught, with every file put back byte for byte, as were 37 planted in the stage 2 code. The repo's secret scan is clean, a scan of the added lines and new files finds no long dash, control byte, template text or token-shaped string, and `rpc.mainnet.arc.io` is nowhere in the code.
 
 ## Not in these stages
 

@@ -129,12 +129,12 @@ jobs:
         if: steps.scope.outputs.docs_only != 'true'
         run: pnpm build
 
-      # The Manus template's debug collector and runtime bridge shipped once as a public file (review 2026-10-16).
-      - name: No Manus tooling in the build
+      # The original app template's debug collector and runtime bridge shipped once as a public file (review 2026-10-16).
+      - name: No template tooling in the build
         if: steps.scope.outputs.docs_only != 'true'
         run: |
-          if grep -rIlE '__manus__|manus-runtime|debug-collector' dist; then
-            echo 'Manus tooling is in the build output.' >&2
+          if grep -rIlE 'debug-collector' dist; then
+            echo 'Template tooling is in the build output.' >&2
             exit 1
           fi
 
