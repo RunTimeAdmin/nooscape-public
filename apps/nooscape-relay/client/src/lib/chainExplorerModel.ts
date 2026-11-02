@@ -91,9 +91,10 @@ export const worldsOn = (features: string | undefined): WorldKey[] => [
 
 /**
  * The worlds that have no feed of their own: a recorded event is shown only for the entry that is selected, from the entry's own activity.
- * BNB Chain has no global feed, and Arc, Base, Ethereum and Monad have none yet.
+ * BNB Chain has no global feed, and Base, Ethereum and Monad have none yet. Arc's page has one (docs/arc-feed-2026-11-02.md), as Robinhood Chain's
+ * and Solana's have.
  */
-export const ENTRY_EVENT_WORLDS: readonly WorldKey[] = ["bnb", "arc", "base", "ethereum", "monad"];
+export const ENTRY_EVENT_WORLDS: readonly WorldKey[] = ["bnb", "base", "ethereum", "monad"];
 
 /** Only protocols that register identities belong in the character field. Reputation and settlement ledgers are separate. */
 export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {

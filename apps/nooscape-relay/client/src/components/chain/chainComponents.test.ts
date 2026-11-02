@@ -155,11 +155,18 @@ describe("the share of the registrations the registering wallets are recorded ag
     expect(markup).toContain('href="/field/robinhood-registry-2026-10-20"');
   });
 
-  it("words the Arc event rail's missing feed as Arc's, and does not borrow BNB Chain's census sentence", () => {
-    const markup = renderToStaticMarkup(createElement(ChainEventRail, { chain: "arc", events: [], activeId: null, playing: false, onSelect: noop, onTogglePlayback: noop, motionReduced: false, status: "unsupported", coverage: "Global feed not published" }));
-    expect(markup).toContain("No global Arc activity feed is published. No event is shown in its place. Select an entry to see the events recorded for it.");
-    expect(markup).not.toMatch(/BNB|census/);
-    expect(markup).toContain("Arc");
+  it("draws the Arc event rail from its feed: the listed entry, the block and the coverage, and never says the feed is missing", () => {
+    const arcEvent: ChainWorldEvent = { ...event, id: "erc8004_arc:0xabc:1", entryId: "arc-entry-1", name: "Agent #7", protocol: "erc8004_arc", kind: "register", label: "Identity registered", height: 29085340, heightLabel: "Block", transaction: "0xabc", from: null, to: "0xowner", observedAt: null };
+    const draw = (events: ChainWorldEvent[], status: "ready" | "unavailable" = "ready") =>
+      renderToStaticMarkup(createElement(ChainEventRail, { chain: "arc", events, activeId: null, playing: false, onSelect: noop, onTogglePlayback: noop, motionReduced: false, status, coverage: "Listed entries · measured through block 29,085,340" }));
+    const markup = draw([arcEvent]);
+    for (const fact of ["Listed entries · measured through block 29,085,340", "Agent #7", "Identity registered", "29085340", "1 events in this feed", "/agents/arc-entry-1"]) expect(markup).toContain(fact);
+    expect(markup).not.toMatch(/Global feed unavailable|No global Arc|Select an entry/);
+    // A feed with nothing in it is not a zero count, and it is not a missing feed either.
+    const empty = draw([]);
+    expect(empty).toContain("No recorded activity in this feed. This is not a live zero.");
+    expect(empty).not.toMatch(/Global feed unavailable|No global Arc|Select an entry|0 events in this feed/);
+    expect(draw([], "unavailable")).toContain("Recorded activity is unavailable. No event count is shown in its place.");
   });
 
   it("words the Ethereum event rail's missing feed as Ethereum's, with no census to point at and no entry to select", () => {

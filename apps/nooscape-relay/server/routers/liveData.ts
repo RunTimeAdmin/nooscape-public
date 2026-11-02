@@ -52,6 +52,7 @@ import {
   readSolanaActivityTotals,
   readAgentDirectoryActivityTotals,
   readAgentDirectoryFunnelCounts,
+  readChainActivityFeed,
   readUsdgSettlementTotals,
   recheckDomainVerification,
   revokePublisherKeyPolicy,
@@ -305,6 +306,9 @@ function logReadFailure(label: string, error: unknown): void {
 function describeStorageFailure(error: unknown): string {
   return describeFailure(error);
 }
+
+/** What an extra chain's feed answers while the chain's switch is off, and when the read fails. */
+const EMPTY_CHAIN_ACTIVITY_FEED = { feed: [], measuredThroughBlock: null } as const;
 
 /**
  * Operator API for the bounded ingestion pilot. It exposes an approved-source
@@ -570,6 +574,19 @@ export const liveDataRouter = router({
     } catch (error) {
       if (!isCircuitOpenError(error)) console.warn("[LiveData] chain sample read failed:", describeStorageFailure(error));
       return { entries: [], listed: 0 };
+    }
+  }),
+  // The newest recorded identity events of an extra chain, for the rail on its own page (Arc's): registrations, hand-outs and later
+  // changes of hands, and profile-link edits, newest block first, each carrying the listed entry it belongs to, and the block the
+  // chain's ledger is measured through. Only the entries the directory lists are named; a registration the rules hold out is not
+  // (docs/arc-feed-2026-11-02.md). Fails closed to an empty feed, which is also what it answers while the chain's switch is off.
+  chainActivityFeed: publicProcedure.input(z.object({ chain: z.enum(["arc"]) })).query(async ({ input }) => {
+    try {
+      if (!extraChainsOn(process.env.VITE_FEATURES).includes(input.chain)) return EMPTY_CHAIN_ACTIVITY_FEED;
+      return await readChainActivityFeed("erc8004_arc");
+    } catch (error) {
+      if (!isCircuitOpenError(error)) console.warn("[LiveData] chain activity feed read failed:", describeStorageFailure(error));
+      return EMPTY_CHAIN_ACTIVITY_FEED;
     }
   }),
   // Rail-level totals over the measured USDG settlements: counts, the median

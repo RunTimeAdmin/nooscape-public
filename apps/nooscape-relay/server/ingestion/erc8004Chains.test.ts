@@ -137,7 +137,7 @@ describe("the Base entry", () => {
 });
 
 describe("the Arc entry", () => {
-  it("holds the facts measured on 2026-10-20", () => {
+  it("holds the facts measured on 2026-10-20 and 2026-11-02", () => {
     expect(ARC_CHAIN).toMatchObject({
       protocol: "erc8004_arc",
       chainKey: "arc",
@@ -147,7 +147,7 @@ describe("the Arc entry", () => {
       chainLabel: "Arc",
       identityRegistry: REGISTRY,
       deployBlock: 13_344_062,
-      maxLogRange: 100_000,
+      maxLogRange: 1_000,
       maxWindowLogs: 30_000,
       handoutBlockWindow: 7_080,
       sourceKey: "arc-erc8004-identity-registry",
@@ -168,8 +168,14 @@ describe("the Arc entry", () => {
       retryTimeouts: true,
       retryBusy: true,
     });
-    expect(ARC_CHAIN.budget).toEqual({ maxWindows: 10, concurrency: 1, maxElapsedMs: 20_000, maxEvents: 1_000 });
+    expect(ARC_CHAIN.budget).toEqual({ maxWindows: 200, concurrency: 1, maxElapsedMs: 30_000, maxEvents: 1_000_000 });
     expect(ARC_CHAIN.listingRules).toBe(ARC_LISTING_RULES);
+  });
+
+  it("ends a run on the clock: it plans more windows than 30 seconds of paced reads reach, and its event ceiling is Base's", () => {
+    const reachable = Math.floor(ARC_CHAIN.budget.maxElapsedMs / ARC_CHAIN.rpc.minGapMs!);
+    expect(ARC_CHAIN.budget.maxWindows).toBeGreaterThanOrEqual(reachable);
+    expect(ARC_CHAIN.budget.maxEvents).toBe(BASE_CHAIN.budget.maxEvents);
   });
 
   it("shares its node with payment checks and goes easy on it: one request at a time, a pause, and a shorter timeout than a payment check's", () => {
@@ -257,6 +263,21 @@ describe("what the measurements ask of the caps", () => {
   // window and applies the halves on their own (runErc8004Chain.test.ts), so the caps are per read and need not exceed a burst.
   it("plans Base's windows at 1,000 blocks, the width its caps were measured against", () => {
     expect(BASE_CHAIN.maxLogRange).toBe(1_000);
+  });
+
+  // The densest of six 1,000-block windows read near the head of Arc on 2026-11-02, in the flood: 2,138 events, 1,452,426 bytes.
+  const ARC_DENSEST_1000 = { events: 2_138, bytes: 1_452_426 };
+
+  it("plans Arc's windows at 1,000 blocks, where the densest one measured in the flood fits the response cap", () => {
+    expect(ARC_CHAIN.maxLogRange).toBe(1_000);
+    // A thinner margin than Base's: a read the cap refuses is split in halves (runErc8004Chain.test.ts), and a larger cap is a heavier call on a node the payments share.
+    expect(ARC_CHAIN.rpc.maxResponseBytes).toBeGreaterThanOrEqual(1.4 * ARC_DENSEST_1000.bytes);
+    expect(ARC_CHAIN.maxWindowLogs).toBeGreaterThanOrEqual(10 * ARC_DENSEST_1000.events);
+  });
+
+  it("would not have fitted a 100,000-block window, which is why every run split it first", () => {
+    // The flood's rate per block, over the old window: the response would be about 70 times the cap.
+    expect((ARC_DENSEST_1000.bytes / 1_000) * 100_000).toBeGreaterThan(50 * ARC_CHAIN.rpc.maxResponseBytes);
   });
 });
 

@@ -2522,12 +2522,17 @@ export function readAgentDirectoryActivityFeed(limit = MAX_AGENT_DIRECTORY_FEED_
   return cachedDirectoryRead(`directory:activity-feed:${limit}`, () => readAgentDirectoryActivityFeedUncached(limit));
 }
 
-/** The uncached scan behind {@link readAgentDirectoryActivityFeed}; only the cache wrapper calls it. */
-async function readAgentDirectoryActivityFeedUncached(limit = MAX_AGENT_DIRECTORY_FEED_EVENTS) {
+/** The chains whose own page has a feed beside Robinhood Chain's. Arc only. */
+export type ChainFeedProtocol = "erc8004_arc";
+
+/** The uncached scan behind {@link readAgentDirectoryActivityFeed} and {@link readChainActivityFeed}; only their cache wrappers call it. Robinhood Chain's unless a chain is named. */
+async function readAgentDirectoryActivityFeedUncached(limit = MAX_AGENT_DIRECTORY_FEED_EVENTS, protocol: "erc8004" | ChainFeedProtocol = "erc8004") {
   const db = requireDb(await getDb());
   const boundedLimit = Math.max(1, Math.min(Math.floor(limit) || MAX_AGENT_DIRECTORY_FEED_EVENTS, MAX_AGENT_DIRECTORY_FEED_EVENTS));
-  const sourceIds = await activeSourceIdsOf(db, "erc8004");
+  const sourceIds = await activeSourceIdsOf(db, protocol);
   if (sourceIds.length === 0) return [];
+  // A hand-out is a block count, which differs by chain: each chain reads its own mint hour.
+  const handoutWindow = evmIdentityChain(protocol)?.handoutBlockWindow ?? ROBINHOOD_HANDOUT_BLOCK_WINDOW;
   const rows = await db
     .select({
       sourceId: agentDirectoryChainActivity.sourceId,
@@ -2547,7 +2552,7 @@ async function readAgentDirectoryActivityFeedUncached(limit = MAX_AGENT_DIRECTOR
       eq(agentDirectoryEntries.externalKey, agentDirectoryChainActivity.externalKey)
     ))
     .innerJoin(ingestionSources, eq(agentDirectoryEntries.sourceId, ingestionSources.id))
-    .where(and(inArray(agentDirectoryChainActivity.sourceId, sourceIds), directoryVisibilityCondition(), eq(agentDirectoryEntries.protocol, "erc8004")))
+    .where(and(inArray(agentDirectoryChainActivity.sourceId, sourceIds), directoryVisibilityCondition(), eq(agentDirectoryEntries.protocol, protocol)))
     .orderBy(desc(agentDirectoryChainActivity.blockNumber), desc(agentDirectoryChainActivity.logIndex))
     .limit(boundedLimit);
   const anchors = new Map(
@@ -2561,10 +2566,36 @@ async function readAgentDirectoryActivityFeedUncached(limit = MAX_AGENT_DIRECTOR
     logIndex: Number(row.logIndex),
     fromAddress: row.fromAddress,
     toAddress: row.toAddress,
-    isHandout: isHandoutEvent(row.kind, Number(row.blockNumber), row.fromAddress, anchors.get(directoryActivityAnchorKey(row.sourceId, row.externalKey))),
+    isHandout: isHandoutEvent(row.kind, Number(row.blockNumber), row.fromAddress, anchors.get(directoryActivityAnchorKey(row.sourceId, row.externalKey)), handoutWindow),
     entryId: row.entryId,
     displayName: row.displayName,
   }));
+}
+
+/**
+ * The newest measured identity events of one chain other than Robinhood Chain, for the rail on its own page: the same read as
+ * Robinhood Chain's feed, scoped to the chain's protocol and to its own mint hour, with the block the chain's ledger is measured
+ * through. Only events of the entries the directory lists, under the shared visibility rule: a registration the listing rules hold
+ * out has events in the ledger and is never named here (docs/arc-feed-2026-11-02.md). Names go through the same clean-up as the
+ * listed sample's. Empty, with no block, while no source of the chain is active.
+ */
+export function readChainActivityFeed(protocol: ChainFeedProtocol, limit = MAX_AGENT_DIRECTORY_FEED_EVENTS) {
+  return cachedDirectoryRead(`directory:chain-activity-feed:${protocol}:${limit}`, async () => {
+    const [feed, measuredThroughBlock] = await Promise.all([readAgentDirectoryActivityFeedUncached(limit, protocol), readChainActivityHighWater(protocol)]);
+    return { feed: feed.map(event => sanitizeDirectoryEntry(event)), measuredThroughBlock };
+  });
+}
+
+/** The highest block among the events the chain's active sources have recorded: the same fact "measured through block N" derives from for Robinhood Chain. Null when there is none. */
+async function readChainActivityHighWater(protocol: ChainFeedProtocol): Promise<number | null> {
+  const db = requireDb(await getDb());
+  const sourceIds = await activeSourceIdsOf(db, protocol);
+  if (sourceIds.length === 0) return null;
+  const [row] = await db
+    .select({ highWater: sql<number>`max(${agentDirectoryChainActivity.blockNumber})` })
+    .from(agentDirectoryChainActivity)
+    .where(inArray(agentDirectoryChainActivity.sourceId, sourceIds));
+  return row?.highWater === null || row?.highWater === undefined ? null : Number(row.highWater);
 }
 
 type DirectoryActivityDayCounts = {

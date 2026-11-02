@@ -22,6 +22,7 @@ export async function warmPublicReads() {
     caller.liveData.directoryUsdgSettlements(),
     caller.liveData.directoryActivityFeed(),
     caller.liveData.directorySolanaActivity(),
+    caller.liveData.chainActivityFeed({ chain: "arc" }),
     caller.liveData.noosphereSample(),
     caller.liveData.mapAcknowledged(),
     caller.liveData.mapFleets(),

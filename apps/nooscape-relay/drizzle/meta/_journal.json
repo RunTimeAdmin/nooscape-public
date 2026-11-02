@@ -386,6 +386,13 @@
       "when": 1793545343800,
       "tag": "0054_monad_scheduled_flip",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "5",
+      "when": 1793621876061,
+      "tag": "0055_arc_hourly_cadence",
+      "breakpoints": true
     }
   ]
 }

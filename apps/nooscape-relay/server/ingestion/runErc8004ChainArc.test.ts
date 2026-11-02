@@ -66,8 +66,8 @@ type NodeOptions = {
   finalized: number;
   chainId?: string;
   logs?: unknown[];
-  /** The Response to send for the nth eth_getLogs call (from 1), or null to answer it properly. */
-  getLogs?: (n: number, from: number) => Response | Error | null;
+  /** The Response to send for the nth eth_getLogs call (from 1) over blocks `from` to `to`, or null to answer it properly. */
+  getLogs?: (n: number, from: number, to: number) => Response | Error | null;
 };
 
 /** A fake Arc node behind a stubbed fetch, with the clock the pass is also given. */
@@ -97,7 +97,7 @@ function fakeNode(options: NodeOptions) {
         const filter = request.params[0] as { fromBlock: string; toBlock: string };
         const from = Number.parseInt(filter.fromBlock, 16);
         const to = Number.parseInt(filter.toBlock, 16);
-        const special = options.getLogs?.(logCalls, from);
+        const special = options.getLogs?.(logCalls, from, to);
         if (special instanceof Error) throw special;
         if (special) return special;
         return rpcResult((options.logs ?? []).filter(log => {
@@ -247,17 +247,72 @@ describe("the walk on a shared node", () => {
     for (const gap of gaps) expect(gap).toBeGreaterThanOrEqual(ARC_CHAIN.rpc.minGapMs! + 5);
   });
 
-  it("plans no more than ten windows a run", async () => {
-    const node = fakeNode({ finalized: START + 50 * W });
+  it("reads windows of 1,000 blocks until its 30 seconds are spent, not ten of them", async () => {
+    const node = fakeNode({ finalized: START + 500 * W });
     const result = await run(source(), node);
-    expect(node.stats().logCalls).toBe(10);
-    expect(result.nextCursor).toBe(`arc:${START + 10 * W}`);
+    const reads = node.stats().logCalls;
+    // A read is the chain's 250 ms gap and the node's 5 ms on the test's clock, so 30 seconds reach a hundred windows and a few more. The
+    // clock ends the run: fewer windows than the 200 planned are read, and the one being read when the time ran out is not applied.
+    expect(W).toBe(1_000);
+    expect(reads).toBeGreaterThan(100);
+    expect(reads).toBeLessThan(ARC_CHAIN.budget.maxWindows);
+    expect(result.nextCursor).toBe(`arc:${START + (reads - 1) * W}`);
+  });
+
+  it("reads all the windows it is given while the time lasts, however many events they hold", async () => {
+    // 40 windows of 1,200 mints each: 48,000 events, 48 times the 1,000 that used to end a run after its first window.
+    const dense: unknown[] = [];
+    for (let window = 0; window < 40; window += 1) {
+      for (let i = 0; i < 1_200; i += 1) dense.push(mintAt(ARC_CHAIN, window * 1_200 + i + 1, START + window * W + (i % W), Math.floor(i / W)));
+    }
+    const node = fakeNode({ finalized: START + 40 * W - 1, logs: dense });
+    const result = await run(source(), node);
+    expect(result.acceptedCount).toBe(dense.length);
+    expect(result.nextCursor).toBe(`arc:${START + 40 * W}`);
   });
 
   it("uses the chain's own listing rules for the step that applies URI updates, as for the listing", async () => {
     const node = fakeNode({ finalized: START + W, logs });
     await run(source(), node);
     expect(state.applyAgentRegistryUriUpdates).toHaveBeenCalledWith(expect.objectContaining({ rules: ARC_LISTING_RULES }));
+  });
+});
+
+describe("the flood of 2026-11-02, when a read of more than 1,443 blocks was over the response cap", () => {
+  // The densest 1,000-block window read in the flood was 1,452,426 bytes, so the 2 MiB cap fits 1,443 blocks of it.
+  const FITS = Math.floor(ARC_CHAIN.rpc.maxResponseBytes / (1_452_426 / 1_000));
+  const tooMany = () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "query returned more than 10000 results" } }), { status: 200 });
+
+  it("reads every window of 1,000 blocks whole: no read is refused and none is split", async () => {
+    const asked: number[] = [];
+    const node = fakeNode({
+      finalized: START + 20 * W - 1,
+      getLogs: (_n, from, to) => {
+        asked.push(to - from + 1);
+        return to - from + 1 > FITS ? tooMany() : null;
+      },
+    });
+    const result = await run(source(), node);
+    expect(asked).toEqual(Array.from({ length: 20 }, () => W));
+    expect(logged.filter(line => line.includes("too large for one read"))).toEqual([]);
+    expect(result.nextCursor).toBe(`arc:${START + 20 * W}`);
+  });
+
+  it("would have been refused seven times by the old 100,000-block window before one read fit, so the check above can fail", async () => {
+    const asked: number[] = [];
+    const node = fakeNode({
+      finalized: START + 100_000,
+      getLogs: (_n, from, to) => {
+        asked.push(to - from + 1);
+        return to - from + 1 > FITS ? tooMany() : null;
+      },
+    });
+    vi.stubGlobal("fetch", node.handler);
+    const old = { ...ARC_CHAIN, maxLogRange: 100_000, budget: { maxWindows: 10, concurrency: 1, maxElapsedMs: 20_000, maxEvents: 1_000 } };
+    await runApprovedErc8004ChainSource(old, source(), "manual", "activity", node.deps);
+    // The first window is split in halves until a piece fits.
+    expect(asked.slice(0, 8)).toEqual([100_000, 50_000, 25_000, 12_500, 6_250, 3_125, 1_563, 782]);
+    expect(asked.slice(0, 8).filter(width => width > FITS)).toHaveLength(7);
   });
 });
 
