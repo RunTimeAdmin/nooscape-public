@@ -84,7 +84,7 @@ function Figure({
 }
 export default function ChainExplorer({ chain }: { chain: WorldKey }) {
   const world = CHAIN_WORLDS[chain];
-  // BNB Chain, Arc, Base, Ethereum and Monad have no global feed: an event is shown for the entry that is selected, from that entry's own activity.
+  // BNB Chain, Base, Ethereum and Monad have no global feed: an event is shown for the entry that is selected, from that entry's own activity.
   const entryEvents = ENTRY_EVENT_WORLDS.includes(chain);
   const entryProtocol = CHAIN_IDENTITY_PROTOCOLS[chain][0]!;
   const [query, setQuery] = useState("");
@@ -106,6 +106,8 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
     undefined,
     { ...READ, enabled: chain === "solana" }
   );
+  // Arc's feed: the newest events of the entries the directory lists on Arc, and the block its ledger is measured through.
+  const arcFeedQuery = trpc.liveData.chainActivityFeed.useQuery({ chain: "arc" }, { ...READ, enabled: chain === "arc" });
   // Arc, Base, Ethereum and Monad read their groups from their own registries (registryFleets); the other three from the map's reads.
   const registryWorld: "arc" | "base" | "ethereum" | "monad" | null = chain === "arc" || chain === "base" || chain === "ethereum" || chain === "monad" ? chain : null;
   const fleetsQuery = trpc.liveData.mapFleets.useQuery(undefined, {
@@ -130,14 +132,16 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
         ? normalizeEvmEvents(evmQuery.data?.feed ?? [])
         : chain === "solana"
           ? normalizeSolanaEvents(solanaQuery.data?.feed ?? [])
-          : [],
-    [chain, evmQuery.data, solanaQuery.data]
+          : chain === "arc"
+            ? normalizeEvmEvents(arcFeedQuery.data?.feed ?? [], entryProtocol)
+            : [],
+    [chain, entryProtocol, evmQuery.data, solanaQuery.data, arcFeedQuery.data]
   );
   const matches = useMemo(
     () => (CHAIN_SHOWS_ACKNOWLEDGED[chain] && settledQuery.length >= 2 ? (searchQuery.data?.entries ?? []) : []),
     [chain, searchQuery.data, settledQuery]
   );
-  // Arc has no feed to draw its first figures from, so they are a fixed sample of the entries the directory lists; the search adds to them. So are AgenC's, in its lane on Solana's page.
+  // Arc's first figures are a fixed sample of the entries the directory lists, and its feed adds the entries its events belong to; the search adds to them. AgenC's, in its lane on Solana's page, are a fixed sample too.
   const acknowledgements = useMemo(
     () => (chain === "arc" ? [...(arcSampleQuery.data?.entries ?? NO_ENTRIES), ...matches] : chain === "solana" ? [...(agencSampleQuery.data?.entries ?? NO_ENTRIES), ...matches] : matches),
     [chain, arcSampleQuery.data, agencSampleQuery.data, matches]
@@ -235,15 +239,19 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
       ? evmQuery.isLoading
       : chain === "solana"
         ? solanaQuery.isLoading
-        : Boolean(
-            selected && selected.kind !== "group" && profileQuery.isLoading
-          );
+        : chain === "arc"
+          ? arcFeedQuery.isLoading
+          : Boolean(
+              selected && selected.kind !== "group" && profileQuery.isLoading
+            );
   const feedError =
     chain === "robinhood"
       ? evmQuery.isError
       : chain === "solana"
         ? solanaQuery.isError
-        : profileQuery.isError;
+        : chain === "arc"
+          ? arcFeedQuery.isError
+          : profileQuery.isError;
   const feedStatus = feedLoading
     ? "loading"
     : feedError
@@ -264,7 +272,11 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
         : "High-water block not measured"
       : chain === "solana"
         ? "Anchored transactions · observation slots"
-        : !selected || selected.kind === "group"
+        : chain === "arc"
+          ? arcFeedQuery.data?.measuredThroughBlock != null
+            ? `Listed entries · measured through block ${arcFeedQuery.data.measuredThroughBlock.toLocaleString()}`
+            : "Listed entries · high-water block not measured"
+          : !selected || selected.kind === "group"
           ? "Global feed not published"
           : entryMatches && selectedEntry?.activity
             ? "Selected entry · oldest 24 events at most"

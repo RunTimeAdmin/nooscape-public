@@ -1,0 +1,15 @@
+-- Arc identity registry hourly cadence (migration 0055). Migration 0050 handed the Arc pass to the scheduler once a day. A flood of registrations from
+-- one platform (about 100,000 a day from 1 November 2026) made a daily run, which read a few minutes of chain, fall about a day further behind each day.
+-- With the window and the run budget of docs/arc-flood-pass-2026-11-02.md a run reads about 25,000 blocks (three and a half hours of Arc), so an hourly
+-- run, which has 7,080 blocks to read, has about three and a half times the room.
+--
+-- Preconditions, all encoded in the WHERE: the row is the approved Arc identity source (by its key), it is active, it is scheduled and still on the daily
+-- cadence this file replaces (so running it again is a no-op and an operator's later cadence is never overwritten), and it holds an `arc:` cursor. The
+-- protocol is not named, as in 0050: this runs at every boot, including on a database that has not had the by-hand migration 0046 that adds Arc's protocol
+-- value, and dbMigrations.test.ts keeps those values out of every boot. The key is unique and the `arc:` cursor is written only by the Arc pass.
+--
+-- Cadence 60 minutes. finishIngestionRun sets nextRunAt to the finish time plus the cadence, whatever the outcome, and the cron fires on fixed 15-minute
+-- marks, so the pass runs about once an hour, and in a full queue (two sources a tick) a little less often. A run that fails is tried again an hour later.
+-- nextRunAt is set to NOW() so the pass is due at the next tick after the deploy and starts on the backlog; NOW(), not UTC_TIMESTAMP(), for the reason
+-- migration 0031 records. The worker's maxSourcesPerTick and interval are not touched.
+UPDATE `ingestion_sources` SET `scheduleMinutes` = 60, `nextRunAt` = NOW() WHERE `sourceKey` = 'arc-erc8004-identity-registry' AND `state` = 'active' AND `executionPolicy` = 'scheduled' AND `scheduleMinutes` = 1440 AND `cursor` LIKE 'arc:%';

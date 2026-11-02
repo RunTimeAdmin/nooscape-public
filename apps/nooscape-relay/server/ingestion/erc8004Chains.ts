@@ -358,14 +358,22 @@ export const BASE_CHAIN: PinnedErc8004Chain = {
  * own, reached through the address the payment code keeps in `X402_RPC` (server/arcRpc.ts), so the pass shares it with payment
  * checks and goes easy on it: one request at a time, a pause between requests, a timeout shorter than a payment check's, and waits
  * that back off with jitter. The public Arc RPC is not used. The host is the operator's: see `Erc8004Provider`.
- * Facts measured 2026-10-20 through that node:
+ * Facts measured through that node, on 2026-10-20 unless dated:
  *  - creation block 13,344,062 (2026-08-01 14:51:51 UTC): the first log of any kind from the address, found by a forward walk of
  *    50,000-block windows from block 1. The node serves headers and logs from block 1 but prunes state, so the `eth_getCode`
  *    search is not available; the same method gave Ethereum's block exactly. The first registration event is at 21,156,191
- *    (2026-09-16 12:19:45 UTC), 7.8 million blocks later, and the whole history holds about 6,000 events.
+ *    (2026-09-16 12:19:45 UTC), 7.8 million blocks later, and the whole history held about 6,000 events.
  *  - 0.508 s per block, so an hour is about 7,080 blocks. `finalized` is served and equals the head: Arc finalizes instantly.
- *  - the node accepted windows up to 5,000,000 blocks (5,937 events, 5.6 MB), the widest tried. The window is 100,000 blocks,
- *    which keeps every response under 0.3 MB and each call light.
+ *  - the node accepted windows up to 5,000,000 blocks (5,937 events, 5.6 MB), the widest tried. The window was 100,000 blocks, which
+ *    kept every response under 0.3 MB while the registry was quiet.
+ *  - 2026-11-02, a flood. One platform (Central City, the one that flooded Base) began registering an agent on Arc for each agent
+ *    created on its site: a trickle from about 08:00 UTC on 2026-11-01, then 600 to 715 registrations per 1,000 blocks from that evening,
+ *    about 1.2 a second and 100,000 a day, each from its own wallet through the ERC-4337 entry point (newest agent id 89,210 at block
+ *    29,151,011). Six 1,000-block windows near the head held 1,902 to 2,138 events and 1.23 to 1.39 MiB (680 bytes an event), each read
+ *    in about 0.6 second. A 100,000-block window is far over the 2 MiB cap, so every run first split it five or six times, read one piece
+ *    of about 1,400 blocks (over 3,000 events) and stopped at the 1,000 events a run was allowed: 12 minutes of chain a run and one run a
+ *    day, so the walk was 26 hours behind when it was noticed. The window is now 1,000 blocks, as Base's, and the clock ends a run, as
+ *    on Base (docs/arc-flood-pass-2026-11-02.md). The 2 MiB cap leaves 1.4 times the densest window; a read past it is still split.
  */
 export const ARC_CHAIN: Erc8004Chain = {
   protocol: "erc8004_arc",
@@ -376,7 +384,7 @@ export const ARC_CHAIN: Erc8004Chain = {
   chainLabel: "Arc",
   identityRegistry: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
   deployBlock: 13_344_062,
-  maxLogRange: 100_000,
+  maxLogRange: 1_000,
   maxWindowLogs: 30_000,
   handoutBlockWindow: 7_080,
   sourceKey: "arc-erc8004-identity-registry",
@@ -396,11 +404,20 @@ export const ARC_CHAIN: Erc8004Chain = {
     retryBusy: true,
   },
   budget: {
-    maxWindows: 10,
+    /** More windows than the clock reaches (a read every 250 ms at the quickest is 120 in 30 seconds), so the clock ends a run. */
+    maxWindows: 200,
     /** One request at a time, never parallel windows. */
     concurrency: 1,
-    maxElapsedMs: 20_000,
-    maxEvents: 1_000,
+    /**
+     * What ends a run: no new window is applied after 30 seconds, about 25 windows (25,000 blocks, three and a half hours of chain) at a
+     * little over a second a window. An event count cannot size a run, because a window costs so differently: one that only counts (a
+     * flood host past its cap) applies 17,000 to 29,000 events a second, one that stores a row for each registration 2,500 to 5,000
+     * (Base's measurements, docs/base-backfill-throughput-2026-10-20.md). The run was ten windows, 20 seconds and 1,000 events, sized
+     * for 6,000 events in five weeks, and the first piece of the flood ended it.
+     */
+    maxElapsedMs: 30_000,
+    /** A ceiling above what the clock reaches, as Base's, so the clock ends a run and this only bounds one the clock does not. Checked between windows. */
+    maxEvents: 1_000_000,
   },
   cursorPrefix: "arc",
   errorPrefix: "Arc",
@@ -408,7 +425,7 @@ export const ARC_CHAIN: Erc8004Chain = {
   fetchSentence: RECORDED_ONLY_SENTENCE,
   listingRules: ARC_LISTING_RULES,
   hostRowCap: FLOOD_HOST_ROW_CAP,
-  /** Read from the identity registry's deploy block. Window: the identity pass's own window on the same node, which keeps each call light. */
+  /** Read from the identity registry's deploy block. Window: 100,000 blocks, the identity pass's own until 2026-11-02; ratings are sparse beside registrations (about 840 an hour), and a refusal halves the window. */
   reputation: { registry: ERC8004_REPUTATION_REGISTRY, window: 100_000 },
   feature: "chain_arc",
 };

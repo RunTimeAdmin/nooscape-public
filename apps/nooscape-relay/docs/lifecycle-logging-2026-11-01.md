@@ -2,7 +2,7 @@
 
 The app now writes down what happens to its own process: a line when it is stopped by a signal, crashes or exits, a line every few minutes with its memory and the delay of its event loop, and a small trail file that lets the next process say how the last ones ended, including one that was killed and could write nothing. Production only. No migration, no setting, no table, and the process ends exactly as it did before.
 
-**Status.** Live since 2026-11-01 20:32 UTC (PR 244, `main` 088de91). The same evening a follow-up added the values of the host's process-manager settings to the start line (see "The host's settings").
+**Status.** Live since 2026-11-01 20:32 UTC (PR 244, `main` 088de91). The same evening a follow-up (PR 245, `main` f365ca2, live from 22:30 UTC) added the values of the host's process-manager settings to the start line and fixed a mistake in the first version (see "The host's settings" and "What the deploy of PR 245 said").
 
 **Decided:** 2026-11-01, by the operator, in chat: "add ways to capture the correct logs to see whats happening", after the five restarts with no deploy that the same day's log could not explain. The offer to log signals, exits and memory was mine; the shape of the answer is mine too, so the operator can say no to any of it.
 
@@ -47,15 +47,44 @@ The first lines from production, from the deploy of PR 244 at 20:32 UTC:
 
 ## The host's settings
 
-The start line also carries `hostSettings`: the values of every `LSAPI_*` variable and of the two flags `LSNODE_GUARD_PPID` and `LSNODE_CONSOLE_LOG`. LiteSpeed's PHP documentation says `LSAPI_MAX_PROCESS_TIME` (default 3600 seconds) lets the parent process kill a worker that spends longer than that on one request, and `LSAPI_PGRP_MAX_IDLE` (default forever) is how long a parent with no workers waits before exiting. Whether `lsnode` applies them in the same way is not in what was found, and the values on this host were unknown until this line was added, so what they are is the first thing to read from it.
+The start line also carries `hostSettings`: the values of every `LSAPI_*` variable and of the two flags `LSNODE_GUARD_PPID` and `LSNODE_CONSOLE_LOG`. LiteSpeed's PHP documentation says `LSAPI_MAX_PROCESS_TIME` (default 3600 seconds) lets the parent process kill a worker that spends longer than that on one request, and `LSAPI_PGRP_MAX_IDLE` (default forever) is how long a parent with no workers waits before exiting. Whether `lsnode` applies them in the same way is not in what was found. The values on this host were unknown until this line was added; the next section gives them.
 
 A value is written only when it is up to 12 characters of letters, digits, dot, underscore and hyphen: a number, a flag or a word such as `FOREVER`. Anything longer, or with other characters, is written as its length (`(31 characters)`), so a path, a socket or a key is never written. The paths `LSNODE_ROOT`, `LSNODE_SOCKET` and `LSNODE_STARTUP_FILE` are not in the list at all and stay names in `hints`.
+
+## What the deploy of PR 245 said, and the hours after it (2026-11-01 22:30 UTC to 2026-11-02 01:10 UTC)
+
+The deploy of PR 245 was the first start to carry `hostSettings` and the running-process fix. Read from the runtime log at 01:10 UTC:
+
+- **The settings.** `LSAPI_MAX_PROCESS_TIME` is 180 (seconds), `LSAPI_PGRP_MAX_IDLE` is 30 (seconds) for both processes of this pair (it was not 30 for every process later: see "What the next two deploys said"), `LSAPI_PPID_NO_CHECK` is 1, `LSNODE_CONSOLE_LOG` is `console.log`, and `LSNODE_GUARD_PPID` is the process's own pid.
+- **A deploy stops the old processes with SIGTERM.** The two processes that the deploy of PR 244 had started ran 7,038 and 7,006 seconds with no restart in between, and both ended by `SIGTERM` at 22:30:00.845 UTC. The app received the signal; it was not killed.
+- **The trail survived the deploy.** The first new process found it (`found` true, 237 events) and printed how both old processes had ended, though the runtime log had started again.
+- **Two new processes again.** The host started two, 2.7 seconds apart (the pair of 20:32 UTC was 32 seconds apart), with the same parent pid. The second called the first `running` and counted one other process (`othersRunning` 1), so the fix works on the host.
+- **A stall of the whole host, then the loss of the parent.** At 00:02 UTC the host's load average read 181 (16 to 36 at every other beat), and both processes wrote a `health` line with the note `event loop stalled`: their loops had been held up for 11.4 and 22.6 seconds. By 00:05 UTC the parent pid of both was 1, so the process that started them was gone. They kept running and writing (they still did at 01:10 UTC), and no new process started.
+
+### The five starts of 2026-11-01 are still not explained
+
+Two guesses, neither tested. First, with `LSAPI_PGRP_MAX_IDLE` at 30 (the value of most processes read so far, not of all: see "What the next two deploys said"), the host may stop the app after 30 seconds without a request and start it again on the next one. The five starts were between 08:30 and 11:06 UTC (02:30 to 05:06 Central), probably the hours with the fewest requests, and none has been seen since. Nothing found says how `lsnode` reads the setting. Second, with `LSAPI_MAX_PROCESS_TIME` at 180, a request that runs longer than three minutes could be ended. The longest ticks, on the hour and the half hour, take 40 to 100 seconds now, so that is a risk to watch more than a cause. The stall and the lost parent show that the host acts on the app's processes with no deploy; this time it did not restart them.
+
+The next stop settles the first guess: the first start after it prints a `previous` line that says how the process ended (`signal` and which, or `unknown`) and when. Read the stopped process's own `LSAPI_PGRP_MAX_IDLE` from the `start` line with the same `pid`. The quiet hours are about 08:00 to 11:00 UTC, so read the runtime log after 11:00 UTC on 2026-11-02.
+
+Not decided: if the host does stop an idle app, a start with no deploy is a cold start, and operator sessions, rate limits and read caches begin again in that process. The operator has not chosen between accepting that, a request to the public URL every 20 seconds to keep the app warm, asking the host to run one process, and making sessions, rate limits and caches safe across two processes. The code has not been checked for what breaks with two processes.
+
+## What the next two deploys said (2026-11-02 01:44 and 03:57 UTC)
+
+Read from the runtime log at 03:57 UTC, after the deploys of PR 246 and PR 247:
+
+- **A deploy stops every old process, orphans included.** The two processes of 22:30 UTC had had parent pid 1 since about 00:05 UTC. Both ended by `SIGTERM` at 01:44:39.231 UTC, after 11,676 and 11,674 seconds, when PR 246 deployed. The signal reaches a process whatever its parent.
+- **The parent is not replaced at every deploy.** The pair of 01:44 UTC started 4.5 seconds apart (01:44:45.6 and 01:44:50.1) under a new parent pid, 3704055 (the pair before had 4013461), and two processes ran, not four. The pair of 03:57 UTC started 3.7 seconds apart (03:57:25.7 and 03:57:29.4) under the same parent, 3704055.
+- **The pair of 01:44 UTC ran until the next deploy.** Both ended by `SIGTERM` at 03:57:21.795 UTC, after 7,956 and 7,952 seconds (2 hours 12 minutes), when PR 247 deployed. Neither had stopped by itself.
+- **`LSAPI_PGRP_MAX_IDLE` is not the same at every start.** It was 30 for both processes at 22:30 UTC, 300 for the first process of the 01:44 UTC pair and 30 for the second, and 30 for both at 03:57 UTC. So the value differs from one start to the next, and once between the two processes of one pair. The 30 in the settings above is the 22:30 UTC pair's.
+
+What this changes for the first guess: a stop is read against the stopped process's own setting. Match the `pid` of a `previous` line to the `start` line with that pid and read its `hostSettings`. A stop of a process with 30 fits the guess, and a stop of one with 300 would not. None of the three pairs that have ended since this logging began (20:32, 22:30 and 01:44 UTC) stopped by itself: a deploy stopped each.
 
 ## Reading it
 
 | what the next start says | what it means |
 |---|---|
-| `previous` ended `signal`, `SIGTERM` | The host asked the process to stop. The app did not fail. Ask the host why, with the times. |
+| `previous` ended `signal`, `SIGTERM` | The host asked the process to stop. The app did not fail. A deploy does this to every old process (seen at 22:30 UTC on 2026-11-01), so a stop with no deploy is the one to ask the host about, with the times. |
 | `previous` ended `running` | Another process of the app is running beside this one. The host runs more than one. If its `silentSeconds` grows past about two minutes, it is hung, because a running process writes every minute. |
 | `health` with `others` that is not empty | The same: the pids listed are other processes of the app. A `previous` that is `unknown` and then appears as `others` was running all the time. |
 | `previous` ended `unknown`, with a peak near the cgroup's limit, or `oomKillsRose` true | It was killed for memory. |
@@ -64,7 +93,7 @@ A value is written only when it is up to 12 characters of letters, digits, dot, 
 | `previous` ended `exit` | The process ended itself with that code. |
 | `health` lines whose `rssMb` or `hwmMb` climb from one tick to the next | Memory is held and not given back, which would make a memory kill likely. |
 | `health` with `note: "event loop stalled"` | Something held the process up for 2 seconds or more. A host that checks the app is alive may treat that as dead. |
-| `health` with `ppid` changing to 1 | The process that started the app is gone and the app was left behind. |
+| `health` with `ppid` changing to 1 | The process that started the app is gone and the app was left behind. Seen once, between 00:02 and 00:05 UTC on 2026-11-02, after a stall of the whole host; the app kept running. |
 | a `start` with `trail.found` false and no deploy | The file system is new: the app is being moved or its disk cleared when it is restarted. |
 
 ## Where to read it
@@ -79,7 +108,7 @@ The runtime log through the Hostinger connector (`hosting_nodejs_runtime-logs`, 
 
 ## Cost
 
-One small write a minute to the trail, and one line to the runtime log every fifth minute: about 290 lines and 80 KB a day, more only when memory jumps or the loop stalls. Each start adds up to five `previous` lines and one `start` line, so a deploy, which starts the app twice, adds up to twelve.
+One small write a minute to the trail, and one line to the runtime log every fifth minute, from each process. The host runs two, so that is about 580 lines and 170 KB a day, more only when memory jumps or the loop stalls. Each start adds up to five `previous` lines and one `start` line, so a deploy, which starts the app twice, adds up to twelve.
 
 ## What was checked
 

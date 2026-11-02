@@ -16,6 +16,7 @@ const procedures = [
   "directoryUsdgSettlements",
   "directoryActivityFeed",
   "directorySolanaActivity",
+  "chainActivityFeed",
   "noosphereSample",
   "mapAcknowledged",
   "mapFleets",

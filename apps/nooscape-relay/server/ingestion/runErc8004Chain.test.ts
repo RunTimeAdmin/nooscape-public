@@ -420,3 +420,70 @@ describe("a chain with a host cap", () => {
     expect(state.refreshAgentRegistryListing.mock.calls.at(-1)![1]).toEqual({ classify: false, publish: true });
   });
 });
+
+describe("the line a run writes about how far behind it is", () => {
+  /** The `nooscape_chain_pass` lines a test's runs wrote, parsed. */
+  const passLines = () =>
+    vi
+      .mocked(console.log)
+      .mock.calls.map(call => String(call[0]))
+      .filter(line => line.includes("nooscape_chain_pass"))
+      .map(line => JSON.parse(line) as Record<string, unknown>);
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  it("says where the walk stands against the finalized head after a run that stops short of it", async () => {
+    await run(DEMO_CHAIN, source(), fakeRpc({ finalized: START + 5 * W - 1 }).rpc, { budget: { maxWindows: 2 } });
+    expect(passLines()).toEqual([
+      { event: "nooscape_chain_pass", chain: "demo", windows: 2, events: 0, nextBlock: START + 2 * W, finalized: START + 5 * W - 1, behind: 3 * W, caughtUp: false, ms: expect.any(Number) },
+    ]);
+  });
+
+  it("counts the events a run accepted, and says caught up once every finalized block is read", async () => {
+    const logs = [registrationAt(DEMO_CHAIN, 7, START + 5), mintAt(DEMO_CHAIN, 7, START + 5), uriUpdateAt(DEMO_CHAIN, 7, START + 9)];
+    await run(DEMO_CHAIN, source(), fakeRpc({ finalized: START + W - 1, logs }).rpc);
+    expect(passLines()).toEqual([
+      { event: "nooscape_chain_pass", chain: "demo", windows: 1, events: 3, nextBlock: START + W, finalized: START + W - 1, behind: 0, caughtUp: true, ms: expect.any(Number) },
+    ]);
+  });
+
+  it("is written by a quiet run too, with no windows and nothing behind", async () => {
+    await run(DEMO_CHAIN, source({ cursor: `demo:${START + 10}` }), fakeRpc({ finalized: START + 9 }).rpc);
+    expect(passLines()).toEqual([
+      { event: "nooscape_chain_pass", chain: "demo", windows: 0, events: 0, nextBlock: START + 10, finalized: START + 9, behind: 0, caughtUp: true, ms: expect.any(Number) },
+    ]);
+  });
+
+  it("says how far behind a run that read nothing leaves the walk, when its budget was spent before the first window", async () => {
+    await run(DEMO_CHAIN, source(), fakeRpc({ finalized: START + 3 * W - 1 }).rpc, { budget: { maxEvents: 0 } });
+    expect(passLines()).toEqual([
+      { event: "nooscape_chain_pass", chain: "demo", windows: 0, events: 0, nextBlock: START, finalized: START + 3 * W - 1, behind: 3 * W, caughtUp: false, ms: expect.any(Number) },
+    ]);
+  });
+
+  it("says the same of a run that stopped early when a later window failed, from the windows it kept", async () => {
+    const node = fakeRpc({ finalized: START + 4 * W - 1, failAt: from => (from >= START + W ? new Error("provider fault") : null) });
+    await run(DEMO_CHAIN, source(), node.rpc);
+    expect(passLines()).toEqual([
+      { event: "nooscape_chain_pass", chain: "demo", windows: 1, events: 0, nextBlock: START + W, finalized: START + 4 * W - 1, behind: 3 * W, caughtUp: false, ms: expect.any(Number) },
+    ]);
+  });
+
+  it("writes none for a run that fails before it applies a window, which the run's own record says", async () => {
+    const node = fakeRpc({ finalized: START + 2 * W - 1, failAt: () => new Error("provider fault") });
+    await expect(run(DEMO_CHAIN, source(), node.rpc)).rejects.toThrow("provider fault");
+    expect(passLines()).toEqual([]);
+  });
+
+  it("carries the chain's key and numbers only", async () => {
+    await run(DEMO_CHAIN, source(), fakeRpc({ finalized: START + 2 * W - 1 }).rpc);
+    const [line] = passLines();
+    expect(line).toBeDefined();
+    for (const [key, value] of Object.entries(line!)) {
+      if (key === "event" || key === "chain") expect(typeof value).toBe("string");
+      else expect(["number", "boolean"], key).toContain(typeof value);
+    }
+  });
+});

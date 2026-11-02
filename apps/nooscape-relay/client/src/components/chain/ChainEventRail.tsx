@@ -79,18 +79,6 @@ function EmptyState({
     );
   }
 
-  if (chain === "arc" && status === "unsupported") {
-    return (
-      <div className="cw-event-empty" role="status">
-        <span className="cw-event-empty-kicker">Global feed unavailable</span>
-        <p>
-          No global Arc activity feed is published. No event is shown in its
-          place. Select an entry to see the events recorded for it.
-        </p>
-      </div>
-    );
-  }
-
   if (status === "unmeasured") {
     return (
       <div className="cw-event-empty" role="status">

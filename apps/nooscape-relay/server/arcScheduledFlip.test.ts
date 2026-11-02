@@ -211,10 +211,3 @@ describe.skipIf(!dbReachable)("migration 0050: Arc identity registry scheduled f
     }
   });
 });
-
-describe("the live check once the Arc pass is on the scheduler", () => {
-  it("expects the Arc pass to have succeeded within 36 hours, a day and the slack the other daily sources get", async () => {
-    const script = await readFile(new URL("../scripts/verify-live.mjs", import.meta.url), "utf8");
-    expect(script).toMatch(/\berc8004_arc:\s*36\b/);
-  });
-});

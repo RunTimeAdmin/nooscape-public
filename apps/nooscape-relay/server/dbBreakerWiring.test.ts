@@ -99,6 +99,7 @@ async function caller(failure: () => Error) {
       readAgentDirectoryActivityTotals: reject,
       readAgentDirectoryActivityFeed: reject,
       readAgentDirectoryActivityDaySeries: reject,
+      readChainActivityFeed: reject,
       readSolanaActivityFeed: reject,
       readSolanaActivityTotals: reject,
     };
@@ -115,6 +116,15 @@ describe("a pause is logged once by the breaker, not by every read it fails", { 
     ["the BNB Chain registry profile", trpc => trpc.liveData.directoryBscRegistry(), "warn"],
     ["the activity feed", trpc => trpc.liveData.directoryActivityFeed(), "warn"],
     ["the Solana activity feed", trpc => trpc.liveData.directorySolanaActivity(), "warn"],
+    // Arc's feed answers nothing while its switch is off, so the read has to be reached with the switch on (undone after each test).
+    [
+      "the Arc activity feed",
+      trpc => {
+        vi.stubEnv("VITE_FEATURES", "chain_arc");
+        return trpc.liveData.chainActivityFeed({ chain: "arc" });
+      },
+      "warn",
+    ],
     ["the operator's worker status", trpc => trpc.liveData.admin.workerStatus().catch(() => null), "error"],
   ];
 

@@ -52,6 +52,8 @@ import type { Erc8004IngestionResult } from "./types";
  * Directory-only like the other chain passes: nothing here can add a reviewed record, so its runs must never be projected. The
  * source is registered manual_only; unattended runs are accepted only from a source an operator has handed to the scheduler,
  * and replays are rejected outright. A chain that has a switch (its `feature`) does not run at all while the switch is off.
+ *
+ * Every run that finishes writes one `nooscape_chain_pass` line (`logPass`): the cursor, the finalized head and the blocks still unread.
  */
 
 type Budget = Erc8004RunBudget;
@@ -100,6 +102,28 @@ async function refreshListing(chain: Erc8004Chain, source: IngestionSource, opti
     const message = error instanceof Error ? error.message.replace(/[\r\n]+/g, " ").slice(0, 300) : "unknown error";
     console.warn(`[${chain.logTag}] listing refresh failed and will be retried by the next run: ${message}`);
   }
+}
+
+/**
+ * One line at the end of every run that finishes: where the walk stands against the finalized head, so how far behind a pass is can be
+ * read from the log. A flood on Arc left its pass a day behind with nothing to show it. `behind` is the finalized blocks not yet read.
+ * Numbers and the chain's key only, so nothing of the endpoint can be in it.
+ */
+function logPass(chain: Erc8004Chain, run: { windows: number; events: number; nextBlock: number; finalizedBlock: number; ms: number }) {
+  const behind = Math.max(0, run.finalizedBlock - run.nextBlock + 1);
+  console.log(
+    JSON.stringify({
+      event: "nooscape_chain_pass",
+      chain: chain.chainKey,
+      windows: run.windows,
+      events: run.events,
+      nextBlock: run.nextBlock,
+      finalized: run.finalizedBlock,
+      behind,
+      caughtUp: behind === 0,
+      ms: run.ms,
+    })
+  );
 }
 
 export async function runApprovedErc8004ChainSource(
@@ -185,6 +209,7 @@ export async function runApprovedErc8004ChainSource(
       // Nothing finalized past the cursor yet: a quiet, successful run. The walk is caught up, so a refresh
       // still publishes anything a previous run classified but could not publish.
       await refreshListing(chain, source, { classify: false, publish: true });
+      logPass(chain, { windows: 0, events: 0, nextBlock: cursor.nextBlock, finalizedBlock, ms: now() - startedAt });
       return { requestCount, discoveredCount: 0, acceptedCount: 0, rejectedCount: 0, nextCursor: caughtUpCursor };
     }
 
@@ -289,6 +314,7 @@ export async function runApprovedErc8004ChainSource(
     }
     // Classify whatever this run wrote; publish only when every finalized block has been read.
     await refreshListing(chain, source, { classify: changedRows > 0, publish: nextBlock > finalizedBlock });
+    logPass(chain, { windows: appliedWindows, events: acceptedCount, nextBlock, finalizedBlock, ms: now() - startedAt });
     return { requestCount, discoveredCount, acceptedCount, rejectedCount, nextCursor: appliedWindows > 0 ? cursorFor(chain, nextBlock) : caughtUpCursor };
   });
 }

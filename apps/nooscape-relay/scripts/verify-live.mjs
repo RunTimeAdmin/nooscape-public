@@ -33,8 +33,9 @@ const FRESHNESS_HOURS = {
   catalog: 36,
   census: 36,
   a2a: 36,
-  // The Arc identity pass runs once a day (migration 0050), so it gets the same allowance.
-  erc8004_arc: 36,
+  // The Arc identity pass runs every hour (migration 0055; once a day from 0050 until the flood of 2 November 2026), so it gets twelve
+  // hours: a night of trouble on the operator's own node, and not a day and a half.
+  erc8004_arc: 12,
   // So does the Ethereum identity pass (migration 0052).
   erc8004_eth: 36,
   // And the Monad identity pass (migration 0054).

@@ -490,10 +490,21 @@ describe("the Arc world", () => {
     expect(worldZones("arc", [])).toEqual([]);
   });
 
-  it("has no feed of its own, as BNB Chain has none, so a recorded event is shown for the selected entry", () => {
-    expect([...ENTRY_EVENT_WORLDS]).toEqual(["bnb", "arc", "base", "ethereum", "monad"]);
+  it("has a feed of its own, so it is not one of the worlds that show a recorded event only for the selected entry", () => {
+    expect([...ENTRY_EVENT_WORLDS]).toEqual(["bnb", "base", "ethereum", "monad"]);
+    expect(ENTRY_EVENT_WORLDS).not.toContain("arc");
     const events = normalizeEvmEvents([{ ...evm, entryId: "a1" }], "erc8004_arc");
     expect(events.map(event => [event.protocol, event.id])).toEqual([["erc8004_arc", "erc8004_arc:0x123:2"]]);
+  });
+
+  it("draws the entry an Arc event belongs to as an acknowledged figure, and nothing for an event of another chain", () => {
+    const arc = normalizeEvmEvents([{ ...evm, entryId: "a1", displayName: "Agent #1" }], "erc8004_arc");
+    const robinhood = normalizeEvmEvents([{ ...evm, entryId: "r1", displayName: "Robinhood agent", transactionHash: "0x456" }], "erc8004");
+    const rows = buildWorldEntities("arc", [], [...arc, ...robinhood], [], []);
+    expect(rows.map(row => [row.kind, row.id, row.protocol])).toEqual([["acknowledged", "a1", "erc8004_arc"]]);
+    expect(rows[0]).toMatchObject({ name: "Agent #1", detail: "Entry from recorded activity · not reviewed", evidenceTier: null, sourceCount: null });
+    // A listed sample already holds the entry: the event does not draw it twice.
+    expect(buildWorldEntities("arc", [], arc, [arcEntry("a1")], []).map(row => row.id)).toEqual(["a1"]);
   });
 
   it("says what share of the registrations on the chain its largest wallets are recorded against, rounded down, and whether they are all of them", () => {
