@@ -2,13 +2,16 @@ import { lookup } from "node:dns/promises";
 import { createHash } from "node:crypto";
 import { storagePut } from "../storage";
 import { isClearlyUnsafeHostname, isForbiddenIp } from "../netGuard";
-import { fetchUnderDeadline } from "./deadlineFetch";
+import { SAFE_FETCH_MAX_BODY_CEILING, SAFE_FETCH_TIMEOUT_MS, safeFetch, type SafeFetchDeps, type SafeFetchResult } from "../safeFetch";
 import type { IngestionSource } from "../../drizzle/schema";
 import type { A2aNormalizedCandidate, RawObservationInput } from "./types";
 
-const MAX_RESPONSE_BYTES = 256 * 1024;
-const REQUEST_TIMEOUT_MS = 8_000;
+/** The most of a card that is read: the most safeFetch will keep (256 KiB). A longer card is refused, not cut short and parsed. */
+const MAX_RESPONSE_BYTES = SAFE_FETCH_MAX_BODY_CEILING;
+/** One deadline for DNS, the connection, the headers and the body together. It was 8 seconds before the card moved to safeFetch, which allows 5 at most. */
+const REQUEST_TIMEOUT_MS = SAFE_FETCH_TIMEOUT_MS;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
+const INDEXER_USER_AGENT = "Nooscape-Source-Indexer/0.1 (+https://nooscape.si)";
 
 export class A2aValidationError extends Error {
   constructor(message: string) {
@@ -147,28 +150,8 @@ export function normalizeA2aAgentCard(raw: unknown, cardUrl: string): A2aNormali
   };
 }
 
-async function readBoundedJson(response: Response) {
-  const declaredSize = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declaredSize) && declaredSize > MAX_RESPONSE_BYTES) {
-    throw new A2aValidationError("AgentCard exceeds the 256 KiB response limit.");
-  }
-  if (!response.body) throw new A2aValidationError("AgentCard response had no body.");
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new A2aValidationError("AgentCard exceeds the 256 KiB response limit.");
-    }
-    chunks.push(value);
-  }
-
-  const rawText = new TextDecoder().decode(Buffer.concat(chunks));
+function parseCardBody(body: Buffer) {
+  const rawText = new TextDecoder().decode(body);
   try {
     return { rawText, rawJson: JSON.parse(rawText) as unknown };
   } catch {
@@ -176,11 +159,32 @@ async function readBoundedJson(response: Response) {
   }
 }
 
+/** Why safeFetch brought no answer, in the adapter's own words (the messages the host checks used to give where they still apply). */
+function cardRefusal(result: Extract<SafeFetchResult, { ok: false }>) {
+  switch (result.reason) {
+    case "forbidden_host":
+      return new A2aValidationError("The A2A hostname is not publicly routable.");
+    case "forbidden_address":
+      return new A2aValidationError("The A2A hostname resolves to a forbidden network address.");
+    case "unresolvable":
+      return new A2aValidationError("The A2A hostname could not be resolved.");
+    case "timeout":
+      return new A2aValidationError("A2A source request timed out.");
+    case "redirect_invalid":
+    case "too_many_redirects":
+      return new A2aValidationError("A2A source request failed without following redirects.");
+    default:
+      return new A2aValidationError(`A2A source request failed (${result.reason}).`);
+  }
+}
+
 /**
- * Fetches one approved A2A card. It refuses redirects, validates the source host
- * before connecting, and stores the exact raw JSON as an immutable object.
+ * Fetches one approved A2A card. It refuses redirects and stores the exact raw JSON as an immutable object. The request goes through
+ * safeFetch: the name is resolved once, every answer must be public address space, and the connection is made to those answers and to
+ * none other, so a host cannot answer the check with one address and the connection with another (outside review of 2 November 2026,
+ * M1). The certificate must be valid for the name. `network` is for tests: the resolver and the request that safeFetch leans on.
  */
-export async function fetchA2aAgentCard(source: IngestionSource) {
+export async function fetchA2aAgentCard(source: IngestionSource, network: Partial<SafeFetchDeps> = {}) {
   if (source.protocol !== "a2a") throw new A2aValidationError("Source protocol is not A2A.");
   if (source.state !== "active") throw new A2aValidationError("Only active sources may be fetched.");
 
@@ -188,30 +192,17 @@ export async function fetchA2aAgentCard(source: IngestionSource) {
   if (normalized.allowedHostname !== source.allowedHostname) {
     throw new A2aValidationError("Stored A2A host policy does not match the source root.");
   }
-  await assertPublicHostname(source.allowedHostname);
 
-  // The body read stays under the armed timer: a stalled or trickling
-  // response body aborts exactly like the header phase, never hanging the
-  // run on a server that sent headers and then went quiet.
-  const { response, body: bounded } = await fetchUnderDeadline({
-    url: normalized.cardUrl,
-    init: {
-      method: "GET",
-      headers: {
-        Accept: "application/json, application/*+json;q=0.9",
-        "User-Agent": "Nooscape-Source-Indexer/0.1 (+https://nooscape.si)",
-      },
-    },
-    timeoutMs: REQUEST_TIMEOUT_MS,
-    isDomainError: error => error instanceof A2aValidationError,
-    onTimeout: () => new A2aValidationError("A2A source request timed out."),
-    onFailure: () => new A2aValidationError("A2A source request failed without following redirects."),
-    read: async res => {
-      if (!res.ok) throw new A2aValidationError(`A2A source returned HTTP ${res.status}.`);
-      return readBoundedJson(res);
-    },
-  });
-  const { rawText, rawJson } = bounded;
+  const answer = await safeFetch(
+    normalized.cardUrl,
+    { method: "GET", accept: "application/json, application/*+json;q=0.9", userAgent: INDEXER_USER_AGENT, timeoutMs: REQUEST_TIMEOUT_MS, maxBodyBytes: MAX_RESPONSE_BYTES, maxRedirects: 0 },
+    network
+  );
+  if (!answer.ok) throw cardRefusal(answer);
+  if (answer.status < 200 || answer.status > 299) throw new A2aValidationError(`A2A source returned HTTP ${answer.status}.`);
+  // safeFetch cuts a longer body at the cap and says so. A card cut short is not a card.
+  if (answer.truncated) throw new A2aValidationError("AgentCard exceeds the 256 KiB response limit.");
+  const { rawText, rawJson } = parseCardBody(answer.body);
   const candidate = normalizeA2aAgentCard(rawJson, normalized.cardUrl);
   const observedAt = new Date();
   const contentHash = createHash("sha256").update(rawText).digest("hex");
@@ -220,7 +211,7 @@ export async function fetchA2aAgentCard(source: IngestionSource) {
     rawText,
     "application/json"
   );
-  const contentType = response.headers.get("content-type") ?? "application/json";
+  const contentType = answer.headers["content-type"] ?? "application/json";
   const findings = contentType.includes("json") ? [] : ["Response content type was not a JSON media type."];
 
   const observation: RawObservationInput = {
@@ -228,7 +219,7 @@ export async function fetchA2aAgentCard(source: IngestionSource) {
     contentHash,
     rawObjectKey: storage.key,
     contentType,
-    httpStatus: response.status,
+    httpStatus: answer.status,
     validationStatus: findings.length > 0 ? "partial" : "valid",
     validationFindings: findings,
     observedAt,

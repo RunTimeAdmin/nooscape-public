@@ -148,7 +148,9 @@ function verifyEvidencePacket(packet: z.infer<typeof evidencePacketSchema>) {
   const publisherValidation = envelope.publisherValidation;
   // The relay states a publisher's standing when it issues a packet and the signature covers that statement, so it
   // counts only when the whole proof chain holds: the digest, the signature, the key and the displayed fields. It also
-  // needs the key that signs today: a standing is a present-tense claim, and a packet from a retired key is old.
+  // needs the key that signs today. That ties a standing to key rotation and not to the clock: it is the standing the relay held when it
+  // issued the packet, and the publisher is not looked up again here. Read it as "allowlisted when this packet was issued"
+  // (docs/evidence-key-rotation.md).
   const publisherKeyAllowlisted = Boolean(
     hashValid && signatureValid && keyMatchesEnvelope && payloadMatchesEnvelopeFields && issuedByCurrentRelay &&
     publisherValidation?.status === "allowlisted" &&
@@ -172,6 +174,7 @@ function verifyEvidencePacket(packet: z.infer<typeof evidencePacketSchema>) {
       hashValid && signatureValid && keyMatchesEnvelope && payloadMatchesEnvelopeFields && keyTrusted,
     agentId: envelope.agentId,
     observedAt: envelope.observedAt,
+    // Echoed from beside the signed bytes, not from inside them: a label, not a checkpoint. entryCount is the signed one.
     sequence: envelope.sequence,
     entryCount: envelope.entries.length,
     signatureAlgorithm: envelope.signatureAlgorithm,

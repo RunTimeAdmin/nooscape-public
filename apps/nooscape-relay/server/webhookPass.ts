@@ -59,14 +59,14 @@ type PassReport = {
   purged: number;
   /** Webhooks whose deliveries a database error stopped this run. The other webhooks and the tidy step went on; the cause is in the log. */
   failed: number;
-  /** A read that came back full: the run did not move that cursor, and the next one reads again. */
+  /** A read that filled its page (or a list of watches cut short). It moves its cursor only as far as it got, and the next run reads on from there. */
   fullReads: string[];
 };
 
 /** How far back a pass reads past its cursor, for rows that were written late, and the furthest back it will ever read. */
 const OVERLAP_MS = 15 * 60_000;
 const LOOKBACK_MS = 7 * 24 * 3_600_000;
-const SEQ_OVERLAP = 100;
+export const SEQ_OVERLAP = 100;
 const LEASE_MS = 120_000;
 const PURGE_EVERY_MS = 6 * 3_600_000;
 /** A run takes at most this many keys' deliveries, and at most this many of each key's, so one key with a long queue cannot fill it. */
@@ -195,10 +195,13 @@ async function detect(deps: PassDeps, now: Date, report: PassReport) {
   const top = await source.maxClaimSeq();
   const claimCursor = Number((await store.getCursor("claims")) ?? "0");
   const ledgerCursorText = await store.getCursor("ledgers");
+  // Set only while a backlog is being worked off a page at a time: the time the last full page of the ledgers got to. Empty when there is none.
+  const resumeText = (await store.getCursor("ledgersResume")) || null;
   if (watches.length === 0) {
     // Nobody is watching: there is nothing to read, and what happens now is not owed to a watch that does not exist yet.
     await store.setCursor("claims", String(top));
     await store.setCursor("ledgers", now.toISOString());
+    if (resumeText) await store.setCursor("ledgersResume", "");
     return;
   }
 
@@ -212,7 +215,9 @@ async function detect(deps: PassDeps, now: Date, report: PassReport) {
 
   const oldest = watches.reduce((least, watch) => Math.min(least, watch.createdAt.getTime()), now.getTime());
   const floor = now.getTime() - LOOKBACK_MS;
-  const since = new Date(Math.max(floor, ledgerCursorText ? new Date(ledgerCursorText).getTime() - OVERLAP_MS : oldest));
+  // A backlog is read on from where its last page stopped, with no overlap (the overlap would take a run back into the page it just read).
+  const from = resumeText ? new Date(resumeText).getTime() : ledgerCursorText ? new Date(ledgerCursorText).getTime() - OVERLAP_MS : oldest;
+  const since = new Date(Math.max(floor, from));
 
   // The claim history is read by sequence number with an overlap, and never further back than the ledgers are: a row older than that has
   // had its delivery tidied away, and would be sent again.
@@ -224,11 +229,25 @@ async function detect(deps: PassDeps, now: Date, report: PassReport) {
   report.created = await store.insertDeliveries(planned.deliveries);
   for (const change of planned.visibility) await store.setVisible(change.keyId, change.entryId, change.visible);
 
-  if (claims.full) report.fullReads.push("claims");
-  else if (!cut) await store.setCursor("claims", String(Math.max(top, ...claims.rows.map(row => row.seq))));
+  // A read that filled its page says how far it got. The cursor goes there and no further, and the next run takes the next page: a page that
+  // is full is a step forward, however large the backlog (outside review of 2 November 2026, M2). A full read that does not say how far it got
+  // leaves its cursor where it was.
+  if (claims.full) {
+    report.fullReads.push("claims");
+    if (!cut && claims.through !== undefined) await store.setCursor("claims", String(Math.max(claimCursor, claims.through)));
+  } else if (!cut) {
+    await store.setCursor("claims", String(Math.max(top, ...claims.rows.map(row => row.seq))));
+  }
   if (transfers.full) report.fullReads.push("transfers");
   if (ratings.full) report.fullReads.push("ratings");
-  if (!transfers.full && !ratings.full && !cut) await store.setCursor("ledgers", now.toISOString());
+  const filled = [transfers, ratings].filter(found => found.full);
+  if (cut) return;
+  if (filled.length === 0) {
+    await store.setCursor("ledgers", now.toISOString());
+    if (resumeText) await store.setCursor("ledgersResume", "");
+  } else if (filled.every(found => found.through !== undefined)) {
+    await store.setCursor("ledgersResume", new Date(Math.min(...filled.map(found => found.through!))).toISOString());
+  }
 }
 
 async function sendDue(deps: PassDeps, started: Date, signingKey: string, report: PassReport) {

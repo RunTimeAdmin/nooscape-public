@@ -1,6 +1,7 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign } from "node:crypto";
 import { ENV } from "./_core/env";
 import { getDb, listPersistedEvidenceEntries } from "./db";
+import { evidenceRetentionDays } from "./storage";
 
 export type PublisherValidation = {
   status: "allowlisted" | "expired" | "revoked" | "unverified";
@@ -232,7 +233,7 @@ export async function createPersistedEvidenceEnvelope(
     canonicalLocator: latest.provenance?.canonicalLocator ?? "",
     contentHash: latest.provenance?.contentHash ?? "",
     rawPayloadAccess: "private-object-store",
-    retentionPolicy: "GOVERNANCE / 90 days per observation",
+    retentionPolicy: `GOVERNANCE / ${evidenceRetentionDays()} days per observation`,
     validationStatus: latest.provenance?.validationStatus ?? "partial",
   } as const;
 

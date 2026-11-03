@@ -63,6 +63,8 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
   const downChains = new Set<number>();
   /** One wrong answer to the next ownerOf, as a lagging node or a provider's blip gives; then the chain tells the truth again. */
   let wrongOnce: { token: string; owner: string } | null = null;
+  /** The next answers to ownerOf for one token, in order, before the chain tells the truth again: an owner, null for a token that is gone, "down" for a read that cannot be answered. */
+  let readings: { token: string; answers: Array<string | null | "down"> } | null = null;
   /** Every ownerOf answers "0x", as a node with no code at the registry does. */
   let emptyAnswers = false;
   /** Something that happens the moment the next ownerOf is asked: an operator's hold landing mid-request. */
@@ -81,6 +83,13 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
       }
       if (emptyAnswers) return { revert: false, result: "0x" };
       const token = `${chainId}:${BigInt(`0x${data.slice(10)}`).toString()}`;
+      if (readings && readings.token === token) {
+        const next = readings.answers.shift();
+        if (readings.answers.length === 0) readings = null;
+        if (next === "down") throw new ChainUnavailableError();
+        if (next === null) return { revert: true };
+        if (next !== undefined) return { revert: false, result: `0x${"0".repeat(24)}${next.slice(2)}` };
+      }
       if (wrongOnce && wrongOnce.token === token) {
         const wrong = wrongOnce.owner;
         wrongOnce = null;
@@ -214,6 +223,7 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     chainDown = false;
     downChains.clear();
     wrongOnce = null;
+    readings = null;
     emptyAnswers = false;
     during = null;
     calls = [];
@@ -636,6 +646,96 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     clock = new Date(clock.getTime() + 24 * 3_600_000);
     expect((await daily()).revoked).toBe(1);
     expect(await claimOf(entryId)).toBeUndefined();
+  });
+
+  describe("two answers from the registry that disagree with each other (outside review of 2 November 2026, M4)", () => {
+    // The claimant is Alice and the chain would say so. Every case starts with an answer that is not Alice, so the registry is asked twice.
+    const cases = [
+      { name: "an owner, then another owner", answers: [BOB.address, CAROL.address], outcome: "waits" },
+      { name: "no token, then an owner", answers: [null, BOB.address], outcome: "waits" },
+      { name: "an owner, then no token", answers: [BOB.address, null], outcome: "waits" },
+      { name: "an owner, then the claimant", answers: [BOB.address, ALICE.address], outcome: "stays" },
+      { name: "the same owner twice", answers: [BOB.address, BOB.address], outcome: "owner_changed" },
+      { name: "no token twice", answers: [null, null], outcome: "token_gone" },
+      { name: "an owner, then the chain cannot be read", answers: [BOB.address, "down"], outcome: "chain" },
+    ] as const;
+    let token = 800;
+    /** A new claim by Alice, and every claim made so far settled first, so that a run of the daily check has only what the test sets up to act on. */
+    async function claimed() {
+      clock = new Date(clock.getTime() + 24 * 3_600_000);
+      await daily();
+      token += 1;
+      const entryId = await entry("src-rh", "erc8004", 4663, token, ALICE.address);
+      await claimAs(ALICE, entryId);
+      return { entryId, token: `4663:${token}` };
+    }
+
+    it.each(cases)("the daily check, $name", async ({ answers, outcome }) => {
+      const { entryId, token: key } = await claimed();
+      const claimedAt = (await claimOf(entryId))!.lastOwnerCheckAt;
+      clock = new Date(clock.getTime() + 24 * 3_600_000);
+      readings = { token: key, answers: [...answers] };
+
+      const run = await claims.recheckClaims(deps(), 1000);
+
+      expect(readings, "both answers were asked for").toBeNull();
+      if (outcome === "owner_changed" || outcome === "token_gone") {
+        expect(run).toMatchObject({ revoked: 1, unavailable: 0, stoppedBy: "done" });
+        expect(await claimOf(entryId)).toBeUndefined();
+        expect((await history(entryId)).filter(row => row.kind === "revoke")).toMatchObject([{ reason: outcome, wallet: outcome === "owner_changed" ? BOB.address : null }]);
+        return;
+      }
+      expect(run.revoked).toBe(0);
+      expect(await claimOf(entryId)).toMatchObject({ wallet: ALICE.address });
+      expect((await history(entryId)).map(row => row.kind)).toEqual(["claim"]);
+      if (outcome === "stays") {
+        expect(run).toMatchObject({ unavailable: 0, stoppedBy: "done" });
+        expect(await claimOf(entryId)).toMatchObject({ lastOwnerCheckAt: clock });
+      } else if (outcome === "chain") {
+        expect(run).toMatchObject({ stoppedBy: "chain" });
+        expect(run.unavailable).toBeGreaterThanOrEqual(1);
+        expect(await claimOf(entryId)).toMatchObject({ lastOwnerCheckAt: claimedAt });
+      } else {
+        // The chain answered, with two stories. The claim is not marked as checked, and the next run, with one story, settles it.
+        expect(run).toMatchObject({ unavailable: 1, stoppedBy: "done" });
+        expect(await claimOf(entryId)).toMatchObject({ lastOwnerCheckAt: claimedAt });
+        expect(await claims.recheckClaims(deps(), 1000)).toMatchObject({ revoked: 0, unavailable: 0, stoppedBy: "done" });
+        expect(await claimOf(entryId)).toMatchObject({ wallet: ALICE.address, lastOwnerCheckAt: clock });
+      }
+    });
+
+    it("asks about the other claims on the chain in the same run, and ends the one that changed hands", async () => {
+      const stuck = await claimed();
+      later(1);
+      token += 1;
+      const moved = await entry("src-rh", "erc8004", 4663, token, BOB.address);
+      await claimAs(BOB, moved);
+      clock = new Date(clock.getTime() + 24 * 3_600_000);
+      owners.set(`4663:${token}`, CAROL.address);
+      readings = { token: stuck.token, answers: [BOB.address, CAROL.address] };
+
+      const run = await claims.recheckClaims(deps(), 1000);
+
+      expect(run).toMatchObject({ revoked: 1, unavailable: 1, stoppedBy: "done" });
+      expect(await claimOf(moved)).toBeUndefined();
+      expect(await claimOf(stuck.entryId)).toMatchObject({ wallet: ALICE.address });
+    });
+
+    it("refuses an edit to try again, with the claim as it was and the message not spent, and takes the same message once the chain tells one story", async () => {
+      const { entryId, token: key } = await claimed();
+      const edit = { name: "Not yet" };
+      const issued = await request(entryId, ALICE.address, "edit", edit);
+      const send = () => claims.verifyAndEdit({ nonce: issued.nonce, message: issued.message, signature: ALICE.sign(issued.message), edit }, deps());
+      readings = { token: key, answers: [BOB.address, CAROL.address] };
+
+      expect(await code_(send)).toBe("CHAIN_UNAVAILABLE");
+
+      expect(await claimOf(entryId)).toMatchObject({ wallet: ALICE.address, name: null });
+      expect((await history(entryId)).map(row => row.kind)).toEqual(["claim"]);
+      expect((await writer.select().from(schema.agentClaimNonces).where(eq(schema.agentClaimNonces.nonceHash, sha256(issued.nonce))))[0]!.usedAt).toBeNull();
+      expect(await send()).toMatchObject({ changed: 1 });
+      expect(await claimOf(entryId)).toMatchObject({ name: "Not yet" });
+    });
   });
 
   it("takes an empty answer from the registry for an outage on an edit and in the daily check, and the claim stays", async () => {

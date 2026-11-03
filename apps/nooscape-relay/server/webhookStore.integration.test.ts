@@ -532,4 +532,161 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
       expect(await pass.runWebhookPass(deps)).toMatchObject({ created: 0, sent: 0 });
     });
   });
+
+  /**
+   * The reads a page at a time, with a page of a few rows so that real rows fill it (outside review of 2 November 2026, M2). The pass
+   * itself is held to the same by webhookPass.test.ts with the ledgers in memory; these hold the SQL to it: the order, the position a full
+   * page reports, and a real pass working a backlog off.
+   */
+  describe("a page at a time", () => {
+    let events: typeof import("./webhookEvents");
+    // Whole seconds, in the last hour, so that a watch made an hour ago is owed all of it.
+    const BASE = Math.floor((Date.now() - 40 * 60_000) / 1000) * 1000;
+    const at = (n: number) => new Date(BASE + n * 1000);
+    const SINCE = new Date(BASE - 60_000);
+
+    beforeAll(async () => {
+      events = await import("./webhookEvents");
+      for (const [id, key] of [["pg-1", 950], ["pg-2", 951], ["pg-3", 952], ["pg-tie", 953]] as const) await entry(id, "src-rh", "erc8004", RH_KEY(key));
+      const edit = (id: string, entryId: string) => ({ id, claimId: `claim-${entryId}`, entryId, kind: "edit", field: "name", oldValue: "a", newValue: "b", wallet: WALLET, reason: null });
+      // One insert each, so that the sequence numbers follow this order: listing 1 three times, listing 2 twice, listing 1 four times, listing 3 twice.
+      const order = ["pg-1", "pg-1", "pg-1", "pg-2", "pg-2", "pg-1", "pg-1", "pg-1", "pg-1", "pg-3", "pg-3"];
+      for (const [index, entryId] of order.entries()) await writer.insert(schema.agentClaimEdits).values(edit(`pg-edit-${index + 1}`, entryId));
+      const move = (id: string, key: number, when: Date) => ({ id, sourceId: "src-rh", transactionHash: `0x${id}`, logIndex: 0, kind: "secondary" as const, blockNumber: 900_000, externalKey: RH_KEY(key), fromAddress: OTHER, toAddress: WALLET, createdAt: when });
+      await writer.insert(schema.agentDirectoryChainActivity).values([
+        ...[1, 2, 3, 4, 5, 6, 7].map(n => move(`pg-t${n}`, 950, at(n))),
+        ...[1, 2, 3, 4, 5].map(n => move(`pg-u${n}`, 952, at(n))),
+        // Three rows in one second: the page is ordered by time and then by id, so the order is the same every time.
+        move("pg-tie-b", 953, at(1)),
+        move("pg-tie-a", 953, at(1)),
+        move("pg-tie-c", 953, at(1)),
+      ]);
+      const rate = (id: string, agentId: number, n: number) => ({ id, sourceId: "src-rh", transactionHash: `0x${id}`, logIndex: 0, kind: "new_feedback" as const, blockNumber: 500, agentId, clientAddress: OTHER, feedbackIndex: n, createdAt: at(n) });
+      await writer.insert(schema.agentReputationEvents).values([...[1, 2, 3, 4, 5].map(n => rate(`pg-r${n}`, 950, n)), ...[1, 2, 3].map(n => rate(`pg-s${n}`, 952, n))]);
+    });
+
+    it("reads the claim history a page at a time, oldest first, each page after the last one, to the end and no row twice", async () => {
+      const all = await source.claimEdits(0, ["pg-1", "pg-2"], SINCE);
+      expect(all.full).toBe(false);
+      expect(all.rows).toHaveLength(9);
+      const small = events.createDbEventSource(4);
+      const seen: number[] = [];
+      let after = 0;
+      for (let pages = 1; ; pages += 1) {
+        const page = await small.claimEdits(after, ["pg-1", "pg-2"], SINCE);
+        seen.push(...page.rows.map(row => row.seq));
+        if (!page.full) break;
+        expect(page.through).toBe(page.rows[page.rows.length - 1]!.seq);
+        expect(page.through!).toBeGreaterThan(after);
+        after = page.through!;
+        expect(pages).toBeLessThan(10);
+      }
+      expect(seen).toEqual(all.rows.map(row => row.seq));
+    });
+
+    it("counts a page that is exactly full as full, and finds nothing after it", async () => {
+      const exact = events.createDbEventSource(9);
+      const page = await exact.claimEdits(0, ["pg-1", "pg-2"], SINCE);
+      expect(page).toMatchObject({ full: true, through: page.rows[8]!.seq });
+      expect(await exact.claimEdits(page.through!, ["pg-1", "pg-2"], SINCE)).toEqual({ rows: [], full: false });
+    });
+
+    it("goes no further than the listing that filled its page when there are two chunks: the other chunk's later rows come with it, and are read again next time", async () => {
+      // 201 listings are two chunks of 200 and one. Listing 1 is in the first, listing 2 is the last of all.
+      const ids = ["pg-1", ...Array.from({ length: 199 }, (_, index) => `nobody-${index}`), "pg-2"];
+      const small = events.createDbEventSource(3);
+      const first = await small.claimEdits(0, ids, SINCE);
+      expect(first.full).toBe(true);
+      const seqOf = (id: string) => first.rows.find(row => row.entryId === id)!.seq;
+      expect(first.rows.map(row => row.entryId)).toEqual(["pg-1", "pg-1", "pg-1", "pg-2", "pg-2"]);
+      // Listing 2 is read to its end, past the point listing 1 got to.
+      expect(first.through).toBe(first.rows[2]!.seq);
+      expect(first.rows[3]!.seq).toBeGreaterThan(first.through!);
+      expect(seqOf("pg-2")).toBeGreaterThan(first.through!);
+
+      const second = await small.claimEdits(first.through!, ids, SINCE);
+      expect(second).toMatchObject({ full: true, through: second.rows[2]!.seq });
+      expect(second.rows.map(row => row.entryId)).toEqual(["pg-1", "pg-1", "pg-1", "pg-2", "pg-2"]);
+
+      const third = await small.claimEdits(second.through!, ids, SINCE);
+      expect(third.full).toBe(false);
+      expect(third.rows.map(row => row.entryId)).toEqual(["pg-1"]);
+    });
+
+    it("reads ownership changes a page at a time by time and then id, each page starting at the time the last one ended on", async () => {
+      const entries = await source.entries(["pg-1"]);
+      const small = events.createDbEventSource(3);
+      const refs: string[] = [];
+      let since = SINCE;
+      for (let pages = 1; ; pages += 1) {
+        const page = await small.transfers(since, entries);
+        refs.push(...page.rows.map(row => row.ref));
+        if (!page.full) break;
+        expect(page.through).toBe(page.rows[page.rows.length - 1]!.createdAt.getTime());
+        expect(page.through!).toBeGreaterThan(since.getTime());
+        since = new Date(page.through!);
+        expect(pages).toBeLessThan(10);
+      }
+      // The row a page ends on is the first of the next, so it is read twice and found already delivered.
+      expect(refs).toEqual(["own:pg-t1", "own:pg-t2", "own:pg-t3", "own:pg-t3", "own:pg-t4", "own:pg-t5", "own:pg-t5", "own:pg-t6", "own:pg-t7", "own:pg-t7"]);
+    });
+
+    it("reads ratings a page at a time the same way", async () => {
+      const entries = await source.entries(["pg-1"]);
+      const small = events.createDbEventSource(2);
+      const refs: string[] = [];
+      let since = SINCE;
+      for (let pages = 1; ; pages += 1) {
+        const page = await small.ratings(since, entries);
+        refs.push(...page.rows.map(row => row.ref));
+        if (!page.full) break;
+        since = new Date(page.through!);
+        expect(pages).toBeLessThan(10);
+      }
+      expect([...new Set(refs)]).toEqual([1, 2, 3, 4, 5].map(n => `fb:pg-r${n}`));
+    });
+
+    it("puts rows from the same second in the order of their ids", async () => {
+      const entries = await source.entries(["pg-tie"]);
+      const page = await events.createDbEventSource(3).transfers(SINCE, entries);
+      expect(page.rows.map(row => row.ref)).toEqual(["own:pg-tie-a", "own:pg-tie-b", "own:pg-tie-c"]);
+      expect(page).toMatchObject({ full: true, through: at(1).getTime() });
+    });
+
+    it("works a backlog off over several runs of the real pass: every change told once, and the place it was working from cleared at the end", async () => {
+      await raw("DELETE FROM api_deliveries");
+      await raw("DELETE FROM api_watches");
+      await raw("DELETE FROM api_webhooks");
+      await raw("DELETE FROM api_event_cursors");
+      await store.addWatches("key-p", ["pg-3"]);
+      await store.setWebhook("key-p", "https://hooks.example.com/paged");
+      await raw("UPDATE api_watches SET createdAt = DATE_SUB(NOW(), INTERVAL 1 HOUR)");
+      const sent: string[] = [];
+      const deps = {
+        signingKey: SIGNING_KEY,
+        source: events.createDbEventSource(3),
+        send: async (_url: string, input: { body: string; headers: Record<string, string> }) => {
+          sent.push(JSON.parse(input.body).type);
+          return { ok: true as const, status: 200 };
+        },
+      };
+      const full: string[][] = [];
+      for (let runs = 1; ; runs += 1) {
+        const report = await pass.runWebhookPass(deps);
+        full.push(report.fullReads);
+        if (report.fullReads.length === 0) break;
+        expect(runs).toBeLessThan(10);
+      }
+      // Five ownership changes at three a page, three ratings at three a page (exactly full, so one more run), two claim edits.
+      expect(full.length).toBeGreaterThan(1);
+      expect(sent.filter(type => type === "ownership.changed")).toHaveLength(5);
+      expect(sent.filter(type => type === "feedback.added")).toHaveLength(3);
+      expect(sent.filter(type => type === "claim.changed")).toHaveLength(2);
+      expect(await raw("SELECT COUNT(*) AS n FROM api_deliveries")).toEqual([{ n: 10 }]);
+      expect(await raw("SELECT COUNT(*) AS n FROM api_deliveries WHERE status = 'sent'")).toEqual([{ n: 10 }]);
+      expect(await raw("SELECT position FROM api_event_cursors WHERE name = 'ledgersResume'")).toEqual([{ position: "" }]);
+      // Worked off: the next run finds nothing new.
+      expect(await pass.runWebhookPass(deps)).toMatchObject({ created: 0, sent: 0, fullReads: [] });
+    });
+  });
 });

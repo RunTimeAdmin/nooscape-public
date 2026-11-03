@@ -325,13 +325,30 @@ async function ownerNow(deps: ClaimDeps, target: ClaimTarget): Promise<string | 
 }
 
 /**
+ * Two readings of the registry's owner that differ from each other, and neither names the claimant. They settle nothing, so nothing is
+ * ended. To a caller it is the chain not answering (the same code and words: try again later); the daily check tells it apart and leaves
+ * only this claim for the next run, since the chain itself did answer.
+ */
+class OwnersDisagree extends ClaimError {
+  constructor() {
+    super("CHAIN_UNAVAILABLE", CLAIM_MESSAGES.CHAIN_UNAVAILABLE);
+    this.name = "OwnersDisagree";
+  }
+}
+
+/**
  * The owner as the registry records it, for a claim that is about to be ended: asked twice when the first answer is not the claimant,
- * so one wrong answer (a node that lags, a provider that blips) does not end a claim and discard what its owner wrote. Both answers
- * must say the same thing; the second is the one acted on.
+ * so one wrong answer (a node that lags, a provider that blips) does not end a claim and discard what its owner wrote. A claim ends
+ * only on two answers that agree. A second answer that names the claimant keeps it, and two that differ from each other (a new owner
+ * and then another, an owner and then no token) are refused as OwnersDisagree: it takes a node that is not telling one story to get
+ * them, and the claim waits for a clear one.
  */
 async function ownerBeforeRevoking(deps: ClaimDeps, target: ClaimTarget, claimant: string): Promise<string | null> {
   const first = await ownerNow(deps, target);
-  return first === claimant ? first : ownerNow(deps, target);
+  if (first === claimant) return first;
+  const second = await ownerNow(deps, target);
+  if (second === claimant || second === first) return second;
+  throw new OwnersDisagree();
 }
 
 // ---------------------------------------------------------------- 3. making the claim
@@ -452,7 +469,10 @@ export async function verifyAndEdit(input: { nonce: string; message: string; sig
 
 // ---------------------------------------------------------------- 5. the daily check of owners
 
-/** `unavailable` is how many chains could not be read in the run, and `stoppedBy` is "chain" when there was one (the others were still asked about). */
+/**
+ * `unavailable` is how many chains could not be read in the run plus how many claims had two readings that disagree, and `stoppedBy` is
+ * "chain" when a chain could not be read (the others were still asked about).
+ */
 type RecheckResult = { checked: number; revoked: number; unavailable: number; stoppedBy: "done" | "chain" };
 
 /** Driver errors carry their parameters after the statement; a log line keeps the statement and not the values. */
@@ -493,6 +513,11 @@ export async function recheckClaims(deps: ClaimDeps = workerClaimDeps, limit = R
         try {
           owner = await ownerBeforeRevoking(deps, target, claim.wallet);
         } catch (error) {
+          // The chain answered, with two stories: this claim is left as it is for the next run, and the others on the chain are still asked.
+          if (error instanceof OwnersDisagree) {
+            result.unavailable += 1;
+            continue;
+          }
           if (!(error instanceof ClaimError && error.code === "CHAIN_UNAVAILABLE")) throw error;
           result.unavailable += 1;
           result.stoppedBy = "chain";

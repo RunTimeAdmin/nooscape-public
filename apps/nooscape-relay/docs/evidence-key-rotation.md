@@ -17,7 +17,9 @@ Nooscape signs every evidence packet with one Ed25519 key. This note covers chan
 | `revoked` | false, with a stated reason | Do not rely on it. Wins over every other status. |
 | `unknown` | false | Not a Nooscape key, or a copied key id with another key. |
 
-`issuedByCurrentRelay` means "signed by the key that signs today". A packet from a retired key is `verifiedByNooscape: true` and `issuedByCurrentRelay: false`. A publisher's standing (`publisherKeyAllowlisted`) counts only on packets from the active key, because a standing is a present-tense claim and an old packet cannot vouch for it.
+`issuedByCurrentRelay` means "signed by the key that signs today". A packet from a retired key is `verifiedByNooscape: true` and `issuedByCurrentRelay: false`. A publisher's standing (`publisherKeyAllowlisted`) counts only on packets from the active key. That ties it to key rotation and not to the clock. It is the standing the relay held when it issued the packet, signed with the packet, and the verifier does not look the publisher up again, so a packet from a key that is still active keeps the standing after the publisher is revoked, until the key rotates. Read it as "allowlisted when this packet was issued"; for the standing now, ask for a fresh packet. No publisher key has been granted, so nothing shows this today.
+
+Two more things a packet does not say (outside evaluation of 2 November 2026, `outside-evaluation-2026-11-02.md`). It has no signed issue time: `observedAt` is the time of its newest observation, and `exportedAt` is added by the browser when the file is saved and is outside the signed bytes. And `sequence` is the number of entries, printed beside the signed bytes and not inside them, so it can be changed without breaking the signature: it is a label, not a checkpoint or a counter against replay. `entryCount` in the verifier's answer counts the signed entries. The retention line (`GOVERNANCE / 90 days per observation`) is read from `NOOSCAPE_EVIDENCE_RETENTION_DAYS` when the packet is built, and says 90 when it is not set.
 
 ## Rotating the key
 
