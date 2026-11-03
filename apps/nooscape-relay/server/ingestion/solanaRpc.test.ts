@@ -66,6 +66,108 @@ describe("callSolanaRpc", () => {
 });
 
 /**
+ * The body is read as a stream and cut off at 16 MiB of bytes. It used to be `response.text()` followed by a length check, so a provider
+ * that sent no length and went on sending was held in memory to the end before anything was refused, and the check counted characters
+ * (outside review of 2 November 2026, L1).
+ */
+describe("the response body cap", () => {
+  const CAP = 16 * 1024 * 1024;
+  const json = { "content-type": "application/json" };
+  const TOO_LARGE = "Solana getVersion response exceeds the 16 MiB response limit.";
+  /** A JSON object of exactly `bytes` ASCII bytes: 11 characters before the filler and 2 after. */
+  const objectOf = (bytes: number) => `{"result":"${"a".repeat(bytes - 13)}"}`;
+  const serves = (body: BodyInit | null, headers: Record<string, string> = json) => vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status: 200, headers })));
+  const call = () => callSolanaRpc("getVersion", [], { rpcUrl: "https://rpc.example" });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("accepts a body of exactly 16 MiB and refuses one byte more", async () => {
+    serves(objectOf(CAP));
+    expect(((await call()) as { result: string }).result).toHaveLength(CAP - 13);
+
+    serves(objectOf(CAP + 1));
+    await expect(call()).rejects.toThrow(TOO_LARGE);
+    await expect(call()).rejects.toBeInstanceOf(SolanaRpcValidationError);
+  });
+
+  it("counts bytes and not characters", async () => {
+    // 6,000,000 characters of 3 bytes each: 18,000,000 bytes, under the cap as a character count.
+    serves(`{"result":"${"€".repeat(6_000_000)}"}`);
+    await expect(call()).rejects.toThrow(TOO_LARGE);
+  });
+
+  it("stops reading a body that runs on past the cap, and cancels it", async () => {
+    let pulled = 0;
+    let cancelled = false;
+    // 64 MiB in 1 MiB chunks, with no length: finite so that a regression to reading it whole fails this test and does not fill the memory.
+    const long = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        if (pulled > 64) controller.close();
+        else controller.enqueue(new Uint8Array(1024 * 1024).fill(97));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    serves(long);
+
+    await expect(call()).rejects.toThrow(TOO_LARGE);
+
+    expect(cancelled).toBe(true);
+    // 17 MiB passes the cap; the stream may be one chunk ahead of the reader. It is not read on.
+    expect(pulled).toBeLessThanOrEqual(19);
+  });
+
+  it("refuses a declared length over the cap without reading the body", async () => {
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(new Uint8Array(10));
+      },
+    });
+    serves(body, { ...json, "content-length": String(CAP + 1) });
+
+    await expect(call()).rejects.toThrow(TOO_LARGE);
+
+    // A stream asks for its first chunk when it is made; the reader never asks for more.
+    expect(pulled).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps the request timer armed while a streamed body stalls", async () => {
+    // The stream errors when the request's abort signal fires, as the platform's does: a body that stops mid-stream times out like a slow header.
+    const fetchMock = vi.fn(
+      async (_url: unknown, init: { signal: AbortSignal }) =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              init.signal.addEventListener("abort", () => controller.error(new DOMException("The operation was aborted", "AbortError")));
+            },
+          }),
+          { status: 200, headers: json }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+    const verdict = call().then(
+      () => {
+        throw new Error("expected the stalled body to time out");
+      },
+      (error: unknown) => error
+    );
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect((await verdict as Error).message).toBe("Solana getVersion request timed out.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
  * Solana mainnet carries version 1 transactions (about one in six in a block sampled on 2026-10-16). A getTransaction that
  * names version 0 as the newest it supports is answered with error -32015 for each of them, and that error used to fail the
  * whole 8004 pass. The real answer of api.mainnet-beta.solana.com is the fixture.

@@ -278,6 +278,28 @@ describe("the connection", () => {
     expect(CHECKER_USER_AGENT).toMatch(/^Nooscape-Checker\/[\d.]+ \(\+https:\/\/nooscape\.si\/checker\)$/);
   });
 
+  it("sends the user agent a GET names when it is plain text, and the checker's own when none is given or the one given is not", async () => {
+    const { resolve } = dns({ "a.example.com": [PUBLIC_A] });
+    const indexer = "Nooscape-Source-Indexer/0.1 (+https://nooscape.si)";
+    const withLineBreak = `a${String.fromCharCode(13, 10)}Cookie: x=y`;
+    const cases: Array<[string | undefined, string]> = [
+      [indexer, indexer],
+      [undefined, CHECKER_USER_AGENT],
+      [withLineBreak, CHECKER_USER_AGENT],
+      ["x".repeat(201), CHECKER_USER_AGENT],
+      ["", CHECKER_USER_AGENT],
+    ];
+    for (const [asked, sent] of cases) {
+      const { request, seen } = scripted([{}]);
+      await safeFetch("https://a.example.com/", asked === undefined ? {} : { userAgent: asked }, { resolve, request });
+      expect(seen[0]!.headers).toMatchObject({ "user-agent": sent });
+    }
+    // A HEAD names it the same way.
+    const { request, seen } = scripted([{}]);
+    await safeFetch("https://a.example.com/", { method: "HEAD", userAgent: indexer }, { resolve, request });
+    expect(seen[0]!.headers).toMatchObject({ "user-agent": indexer });
+  });
+
   it("takes an Accept header of plain media-type characters and nothing else", async () => {
     const { resolve } = dns({ "a.example.com": [PUBLIC_A] });
     for (const accept of ["text/html\r\nCookie: a=b", "x".repeat(300), "<script>"]) {

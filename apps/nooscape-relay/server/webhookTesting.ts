@@ -13,6 +13,8 @@ export function memoryWebhookStore(keys: Record<string, MemoryKey> = {}, clock: 
   const watches = new Map<string, WatchRow & { keyId: string }>();
   const webhooks = new Map<string, WebhookRow>();
   const deliveries = new Map<string, DeliveryRow>();
+  /** The key and event of every delivery held, so that a row already there is found without reading them all. */
+  const events = new Set<string>();
   const cursors = new Map<string, string>();
   let seq = 0;
   let ready = true;
@@ -91,7 +93,9 @@ export function memoryWebhookStore(keys: Record<string, MemoryKey> = {}, clock: 
     insertDeliveries: async rows => {
       let inserted = 0;
       for (const row of rows) {
-        if (Array.from(deliveries.values()).some(existing => existing.keyId === row.keyId && existing.eventRef === row.eventRef)) continue;
+        const event = `${row.keyId}|${row.eventRef}`;
+        if (events.has(event)) continue;
+        events.add(event);
         seq += 1;
         const now = clock();
         deliveries.set(row.id, { ...row, seq, status: "pending", attempts: 0, nextAttemptAt: now, lastStatus: null, lastError: null, createdAt: now, sentAt: null });
@@ -130,6 +134,7 @@ export function memoryWebhookStore(keys: Record<string, MemoryKey> = {}, clock: 
       Array.from(deliveries.entries()).forEach(([id, row]) => {
         if (row.createdAt.getTime() >= before.getTime()) return;
         deliveries.delete(id);
+        events.delete(`${row.keyId}|${row.eventRef}`);
         removed += 1;
       });
       return removed;
@@ -156,18 +161,43 @@ export type MemoryLedgers = {
   claims: ClaimEditFact[];
   transfers: TransferFact[];
   ratings: RatingFact[];
-  /** When set, the reads answer as if they stopped at the limit. */
+  /** When set, the reads answer as if they stopped at the limit, and do not say how far they got. */
   full?: { claims?: boolean; transfers?: boolean; ratings?: boolean };
 };
 
-export function memoryEventSource(ledgers: MemoryLedgers): EventSource {
-  const found = <T>(rows: T[], full: boolean | undefined): Found<T> => ({ rows, full: Boolean(full) });
+/**
+ * The reads of the database source, in memory: oldest first, a chunk of listings at a time, a page of `limit` rows for each chunk, and a
+ * read that fills a page for any chunk says how far it got (the lowest point among the chunks that filled theirs). The defaults are the
+ * database's: 5,000 rows to a page and 200 listings to a chunk.
+ */
+export function memoryEventSource(ledgers: MemoryLedgers, options: { limit?: number; chunk?: number } = {}): EventSource {
+  const limit = options.limit ?? 5_000;
+  const chunk = options.chunk ?? 200;
+  const read = <T>(asked: string[], rowsFor: (ids: string[]) => T[], position: (row: T) => number, tie: (row: T) => string, forced: boolean | undefined): Found<T> => {
+    const rows: T[] = [];
+    let through: number | undefined;
+    for (let start = 0; start < asked.length; start += chunk) {
+      const matching = rowsFor(asked.slice(start, start + chunk)).sort((a, b) => position(a) - position(b) || tie(a).localeCompare(tie(b)));
+      if (forced) {
+        rows.push(...matching);
+        continue;
+      }
+      const page = matching.slice(0, limit);
+      if (page.length >= limit) through = Math.min(through ?? Infinity, position(page[page.length - 1]!));
+      rows.push(...page);
+    }
+    if (forced) return { rows, full: true };
+    return through === undefined ? { rows, full: false } : { rows, full: true, through };
+  };
   return {
     entries: async ids => ledgers.entries.filter(entry => ids.includes(entry.id)),
     maxClaimSeq: async () => ledgers.claims.reduce((top, row) => Math.max(top, row.seq), 0),
-    claimEdits: async (afterSeq, entryIds, since) => found(ledgers.claims.filter(row => row.seq > afterSeq && row.occurredAt.getTime() >= since.getTime() && entryIds.includes(row.entryId)), ledgers.full?.claims),
-    transfers: async (since, entries) => found(ledgers.transfers.filter(row => row.createdAt.getTime() >= since.getTime() && entries.some(entry => entry.id === row.entryId)), ledgers.full?.transfers),
-    ratings: async (since, entries) => found(ledgers.ratings.filter(row => row.createdAt.getTime() >= since.getTime() && entries.some(entry => entry.id === row.entryId)), ledgers.full?.ratings),
+    claimEdits: async (afterSeq, entryIds, since) =>
+      read(entryIds, ids => ledgers.claims.filter(row => row.seq > afterSeq && row.occurredAt.getTime() >= since.getTime() && ids.includes(row.entryId)), row => row.seq, row => String(row.seq).padStart(12, "0"), ledgers.full?.claims),
+    transfers: async (since, entries) =>
+      read(entries.map(entry => entry.id), ids => ledgers.transfers.filter(row => row.createdAt.getTime() >= since.getTime() && ids.includes(row.entryId)), row => row.createdAt.getTime(), row => row.ref, ledgers.full?.transfers),
+    ratings: async (since, entries) =>
+      read(entries.map(entry => entry.id), ids => ledgers.ratings.filter(row => row.createdAt.getTime() >= since.getTime() && ids.includes(row.entryId)), row => row.createdAt.getTime(), row => row.ref, ledgers.full?.ratings),
   };
 }
 

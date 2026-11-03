@@ -36,7 +36,7 @@ It states facts and never a verdict.
 - **Payment changes nothing.** A key, a payment or a claim never changes a record, a tier or an evidence level.
 - **Every answer says when it was read and where from.**
 
-On 2 November 2026 the atlas listed 60,174 agents from the chain registries (Robinhood Chain 20,469, Solana 17,793, Base 9,153, BNB Chain 6,961, Ethereum 5,207, Arc 447, Monad 144), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
+On 3 November 2026 the atlas listed 60,257 agents from the chain registries (Robinhood Chain 20,543, Solana 17,795, Base 9,159, BNB Chain 6,961, Ethereum 5,207, Arc 448, Monad 144), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
 
 ## See it
 
@@ -141,7 +141,7 @@ With no `DATABASE_URL` the server starts in a local tooling mode: the pages load
 
 ```bash
 pnpm check          # typecheck of the source and of the tests
-pnpm test           # more than 4,900 tests
+pnpm test           # more than 5,000 tests
 ```
 
 The tests that need a database use `mysql://root:nooscape@127.0.0.1:3307` and skip when none is reachable. CI runs the same checks against a throwaway MySQL 8 and builds the app.
@@ -190,4 +190,4 @@ The code is released under the [MIT License](LICENSE). The data Nooscape serves 
 
 ## About this repository
 
-This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 2 November 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.
+This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 3 November 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.

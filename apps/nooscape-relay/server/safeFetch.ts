@@ -83,9 +83,10 @@ export type SafeFetchReason =
 
 export type SafeFetchOptions = {
   method?: "GET" | "HEAD" | "POST";
-  /** POST only: what is sent (at most 64 KiB), the headers it carries (a few plain ones: no host, cookie or framing header), and the user agent. */
+  /** POST only: what is sent (at most 64 KiB) and the headers it carries (a few plain ones: no host, cookie or framing header). */
   body?: string;
   headers?: Record<string, string>;
+  /** Who is asking: plain text of at most 200 characters. A POST with one that is not is refused; a GET or HEAD falls back to the checker's. */
   userAgent?: string;
   /** One deadline for the whole chain: DNS, every hop and every body. It can be made shorter than 5 seconds and not longer. */
   timeoutMs?: number;
@@ -248,7 +249,7 @@ function pickHeaders(raw: IncomingHttpHeaders): Record<string, string> {
 /** One request to the addresses that were checked, under what is left of the deadline. */
 function requestOnce(
   target: Target,
-  settings: { method: "GET" | "HEAD" | "POST"; accept: string; maxBodyBytes: number; post: { body: Buffer; headers: Record<string, string>; userAgent: string } | null },
+  settings: { method: "GET" | "HEAD" | "POST"; accept: string; userAgent: string; maxBodyBytes: number; post: { body: Buffer; headers: Record<string, string>; userAgent: string } | null },
   remainingMs: number,
   deps: SafeFetchDeps
 ): Promise<Hop> {
@@ -285,7 +286,7 @@ function requestOnce(
           path: `${url.pathname}${url.search}`,
           headers: {
             ...(settings.post ? settings.post.headers : {}),
-            "user-agent": settings.post?.userAgent ?? CHECKER_USER_AGENT,
+            "user-agent": settings.post?.userAgent ?? settings.userAgent,
             accept: settings.accept,
             "accept-encoding": "identity",
             connection: "close",
@@ -384,6 +385,8 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}, 
   const settings = {
     method: options.method === "HEAD" ? "HEAD" : options.method === "POST" ? "POST" : "GET",
     accept: options.accept !== undefined && ACCEPT_PATTERN.test(options.accept) ? options.accept : "*/*",
+    // A GET or HEAD may name who is asking too (the source indexer does), in plain text; anything else is the checker's own.
+    userAgent: options.userAgent !== undefined && POST_USER_AGENT.test(options.userAgent) ? options.userAgent : CHECKER_USER_AGENT,
     maxBodyBytes: bounded(options.maxBodyBytes, SAFE_FETCH_MAX_BODY_BYTES, 0, SAFE_FETCH_MAX_BODY_CEILING),
     post: post && post.ok ? post.value : null,
   } as const;

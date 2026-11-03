@@ -26,6 +26,18 @@ function normalizeKey(relKey: string): string {
 }
 
 /**
+ * How many days an evidence object is kept under lock: NOOSCAPE_EVIDENCE_RETENTION_DAYS, or 90 when it is not set. The retention line of
+ * a signed envelope is read from here too, so what the envelope says is what storage asks for.
+ */
+export function evidenceRetentionDays(): number {
+  const retentionDays = Number(ENV.nooscapeEvidenceRetentionDays || "90");
+  if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365) {
+    throw new Error("NOOSCAPE_EVIDENCE_RETENTION_DAYS must be an integer between 1 and 365.");
+  }
+  return retentionDays;
+}
+
+/**
  * Returns production storage settings only when the configuration is complete.
  * A partial configuration fails closed instead of silently writing evidence to a
  * different backend.
@@ -49,18 +61,13 @@ export function getProductionStorageConfig(): ProductionStorageConfig | null {
     throw new Error("Nooscape production S3 configuration is incomplete.");
   }
 
-  const retentionDays = Number(ENV.nooscapeEvidenceRetentionDays || "90");
-  if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365) {
-    throw new Error("NOOSCAPE_EVIDENCE_RETENTION_DAYS must be an integer between 1 and 365.");
-  }
-
   return {
     endpoint: ENV.nooscapeS3Endpoint.replace(/\/+$/, ""),
     region: ENV.nooscapeS3Region || "us-east-1",
     bucket: ENV.nooscapeS3Bucket,
     accessKeyId: ENV.nooscapeS3AccessKey,
     secretAccessKey: ENV.nooscapeS3SecretKey,
-    retentionDays,
+    retentionDays: evidenceRetentionDays(),
   };
 }
 

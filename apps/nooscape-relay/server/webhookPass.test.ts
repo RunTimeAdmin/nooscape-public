@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { plan, runWebhookPass, type PassDeps, type SendResult } from "./webhookPass";
+import { READ_LIMIT } from "./webhookEvents";
+import { SEQ_OVERLAP, plan, runWebhookPass, type PassDeps, type SendResult } from "./webhookPass";
 import { LIVE_WATCH_LIMIT, type DeliveryRow } from "./webhookStore";
 import { ARC_ENTRY, BASE_ENTRY, ETHEREUM_ENTRY, ROBINHOOD_ENTRY, SOLANA_ENTRY, memoryEventSource, memoryWebhookStore, type MemoryLedgers } from "./webhookTesting";
 import { DISABLE_AFTER_FAILURES, RETRY_AFTER_SECONDS, signature, signingSecret } from "./webhooks";
@@ -575,6 +576,147 @@ describe("what it reads and how far", () => {
     r.advance(10 * MINUTE);
     r.ledgers.transfers.push({ ref: "own:late", entryId: ROBINHOOD_ENTRY.id, from: "0xa", to: "0xb", blockNumber: 1, transactionRef: "0x1", isHandout: false, createdAt: new Date(T0.getTime() + 5 * MINUTE) });
     expect(await r.run()).toMatchObject({ created: 1, sent: 1 });
+  });
+});
+
+/**
+ * A read that fills its page used to leave the cursor where it was, so the next run read the same page again and never reached the
+ * rows after it (outside review of 2 November 2026, M2: with 5,001 claim edits the last one was never seen). A full page now says how
+ * far it got, the cursor goes there, and the next run reads on.
+ */
+describe("a backlog bigger than a page", () => {
+  const at = new Date(T0.getTime() + 30_000);
+  const second = (n: number) => new Date(T0.getTime() + MINUTE + n * 1_000);
+  const transfer = (n: number, entryId = ROBINHOOD_ENTRY.id) => ({ ref: `own:t${n}`, entryId, from: "0xa", to: "0xb", blockNumber: n, transactionRef: `0x${n}`, isHandout: false, createdAt: second(n) });
+  const rating = (n: number) => ({ ref: `fb:r${n}`, entryId: ROBINHOOD_ENTRY.id, kind: "added" as const, createdAt: second(n) });
+
+  it("reads a page larger than the overlap each run goes back over, which is what makes a full page a step forward", () => {
+    expect(READ_LIMIT).toBe(5_000);
+    expect(READ_LIMIT).toBeGreaterThan(SEQ_OVERLAP);
+  });
+
+  it.each([0, 4_999, 5_000, 5_001, 50_000])("delivers %i claim edits, each once, and every full page moves the cursor on", async count => {
+    const r = rig();
+    await r.watch("key-b");
+    r.advance(MINUTE);
+    for (let seq = 1; seq <= count; seq += 1) r.ledgers.claims.push(claimEdit(seq, at));
+    let created = 0;
+    let cursor = 0;
+    let runs = 0;
+    for (;;) {
+      runs += 1;
+      const report = await r.run();
+      created += report.created;
+      const next = Number(r.mem.cursors.get("claims") ?? 0);
+      const full = report.fullReads.includes("claims");
+      if (full) expect(next, `run ${runs} moved on`).toBeGreaterThan(cursor);
+      cursor = next;
+      if (!full) break;
+      expect(runs, "a backlog of this size ends").toBeLessThan(30);
+    }
+    expect(created).toBe(count);
+    expect(cursor).toBe(count);
+    expect(new Set(r.mem.all().map(delivery => delivery.eventRef)).size).toBe(count);
+    expect(runs).toBeLessThanOrEqual(Math.ceil(count / (READ_LIMIT - SEQ_OVERLAP)) + 1);
+  });
+
+  it("works through ownership changes a page at a time, in the order they were written, and then takes its ordinary cursor back", async () => {
+    const r = rig();
+    await r.watch("key-b");
+    r.advance(MINUTE);
+    for (let n = 1; n <= 8; n += 1) r.ledgers.transfers.push(transfer(n));
+    const source = memoryEventSource(r.ledgers, { limit: 3 });
+    const steps: Array<{ created: number; full: string[]; resume: string | undefined; ledgers: string | undefined }> = [];
+    for (let run = 0; run < 4; run += 1) {
+      const report = await r.run({ source });
+      steps.push({ created: report.created, full: report.fullReads, resume: r.mem.cursors.get("ledgersResume"), ledgers: r.mem.cursors.get("ledgers") });
+      r.advance(MINUTE);
+    }
+    // Each page starts at the row the last one ended on (the time is only to the second, so that row is read again and found already there).
+    expect(steps).toEqual([
+      { created: 3, full: ["transfers"], resume: second(3).toISOString(), ledgers: undefined },
+      { created: 2, full: ["transfers"], resume: second(5).toISOString(), ledgers: undefined },
+      { created: 2, full: ["transfers"], resume: second(7).toISOString(), ledgers: undefined },
+      { created: 1, full: [], resume: "", ledgers: new Date(T0.getTime() + 4 * MINUTE).toISOString() },
+    ]);
+    expect(r.mem.all().map(delivery => delivery.eventRef)).toEqual([1, 2, 3, 4, 5, 6, 7, 8].map(n => `own:t${n}`));
+    // Drained: the next run starts from the ordinary cursor, reads back over its 15 minutes (eight rows, one page at the real size), and finds nothing new.
+    expect(await r.run()).toMatchObject({ created: 0, fullReads: [] });
+  });
+
+  it("works through ratings a page at a time as well", async () => {
+    const r = rig();
+    await r.watch("key-b");
+    r.advance(MINUTE);
+    for (let n = 1; n <= 4; n += 1) r.ledgers.ratings.push(rating(n));
+    const source = memoryEventSource(r.ledgers, { limit: 2 });
+    let created = 0;
+    for (let run = 0; run < 4; run += 1) {
+      created += (await r.run({ source })).created;
+      r.advance(MINUTE);
+    }
+    expect(created).toBe(4);
+    expect(r.mem.cursors.get("ledgersResume")).toBe("");
+  });
+
+  it("goes no further than the listing that filled its page: the others are read again from there, and found already delivered", async () => {
+    const r = rig();
+    await r.watch("key-b", [ROBINHOOD_ENTRY.id, SOLANA_ENTRY.id]);
+    r.advance(MINUTE);
+    // One listing has five changes and needs two pages; the other has two and fits. They are read one listing to a chunk.
+    for (let n = 1; n <= 5; n += 1) r.ledgers.transfers.push(transfer(n));
+    for (const n of [4, 6]) r.ledgers.transfers.push({ ...transfer(n, SOLANA_ENTRY.id), ref: `own:s${n}` });
+    const source = memoryEventSource(r.ledgers, { limit: 3, chunk: 1 });
+
+    const first = await r.run({ source });
+    expect(first).toMatchObject({ created: 5, fullReads: ["transfers"] });
+    expect(r.mem.cursors.get("ledgersResume")).toBe(second(3).toISOString());
+
+    // The second page holds the row the first ended on and two more, which fills it again: the other listing is read from there too, and
+    // its rows are found already delivered.
+    r.advance(MINUTE);
+    expect(await r.run({ source })).toMatchObject({ created: 2, fullReads: ["transfers"] });
+    expect(r.mem.cursors.get("ledgersResume")).toBe(second(5).toISOString());
+
+    r.advance(MINUTE);
+    expect(await r.run({ source })).toMatchObject({ created: 0, fullReads: [] });
+    expect(r.mem.all()).toHaveLength(7);
+    expect(r.mem.cursors.get("ledgersResume")).toBe("");
+  });
+
+  it("moves no cursor, whatever the pages say, while the list of watches is cut short", async () => {
+    const r = rig();
+    await r.watch("key-b");
+    r.advance(MINUTE);
+    for (let seq = 1; seq <= 4; seq += 1) r.ledgers.claims.push(claimEdit(seq, at));
+    for (let n = 1; n <= 4; n += 1) r.ledgers.transfers.push(transfer(n));
+    const real = await r.mem.store.liveWatches();
+    const padded = Array.from({ length: LIVE_WATCH_LIMIT }, (_, index) => ({ ...real[0]!, entryId: index === 0 ? real[0]!.entryId : `filler-${index}` }));
+    const report = await r.run({ source: memoryEventSource(r.ledgers, { limit: 2 }), store: { ...r.mem.store, liveWatches: async () => padded } });
+    expect(report.fullReads).toEqual(expect.arrayContaining(["watches", "claims", "transfers"]));
+    expect(r.mem.cursors.get("claims")).toBeUndefined();
+    expect(r.mem.cursors.get("ledgers")).toBeUndefined();
+    expect(r.mem.cursors.get("ledgersResume")).toBeUndefined();
+  });
+
+  it("drops the place it was working from when nobody watches any more", async () => {
+    const r = rig();
+    r.mem.cursors.set("ledgersResume", T0.toISOString());
+    r.advance(MINUTE);
+    await r.run();
+    expect(r.mem.cursors.get("ledgersResume")).toBe("");
+    expect(r.mem.cursors.get("ledgers")).toBe(new Date(T0.getTime() + MINUTE).toISOString());
+  });
+
+  it("reads a read that is full but does not say how far it got as before: the cursor stays", async () => {
+    const r = rig();
+    await r.watch("key-b");
+    r.advance(MINUTE);
+    r.ledgers.transfers.push(transfer(1));
+    r.ledgers.full = { transfers: true };
+    expect((await r.run()).fullReads).toEqual(["transfers"]);
+    expect(r.mem.cursors.get("ledgers")).toBeUndefined();
+    expect(r.mem.cursors.get("ledgersResume")).toBeUndefined();
   });
 });
 

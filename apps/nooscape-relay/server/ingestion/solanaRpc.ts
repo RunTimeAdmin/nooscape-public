@@ -137,6 +137,35 @@ export function parseSolanaRpcResult(response: SolanaJsonRpcResponse, label: str
   return response.result;
 }
 
+/**
+ * The body as text, read chunk by chunk. A body that passes MAX_RESPONSE_BYTES is cut off there and refused. `response.text()` holds the
+ * whole body before anything can be checked, so a provider that sends no length and keeps sending would be held in memory to the end
+ * (outside review of 2 November 2026, L1). The cap is bytes on the wire, not characters. A response without a stream (a test double) is
+ * read whole, as before.
+ */
+async function readCappedText(response: Response, method: string): Promise<string> {
+  const tooLarge = () => new SolanaRpcResponseTooLargeError(`Solana ${method} response exceeds the 16 MiB response limit.`);
+  if (!response.body) {
+    const text = await response.text();
+    if (text.length > MAX_RESPONSE_BYTES) throw tooLarge();
+    return text;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_RESPONSE_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
 async function callSolanaRpcOnce(rpcUrl: string, method: string, params: unknown[]): Promise<SolanaJsonRpcResponse> {
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
@@ -162,10 +191,7 @@ async function callSolanaRpcOnce(rpcUrl: string, method: string, params: unknown
     }
     // The body read stays under the armed timer: a stalled body aborts exactly
     // like the header phase.
-    const text = await response.text();
-    if (text.length > MAX_RESPONSE_BYTES) {
-      throw new SolanaRpcResponseTooLargeError(`Solana ${method} response exceeds the 16 MiB response limit.`);
-    }
+    const text = await readCappedText(response, method);
     try {
       return JSON.parse(text) as SolanaJsonRpcResponse;
     } catch {
