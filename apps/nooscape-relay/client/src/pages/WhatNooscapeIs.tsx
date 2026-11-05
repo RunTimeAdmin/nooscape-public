@@ -16,6 +16,8 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
+import { listedTotal } from "@/components/home/heroModel";
+import { readingTheNumbers } from "@/lib/readingNumbers";
 import { trpc } from "@/lib/trpc";
 
 const isItems = [
@@ -72,6 +74,7 @@ export default function WhatNooscapeIs() {
     refetchOnWindowFocus: true,
     staleTime: 20_000,
   });
+  const stats = trpc.liveData.chainStats.useQuery(undefined, { refetchOnWindowFocus: true, staleTime: 60_000 });
   const count = coverage.data?.publicRecordCount;
   const ready = coverage.data?.provenanceReadyCount;
   const percentage = coverage.data?.coveragePercent;
@@ -129,6 +132,12 @@ export default function WhatNooscapeIs() {
             <ul className="mt-7 grid gap-3">{isNotItems.map(item => <li key={item} className="flex gap-3 rounded-2xl border border-white/[.075] bg-black/[.13] p-4 text-sm leading-5 text-[#c3b5bf]"><ShieldAlert className="mt-0.5 shrink-0 text-[#ff9fe7]" size={16} /><span>{item}</span></li>)}</ul>
             <div className="mt-6 rounded-2xl border border-[#c3a6ff]/22 bg-[#c3a6ff]/[.055] p-4"><p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[.15em] text-[#d8caff]"><Orbit size={13} /> Naming and platform boundary</p><p className="mt-2 text-xs leading-5 text-[#bcb0ce]">Nooscape is independent from Noos Network. Nooscape is a discovery and evidence Atlas; Noos describes an economic and settlement layer for agent skills. Nooscape does not route agent calls, settle rewards, or issue a token.</p></div>
           </article>
+        </section>
+
+        <section className="mt-20" aria-labelledby="numbers-title">
+          <div className="max-w-2xl"><p className="font-mono text-xs uppercase tracking-[.18em] text-[#66e8ff]">Reading the numbers</p><h2 id="numbers-title" className="mt-3 text-4xl font-medium tracking-[-.06em] text-[#effff3] sm:text-5xl">Five counts, five meanings.</h2><p className="mt-4 text-base leading-7 text-[#9aaca1]">The site shows different totals because each one counts something else. This is what each counts, with today's figure where Nooscape holds one for the whole site.</p></div>
+          <dl className="mt-9 grid gap-3 md:grid-cols-2">{readingTheNumbers({ listed: listedTotal(stats.data), reviewed: count ?? null }).map(({ term, meaning, figure }) => <div key={term} className="rounded-2xl border border-white/[.1] bg-white/[.025] p-5 md:odd:last:col-span-2"><dt className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1"><span className="text-xl tracking-[-.035em] text-[#e6f7e9]">{term}</span>{figure !== undefined && <strong className="font-mono text-xl tracking-[-.04em] text-[#bfff76]">{figure === null ? "…" : figure.toLocaleString("en-US")}</strong>}</dt><dd className="mt-3 text-sm leading-6 text-[#9aaca1]">{meaning}</dd></div>)}</dl>
+          <p className="mt-5 text-sm leading-6 text-[#9aaca1]">The same figures as JSON are at <a href="/api/v1/stats" className="text-[#bfff76] underline-offset-4 hover:underline">/api/v1/stats</a>. What each source last read is on the <Link href="/sources" className="text-[#bfff76] underline-offset-4 hover:underline">source ledger</Link>.</p>
         </section>
 
         <section className="mt-20" aria-labelledby="record-flow-title">

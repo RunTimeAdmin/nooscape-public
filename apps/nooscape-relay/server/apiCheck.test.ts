@@ -447,6 +447,20 @@ describe("the flags", () => {
       expect(unread.basis).toContain("Robinhood Chain only");
     });
 
+    it("gives no share, and does not say none, when the ratings read holds fewer events than the agent has", () => {
+      const cut = checkFlags(input({ entry: { ratings: { measuredThroughBlock: 800, ratingCount: 200, revokedCount: 0, truncated: true } } })).revoked_feedback;
+      expect(cut).toMatchObject({ present: null, rating_count: 200, revoked_count: 0, revoked_share: null, measured_through_block: 800 });
+      expect(cut.basis).toContain("more events than the list read for it holds");
+      // A revocation that was read is still one: only the share, and the claim of none, are withheld.
+      const seen = checkFlags(input({ entry: { ratings: { measuredThroughBlock: 800, ratingCount: 190, revokedCount: 4, truncated: true } } })).revoked_feedback;
+      expect(seen).toMatchObject({ present: true, rating_count: 190, revoked_count: 4, revoked_share: null });
+      expect(seen.basis).toContain("more events than the list read for it holds");
+      // A whole read is as before, and its basis does not carry the sentence.
+      const whole = checkFlags(input({ entry: { ratings: { measuredThroughBlock: 800, ratingCount: 9, revokedCount: 0, truncated: false } } })).revoked_feedback;
+      expect(whole).toMatchObject({ present: false, revoked_share: 0 });
+      expect(whole.basis).not.toContain("more events");
+    });
+
     it("says it does not say whether a rating was fair", () => {
       expect(checkFlags(input({ entry: { ratings: { measuredThroughBlock: 1, ratingCount: 1, revokedCount: 1 } } })).revoked_feedback.basis).toContain("whether a rating was fair");
     });

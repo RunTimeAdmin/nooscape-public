@@ -17,6 +17,7 @@ import {
   LEGEND,
   lightBudget,
   lightCount,
+  listedTotal,
   parallaxOffset,
   PARALLAX_MAX_PX,
   placeLights,
@@ -97,13 +98,40 @@ describe("the sweep heading", () => {
 });
 
 describe("the three figures", () => {
-  it("are the sample's own counts: what is registered, what has evidence, and the largest fleet", () => {
+  it("are the sample's own counts while the chain stats are not there: the map's agents, what has evidence, and the largest fleet", () => {
     const sample = build({ total: 31_873, steady: 12, fleets: [fleet("0xaaa", 126_431), fleet("0xbbb", 900)] });
     expect(heroFigures(sample)).toEqual([
-      { label: "registered agents indexed", value: 31_873 },
+      { label: "registered agents on the map", value: 31_873 },
       { label: "reviewed, with signed evidence kept", value: 12 },
       { label: "registered by the largest fleet's wallet", value: 126_431 },
     ]);
+  });
+
+  it("lead with the agents listed on every chain once the chain stats give the total, not with the map's smaller count", () => {
+    const sample = build({ total: 46_038, steady: 76, fleets: [fleet("0xaaa", 10_000)] });
+    const [first, second, third] = heroFigures(sample, 61_282);
+    expect(first).toEqual({ label: "agents listed from the registries", value: 61_282 });
+    expect(second).toEqual({ label: "reviewed, with signed evidence kept", value: 76 });
+    expect(third).toEqual({ label: "registered by the largest fleet's wallet", value: 10_000 });
+    expect(JSON.stringify(heroFigures(sample, 61_282))).not.toContain("46038");
+  });
+
+  it("add the three chains and the extra chains the answer carries apart, as the API's stats do", () => {
+    // The per-chain figures of /api/v1/stats on 4 November 2026, which add up to its total of 61,282.
+    const stats = {
+      chains: [{ acknowledged: 21_398 }, { acknowledged: 6_969 }, { acknowledged: 17_927 }],
+      extras: [{ acknowledged: 5_208 }, { acknowledged: 9_186 }, { acknowledged: 449 }, { acknowledged: 145 }],
+    };
+    expect(listedTotal(stats)).toBe(61_282);
+    expect(listedTotal({ chains: stats.chains })).toBe(46_294);
+  });
+
+  it("skip a chain that is not read, count a chain read at zero, and give null when none was read", () => {
+    expect(listedTotal({ chains: [{ acknowledged: 100 }, { acknowledged: null }] })).toBe(100);
+    expect(listedTotal({ chains: [{ acknowledged: 0 }] })).toBe(0);
+    expect(listedTotal({ chains: [{ acknowledged: null }], extras: [{ acknowledged: null }] })).toBeNull();
+    expect(listedTotal({ chains: [] })).toBeNull();
+    expect(listedTotal(undefined)).toBeNull();
   });
 
   it("never take a number from the lights that happen to be drawn", () => {
@@ -130,7 +158,7 @@ describe("the three figures", () => {
   it("word the tooltip and the caption from their counts", () => {
     expect(fleetSightedText({ size: 126_431 })).toBe("Fleet sighted: 126,431 agents, same registering wallet");
     expect(fleetSightedText({ size: 52 })).toBe("Fleet sighted: 52 agents, same registering wallet");
-    expect(sampleCaption(1_437, 31_873)).toBe("Sample of 1,437 of 31,873 registered agents");
+    expect(sampleCaption(1_437, 31_873)).toBe("Sample of 1,437 of 31,873 registered agents on the map");
   });
 });
 

@@ -77,7 +77,7 @@ export type CheckFlagsInput = {
       handoutCount: number | null;
       events: Array<{ kind: string; blockNumber: number; isHandout?: boolean }>;
     } | null;
-    ratings?: { measuredThroughBlock: number | null; ratingCount: number; revokedCount: number } | null;
+    ratings?: { measuredThroughBlock: number | null; ratingCount: number; revokedCount: number; truncated?: boolean } | null;
   };
   facts: { activityThroughBlock: number | null; solana: { transfers: number; latestRecordedAt: Date | string | null } | null };
 };
@@ -150,14 +150,17 @@ export function checkFlags({ chain, now, entry, facts }: CheckFlagsInput) {
 
   // ---- revoked feedback share: ratings read on Robinhood Chain
   const ratings = entry.ratings ?? null;
+  // The entry read keeps the oldest events and no more than a set number. For an agent that has more, the counts are a floor: a share would be a guess and a count of none would not mean none.
+  const cut = ratings?.truncated === true;
   const revoked = ratings
     ? {
-        present: ratings.revokedCount > 0,
+        present: ratings.revokedCount > 0 ? true : cut ? null : false,
         rating_count: ratings.ratingCount,
         revoked_count: ratings.revokedCount,
-        revoked_share: ratings.ratingCount > 0 ? Math.round((ratings.revokedCount / ratings.ratingCount) * 1000) / 1000 : null,
+        revoked_share: !cut && ratings.ratingCount > 0 ? Math.round((ratings.revokedCount / ratings.ratingCount) * 1000) / 1000 : null,
         measured_through_block: ratings.measuredThroughBlock,
-        basis: "Ratings recorded against the agent in the registry's reputation ledger, and how many of them were later revoked by the rater. It says nothing about whether a rating was fair.",
+        basis: "Ratings recorded against the agent in the registry's reputation ledger, and how many of them were later revoked by the rater. It says nothing about whether a rating was fair." +
+          (cut ? " This agent has more events than the list read for it holds, so the counts cover the oldest events only and no share is given." : ""),
       }
     : {
         present: null,

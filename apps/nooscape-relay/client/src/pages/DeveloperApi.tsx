@@ -246,8 +246,14 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
         <article className="developer-content">
           <section className="developer-hero" id="quickstart">
             <p className="developer-eyebrow"><span /> NOOSCAPE PUBLIC API</p>
-            <h1>Query the <span>evidence graph.</span></h1>
-            <p>Use the public Nooscape transport to retrieve the reviewed agent directory, evidence tiers, publisher-key states, and signed evidence envelopes. Records enter only through approved sources and explicitly reviewed runs, and every tier upgrade is operator-gated and time-boxed.</p>
+            <h1>Check an agent <span>before you rely on it.</span></h1>
+            <p>Nooscape reads the public agent registries on {REST_CHAINS_TEXT} and keeps dated facts about each agent. Look one up for free, or ask for its facts before you pay a wallet or call an endpoint. Every answer says when it was read and where from. There is no score and no verdict.</p>
+            <ol className="developer-start">
+              <li><strong>Look an agent up.</strong><span><code>GET /api/v1/agents/{"{chain}"}/{"{id}"}</code> takes no key.</span></li>
+              <li><strong>Search for one.</strong><span><code>GET /api/v1/agents/search?q=</code> by name, host or wallet, no key.</span></li>
+              <li><strong>Check before you pay.</strong><span><code>POST /api/v1/check</code> with an agent, a wallet or a url. With no key the answer is a 402 that says how to pay: $0.01 in USDC over x402, or send a Pro key.</span></li>
+            </ol>
+            <p className="developer-start-note">Each call has an example below. The <a href="/skill.md">skill file</a> shows an AI agent how to call the API and read its answers.</p>
             <div className="developer-hero-meta">
               <span><Code2 size={15} /> JSON over HTTP</span><span><Fingerprint size={15} /> Ed25519 envelopes</span><span><Network size={15} /> Public reads</span>
             </div>
@@ -288,7 +294,7 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
               ["evidence", "object", "layer is always acknowledged. On BNB Smart Chain, level is checked_unproven or not_checked: whether Nooscape has read the entry's registration, never whether the agent is any good. The statement says what the layer does not mean."],
               ["name, registrant, locator_host", "string", "As the registrant published them. They are the registrant's words, cleaned of control and invisible characters."],
               ["related", "object | null", "How many other listed agents share this one's wallet, name or host. A fact about the listing, not about intent."],
-              ["activity, ratings, twin", "object | null", "Chain activity, a summary of recorded ratings (Robinhood Chain) and the same identity on another chain. null means not measured, never zero."],
+              ["activity, ratings, twin", "object | null", "Chain activity, a summary of recorded ratings (Robinhood Chain) and the same identity on another chain. null means not measured, never zero. ratings.truncated is true when the agent has more events than the summary reads, and its counts then cover the oldest events only."],
               ["claim", "object | null", "The claim in force. owner_text is what the owner wrote, labelled as the owner's word, and is null while the claim is on hold."],
             ]} />
 
@@ -347,7 +353,7 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
             <SchemaPanel title="Pay per call (x402)" rows={[
               ["When", "no key", "Only where it is switched on, which /api/v1 says: a lookup past the free 30 a minute, and the check (POST /api/v1/check). Everything else is limited (429) or needs a key (401) as before, and a request that carries a key is never asked to pay."],
               ["The ask", "402", "The answer is 402 with the price in the body and in a PAYMENT-REQUIRED header (x402 version 2, base64 JSON), with one set of terms for each network that takes payment: USDC on Base (eip155:8453) where it is offered, and USDC on Arc (eip155:5042). Each is the exact scheme with the amount in base units (5000 is $0.005, six decimals) and the receiving address, which is the same on both. Pay on either; the index lists them under networks."],
-              ["Paying", "PAYMENT-SIGNATURE", "Sign a USDC transfer authorization (EIP-3009) from your wallet to that address and send it, base64 encoded, in a PAYMENT-SIGNATURE header with the same request. It must be valid for at least 15 seconds and at most 10 minutes. From a regular wallet, or from a deployed smart-contract wallet where the index lists smart_contract under wallets (Base takes regular wallets only): the chain is asked whether the wallet's own code (ERC-1271) accepts the signature before anything is charged, a wallet has one payment going at a time, and a wallet that is not deployed yet is refused. A wallet that holds less USDC than the price is refused before the payment is sent on, and one wallet may start 60 new payments a minute."],
+              ["Paying", "PAYMENT-SIGNATURE", "Sign a USDC transfer authorization (EIP-3009) from your wallet to that address and send it, base64 encoded, in a PAYMENT-SIGNATURE header with the same request. It must be valid for at least 15 seconds and at most 10 minutes. From a regular wallet, or from a deployed smart-contract wallet where the index lists smart_contract under wallets: the chain is asked whether the wallet's own code (ERC-1271) accepts the signature before anything is charged, a wallet has one payment going at a time, and a wallet that is not deployed yet is refused. A wallet that holds less USDC than the price is refused before the payment is sent on, and one wallet may start 60 new payments a minute."],
               ["The answer", "PAYMENT-RESPONSE", "The same answer a Pro key gets, with a PAYMENT-RESPONSE header: base64 JSON with the settlement transaction, the network and the payer. Never cached."],
               ["Charged once", "per request", "A payment is charged only for an answer that was built and delivered: not found, a bad request, a failed read or a check that matches no listing costs nothing. A payment belongs to the request it was sent with. Send the same request with the same payment again (twice more, within its validity) and it is answered again with no second charge. For a different request it is refused."],
               ["503", "unavailable", "The payment has not settled yet. Send the same request with the same payment again: you are charged once. error.payment_id is the id to quote to us if you were charged and not served. This version has no refunds."],

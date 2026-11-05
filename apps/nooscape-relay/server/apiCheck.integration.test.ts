@@ -29,6 +29,7 @@ const dbReachable = await (async () => {
 const REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432";
 const WALLET = "0x14791697260e4c9a71f18484c9f997b308e59325";
 const OTHER = "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a";
+const MANY = "0x00000000000000000000000000000000000000c1";
 const SOL_ASSET = "7Yw6u4v9kQ3pZ2r8s5t1x6c4b3n2m1k9j8h7g6f5d4e3";
 const SOL_OWNER = "5Gh8j2k4m6n9p3q5r7s9t2v4w6x8y3z5a7b9c2d4e6f8";
 const BLOCKS_PER_DAY = 864_000;
@@ -95,6 +96,8 @@ describe.skipIf(!dbReachable)("the pre-flight check against a real database", { 
     await entry("rh-9", "src-rh", "erc8004", key(9), { mintBlock: 120, secondaryTransferCount: 0, handoutCount: 0, uriUpdateCount: 0, firstSeenAt: new Date(now - 90 * 86_400_000), lastSeenAt: new Date(now - 4_000) });
     await entry("rh-hidden", "src-rh", "erc8004", key(10), { hidden: true, mintBlock: 130, secondaryTransferCount: 5, handoutCount: 0, uriUpdateCount: 0 });
     await entry("rh-other", "src-rh", "erc8004", key(11), { registrant: OTHER, locatorHost: "other.example", mintBlock: 140, secondaryTransferCount: 0, handoutCount: 0, uriUpdateCount: 0 });
+    // Agents 12 and 13 are rated more than the entry read shows (201 events) and exactly as often as it shows (200).
+    for (const token of [12, 13]) await entry(`rh-${token}`, "src-rh", "erc8004", key(token), { registrant: MANY, locatorHost: "many.example", mintBlock: 150 + token, secondaryTransferCount: 0, handoutCount: 0, uriUpdateCount: 0 });
     await entry("bnb-9", "src-bnb", "erc8004_bsc", `eip155:56:${REGISTRY}:9`, { registrant: OTHER, locatorHost: "bnb.example" });
     await entry("sol-1", "src-8004", "solana_8004", SOL_ASSET, { registrant: SOL_OWNER, locatorHost: null, firstSeenAt: new Date(now - 60 * 86_400_000) });
 
@@ -114,6 +117,24 @@ describe.skipIf(!dbReachable)("the pre-flight check against a real database", { 
       writer.insert(schema.agentReputationEvents).values({ id: `rep-${n}`, sourceId: "src-rep", transactionHash: txHash(1000 + n), logIndex: n, kind, blockNumber: block, agentId: 7, clientAddress: client, feedbackIndex: 1, ...(kind === "new_feedback" ? { valueRaw: "90", valueDecimals: 0 } : {}) });
     for (const [n, client] of [OTHER, WALLET, "0x00000000000000000000000000000000000000a1", "0x00000000000000000000000000000000000000a2"].entries()) await rating(n + 1, "new_feedback", client, 600 + n);
     await rating(9, "feedback_revoked", OTHER, 700);
+    const manyRatings = (agentId: number, count: number) =>
+      writer.insert(schema.agentReputationEvents).values(
+        Array.from({ length: count }, (_, n) => ({
+          id: `many-${agentId}-${n}`,
+          sourceId: "src-rep",
+          transactionHash: txHash(100_000 * agentId + n),
+          logIndex: n,
+          kind: "new_feedback" as const,
+          blockNumber: 1000 + n,
+          agentId,
+          clientAddress: `0x${(n + 1).toString(16).padStart(40, "0")}`,
+          feedbackIndex: 1,
+          valueRaw: "90",
+          valueDecimals: 0,
+        }))
+      );
+    await manyRatings(12, 201);
+    await manyRatings(13, 200);
 
     // Two transfers recorded for the Solana agent.
     for (const [n, recorded] of [new Date("2026-10-10T08:00:00Z"), new Date("2026-10-14T09:30:00Z")].entries()) {
@@ -190,6 +211,20 @@ describe.skipIf(!dbReachable)("the pre-flight check against a real database", { 
     const [result] = body.data.results;
     expect(result.flags.revoked_feedback.present).toBeNull();
     expect(result.agent.registry).toBe("erc8004_bsc");
+  });
+
+  it("says when an agent has more ratings than the entry read holds, and gives no share and no 'none' for them", async () => {
+    const [cut] = (await answer({ agent: { chain: "robinhood", id: "12" } })).data.results;
+    expect(cut.flags.revoked_feedback).toMatchObject({ present: null, rating_count: 200, revoked_count: 0, revoked_share: null });
+    expect(cut.flags.revoked_feedback.basis).toContain("more events than the list read for it holds");
+    const [whole] = (await answer({ agent: { chain: "robinhood", id: "13" } })).data.results;
+    expect(whole.flags.revoked_feedback).toMatchObject({ present: false, rating_count: 200, revoked_share: 0 });
+    // The agent record says it too, in the shape the document describes.
+    const cutRecord = (await (await fetch(`${base}/api/v1/agents/robinhood/12`)).json()) as Record<string, any>;
+    expect(problems(schemaOf("AgentResponse"), cutRecord)).toEqual([]);
+    expect(cutRecord.data.ratings).toMatchObject({ rating_count: 200, truncated: true });
+    const wholeRecord = (await (await fetch(`${base}/api/v1/agents/robinhood/13`)).json()) as Record<string, any>;
+    expect(wholeRecord.data.ratings).toMatchObject({ rating_count: 200, truncated: false });
   });
 
   it("answers for a wallet's listings newest first, narrows to a chain, and leaves out a hidden entry", async () => {

@@ -23,6 +23,7 @@ import {
   sharedWalletNoun,
   registryRatingsEventLabel,
   registryRatingsExplanation,
+  registryRatingsTruncatedNote,
   tierExplanations,
   timelineEventLabel,
 } from "@/lib/evidenceExplain";
@@ -170,6 +171,7 @@ type AcknowledgedEntry = {
     activeRatingCount: number;
     revokedCount: number;
     responseCount: number;
+    truncated: boolean;
     events: Array<{
       kind: string;
       blockNumber: number;
@@ -515,6 +517,7 @@ export default function DirectoryAgent() {
                                 .filter((part): part is string => part !== null)
                                 .join(" · ")}
                             </p>
+                            {ratings.truncated && <p className={note}>{registryRatingsTruncatedNote}</p>}
                             <p className={note}>{registryRatingsExplanation}</p>
                             <p className={note}>Raters are unverified: Nooscape has not checked who they are.</p>
                             <ol className="space-y-3">

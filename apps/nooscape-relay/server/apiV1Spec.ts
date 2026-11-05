@@ -136,7 +136,7 @@ const agent = {
     ratings: {
       type: ["object", "null"],
       description: "A summary of the ratings recorded against the agent on Robinhood Chain, where they are read.",
-      required: ["measured_through_block", "rating_count", "active_rating_count", "revoked_count", "response_count"],
+      required: ["measured_through_block", "rating_count", "active_rating_count", "revoked_count", "response_count", "truncated"],
       additionalProperties: false,
       properties: {
         measured_through_block: nullable("integer"),
@@ -144,6 +144,7 @@ const agent = {
         active_rating_count: { type: "integer" },
         revoked_count: { type: "integer" },
         response_count: { type: "integer" },
+        truncated: { type: "boolean", description: "True when the agent has more events than the summary reads. The counts then cover its oldest events only, and a later revocation is not in them." },
       },
     },
     twin: {
@@ -338,7 +339,7 @@ const indexResponse = {
               network: { type: "string", description: "CAIP-2 chain id: eip155:8453 is Base and eip155:5042 is Arc mainnet." },
               asset: { type: "string", description: "The USDC contract on that network." },
               pay_to: { type: "string" },
-              wallets: { type: "array", items: { enum: ["regular", "smart_contract"] }, description: "The kinds of wallet a payment may come from on this network. Base takes regular wallets only." },
+              wallets: { type: "array", items: { enum: ["regular", "smart_contract"] }, description: "The kinds of wallet a payment may come from on this network: regular, and smart_contract where the chain check is on for it (Arc with its node, Base when the operator has switched it on and set a node)." },
             },
           },
         },

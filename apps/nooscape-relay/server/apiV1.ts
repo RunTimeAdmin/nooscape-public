@@ -26,7 +26,7 @@ import { checkFlags, checkRequestSchemaFor, CHECK_RESULT_LIMIT, CHECK_STATEMENT,
 import { findVisibleDirectoryEntriesByKey, getAgentDirectoryEntry, listVisibleDirectoryKeys, MAX_AGENT_ENTRY_ACTIVITY_EVENTS, readAgentCheckFacts, searchAgentDirectory } from "./db";
 import { isCircuitOpenError } from "./dbBreaker";
 import { clientKeyFrom, consumeRateLimit, peekRateLimit, retryAfterSeconds } from "./rateLimit";
-import { railsOf, usdOf, type Rail, type Reply, type X402Config, type X402Endpoint } from "./x402";
+import { railsOf, takesContractWallets, usdOf, type Rail, type Reply, type X402Config, type X402Endpoint } from "./x402";
 import { sharedPaymentService, type PayContext, type PaymentService } from "./x402Service";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
@@ -217,7 +217,7 @@ function agentData(chain: ApiChain, externalKey: string, entry: Entry, claim: Cl
   const read = (entry as { registrationRead?: { checked: boolean; readAt: Date | string | null } | null }).registrationRead ?? null;
   const related = (entry as { related?: { sameWallet: number; sameName: number; sameHost: number } | null }).related ?? null;
   const activity = (entry as { activity?: { mintBlock: number | null; secondaryTransferCount: number | null; handoutCount: number | null; uriUpdateCount: number | null } | null }).activity ?? null;
-  const ratings = (entry as { ratings?: { measuredThroughBlock: number | null; ratingCount: number; activeRatingCount: number; revokedCount: number; responseCount: number } | null }).ratings ?? null;
+  const ratings = (entry as { ratings?: { measuredThroughBlock: number | null; ratingCount: number; activeRatingCount: number; revokedCount: number; responseCount: number; truncated: boolean } | null }).ratings ?? null;
   const twin = (entry as { twin?: { entryId: string; displayName: string; protocol: string; linkedProtocol: string; metadataKey: string; linkedExternalKey: string } | null }).twin ?? null;
   return {
     chain,
@@ -236,7 +236,7 @@ function agentData(chain: ApiChain, externalKey: string, entry: Entry, claim: Cl
     related: related ? { same_wallet: related.sameWallet, same_name: related.sameName, same_host: related.sameHost } : null,
     activity: activity ? { mint_block: activity.mintBlock, secondary_transfers: activity.secondaryTransferCount, handouts: activity.handoutCount, uri_updates: activity.uriUpdateCount } : null,
     ratings: ratings
-      ? { measured_through_block: ratings.measuredThroughBlock, rating_count: ratings.ratingCount, active_rating_count: ratings.activeRatingCount, revoked_count: ratings.revokedCount, response_count: ratings.responseCount }
+      ? { measured_through_block: ratings.measuredThroughBlock, rating_count: ratings.ratingCount, active_rating_count: ratings.activeRatingCount, revoked_count: ratings.revokedCount, response_count: ratings.responseCount, truncated: ratings.truncated }
       : null,
     twin: twin ? { nooscape_id: twin.entryId, name: twin.displayName, registry: twin.protocol, linked_registry: twin.linkedProtocol, metadata_key: twin.metadataKey, linked_key: twin.linkedExternalKey } : null,
     claim: claimBody(claim),
@@ -395,8 +395,8 @@ export function searchAnswer(query: SearchQuery, page: SearchPage, keys: Map<str
 /** The pay-per-call block of the index: every network that takes payment in the order a 402 offers them, and the first of them repeated at the top. */
 function payPerCall(pay: X402Config) {
   const rails = railsOf(pay);
-  // Only Arc takes a smart-contract wallet, and only when its node is set.
-  const wallets = (rail: Rail) => (rail.network === pay.network && pay.rpc ? ["regular", "smart_contract"] : ["regular"]);
+  // A smart-contract wallet is taken on Arc when its node is set, and on Base when the operator has switched it on and Base's node is set.
+  const wallets = (rail: Rail) => (takesContractWallets(pay, rail) ? ["regular", "smart_contract"] : ["regular"]);
   const first = rails[0]!;
   return {
     protocol: "x402",

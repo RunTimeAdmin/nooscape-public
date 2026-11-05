@@ -274,6 +274,25 @@ describe.skipIf(!dbReachable)("pay per call against a real database", { timeout:
     expect(await ledger.failedFor(ARC_TESTNET, wallet, day())).toBe(0);
   });
 
+  it("counts a wallet's payments the facilitator refused after a passing check, for the window only, and not a regular wallet's refusal", async () => {
+    const ledger = ledgerModule.dbPaymentLedger;
+    const wallet = `0x${"d6".repeat(20)}`;
+    const quarter = () => new Date(Date.now() - 15 * 60 * 1000);
+    const refused = (await ledger.begin(payment({ payer: wallet, nonce: `0x${"b1".repeat(32)}` })))!;
+    expect(await ledger.refusedFor(ARC_TESTNET, wallet, quarter())).toBe(0);
+    await ledger.resolve(refused.id, { status: "refused", reason: `${ledgerModule.CONTRACT_REFUSED_REASON}: invalid_exact_evm_payload_signature` });
+    expect(await ledger.refusedFor(ARC_TESTNET, wallet, quarter())).toBe(1);
+    expect(await ledger.refusedFor("eip155:5042", wallet, quarter())).toBe(0);
+    expect(await ledger.refusedFor(ARC_TESTNET, `0x${"d7".repeat(20)}`, quarter())).toBe(0);
+    // A refusal without the mark is a regular wallet's, and does not count.
+    const plain = (await ledger.begin(payment({ payer: wallet, nonce: `0x${"b2".repeat(32)}` })))!;
+    await ledger.resolve(plain.id, { status: "refused", reason: "invalid_payload" });
+    expect(await ledger.refusedFor(ARC_TESTNET, wallet, quarter())).toBe(1);
+    // It is forgotten once older than the window.
+    await writer.update(apiPayments).set({ updatedAt: new Date(Date.now() - 60 * 60 * 1000) }).where(eq(apiPayments.id, refused.id));
+    expect(await ledger.refusedFor(ARC_TESTNET, wallet, quarter())).toBe(0);
+  });
+
   it("keeps the two networks apart: the same payer and nonce on mainnet is another payment, and the operator's reads show one network", async () => {
     const ledger = ledgerModule.dbPaymentLedger;
     const nonce = `0x${"07".repeat(32)}`;

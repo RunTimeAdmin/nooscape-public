@@ -59,6 +59,25 @@ describe("warmPublicReads", () => {
     await expect(warmPublicReads()).resolves.toBeUndefined();
     for (const name of procedures) expect(fake.liveData[name], name).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps at most two procedures running at once, and still reads every one", async () => {
+    const { warmPublicReads } = await modules();
+    let running = 0;
+    let peak = 0;
+    for (const name of procedures) {
+      fake.liveData[name] = vi.fn(async () => {
+        running += 1;
+        peak = Math.max(peak, running);
+        // Yield a few times, so every procedure that is allowed to start has started before the first one ends.
+        for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+        running -= 1;
+        return {};
+      });
+    }
+    await warmPublicReads();
+    expect(peak).toBe(2);
+    for (const name of procedures) expect(fake.liveData[name], name).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("startReadWarming", () => {

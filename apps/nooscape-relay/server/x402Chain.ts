@@ -110,11 +110,33 @@ export function revertReason(data: Uint8Array): string {
 /** A JSON-RPC node: one call, with a time limit and a cap on the size of the answer. */
 export type Rpc = (method: string, params: unknown[]) => Promise<unknown>;
 
+/** The text of a response, or null when it is longer than the cap. The rest of a longer one is not read. */
+async function readCapped(response: Response, maxChars: number): Promise<string | null> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const whole = await response.text();
+    return whole.length > maxChars ? null : whole;
+  }
+  const decoder = new TextDecoder();
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+    if (text.length > maxChars) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+  }
+  return text + decoder.decode();
+}
+
 export function rpcClient(url: string, fetchImpl: typeof fetch = fetch, timeoutMs = 8_000): Rpc {
   return async (method, params) => {
     const response = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
-    const text = await response.text();
-    if (!response.ok || text.length > MAX_RESPONSE_CHARS) throw new Error("the node did not answer");
+    // Read as it arrives and given up on at the cap, so that an answer without end never fills memory before it is measured.
+    const text = response.ok ? await readCapped(response, MAX_RESPONSE_CHARS) : null;
+    if (text === null) throw new Error("the node did not answer");
     const parsed = JSON.parse(text) as { result?: unknown; error?: unknown };
     if (parsed.error !== undefined || parsed.result === undefined) throw new Error("the node refused the call");
     return parsed.result;
@@ -138,7 +160,10 @@ export function refusalWords(reason: string): string {
 /** ok: the wallet's code accepted the signature and the transfer would settle. ok false: it would not, with why. null: the chain cannot say. */
 type ContractVerdict = { ok: true } | { ok: false; why: string } | null;
 
-export async function checkContractSignature(rpc: Rpc, input: { chainId: number; usdc: string; authorization: Authorization; signature: string; nowSeconds: number }): Promise<ContractVerdict> {
+export async function checkContractSignature(
+  rpc: Rpc,
+  input: { chainId: number; usdc: string; authorization: Authorization; signature: string; nowSeconds: number; /** How far behind the real time the latest block may be. Default 60 seconds. */ maxBehindSeconds?: number }
+): Promise<ContractVerdict> {
   try {
     if (!isEvmAddress(input.authorization.from) || !isEvmAddress(input.usdc)) return null;
     const calls: Call3[] = [
@@ -153,7 +178,7 @@ export async function checkContractSignature(rpc: Rpc, input: { chainId: number;
     const uint = (data: Uint8Array) => (data.length === 32 ? BigInt(`0x${bytesToHex(data)}`) : BigInt(-1));
     if (!out[0]!.success || uint(out[0]!.returnData) !== BigInt(input.chainId)) return null; // another chain's state says nothing about ours
     const blockTime = uint(out[1]!.returnData);
-    if (!out[1]!.success || blockTime < BigInt(input.nowSeconds - MAX_BEHIND_SECONDS)) return null; // a node that is behind cannot say what is in time
+    if (!out[1]!.success || blockTime < BigInt(input.nowSeconds - (input.maxBehindSeconds ?? MAX_BEHIND_SECONDS))) return null; // a node that is behind cannot say what is in time
     if (out[2]!.success) return { ok: true };
     return { ok: false, why: refusalWords(revertReason(out[2]!.returnData)) };
   } catch {

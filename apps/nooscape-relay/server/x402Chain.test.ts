@@ -134,6 +134,28 @@ describe("the node client", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("stops reading an answer at the cap and cancels the rest, where an answer without end would otherwise fill memory first", async () => {
+    let cancelled = false;
+    let pulled = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(new TextEncoder().encode("a".repeat(100_000)));
+        // Ends after 10 MB, so that a client that reads it whole fails this test and does not run the worker out of memory.
+        if (pulled >= 100) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = (async () => new Response(endless, { status: 200 })) as unknown as typeof fetch;
+    const failure = await rpcClient("https://node.example/secretkey", fetchImpl)("eth_call", []).catch((error: Error) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(String((failure as Error).message)).not.toContain("secretkey");
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThan(10);
+  });
+
   it("refuses an error, an HTTP failure, a body that is not JSON and an oversized answer, and never puts the address in what it throws", async () => {
     for (const fetchImpl of [respond(200, { error: { code: -32000, message: "boom" } }), respond(500, {}), respond(200, "not json"), respond(200, { result: "0x" + "00".repeat(150_000) })]) {
       const failure = await rpcClient("https://node.example/secretkey", fetchImpl)("eth_call", []).catch((error: Error) => error);

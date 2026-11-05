@@ -1247,6 +1247,9 @@ export async function withSearchConnection<T>(fn: (db: MySql2Database<Record<str
 /** The most matches a search counts; the page shows "N+" past it. */
 const SEARCH_COUNT_CAP = 1000;
 
+/** A whole host name: two or more dot-separated labels of letters, digits and hyphens. */
+const HOST_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?([.][a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+
 /**
  * One condition per index a query can be answered from. They are run as
  * separate queries and merged, because joining a name MATCH and a key MATCH with
@@ -1256,6 +1259,8 @@ const SEARCH_COUNT_CAP = 1000;
  * - queries of 3 or more characters use the two FULLTEXT indexes (displayName and
  *   locatorHost together, externalKey on its own) with word-boundary matching, and
  *   a Solana-address-shaped query also tries the registrant prefix;
+ * - a query that is a whole host name also tries an exact match on locatorHost (its own index), because full text
+ *   cannot find a host with a stopword label such as "com" or "www";
  * - 2-character queries are indexed prefixes on displayName and on locatorHost
  *   (below the FULLTEXT minimum token length).
  */
@@ -1277,6 +1282,9 @@ function directorySearchConditions(query: string): SQL[] {
       sql`MATCH(${agentDirectoryEntries.displayName}, ${agentDirectoryEntries.locatorHost}) AGAINST(${fulltextTerm} IN BOOLEAN MODE)`,
       sql`MATCH(${agentDirectoryEntries.externalKey}) AGAINST(${fulltextTerm} IN BOOLEAN MODE)`,
     ];
+    // A whole host name is also matched exactly. Full text cannot answer it when a label of the host is a stopword (InnoDB's default list
+    // has "com" and "www"): "+cubicle.algotrada.com*" matches nothing, so a .com host was never found by its name.
+    if (HOST_NAME.test(query)) conditions.push(sql`${agentDirectoryEntries.locatorHost} = ${query.toLowerCase()}`);
     // Solana base58 addresses are 32–44 chars ('0', 'O', 'I', 'l' excluded); a
     // real address is the floor, so short prose words can never trigger the
     // registrant prefix branch. The alphabet cannot produce a `0x…` string, so
@@ -1421,7 +1429,7 @@ let lastSearchDeclinedLogAt = 0;
 /** Bound on chain-activity events returned for one entry page; the append-only ledger keeps every event. */
 export const MAX_AGENT_ENTRY_ACTIVITY_EVENTS = 24;
 
-/** Bound on reputation-ledger rows returned for one entry page (census average ≈ 2/agent; the ledger keeps every event). */
+/** Bound on reputation-ledger rows returned for one entry page (census average ≈ 2/agent; the ledger keeps every event). An agent with more has the oldest shown and the summary says so (`truncated`). */
 const MAX_AGENT_ENTRY_RATING_EVENTS = 200;
 
 /**
@@ -1689,7 +1697,7 @@ export async function getAgentDirectoryEntry(id: string) {
         .where(and(eq(ingestionSources.protocol, "erc8004_reputation"), eq(ingestionSources.state, "active")))
         .limit(1);
       if (source && agentId !== null) {
-        const events = await db
+        const rows = await db
           .select({
             kind: agentReputationEvents.kind,
             blockNumber: agentReputationEvents.blockNumber,
@@ -1705,8 +1713,10 @@ export async function getAgentDirectoryEntry(id: string) {
           .from(agentReputationEvents)
           .where(and(eq(agentReputationEvents.sourceId, source.id), eq(agentReputationEvents.agentId, agentId)))
           .orderBy(asc(agentReputationEvents.blockNumber), asc(agentReputationEvents.logIndex))
-          .limit(MAX_AGENT_ENTRY_RATING_EVENTS);
-        ratings = computeRatingsSummary(events, await readAgentDirectoryReputationHighWater(source.id));
+          .limit(MAX_AGENT_ENTRY_RATING_EVENTS + 1);
+        // One row past the page says whether the agent has more events than the page shows.
+        const truncated = rows.length > MAX_AGENT_ENTRY_RATING_EVENTS;
+        ratings = computeRatingsSummary(truncated ? rows.slice(0, MAX_AGENT_ENTRY_RATING_EVENTS) : rows, await readAgentDirectoryReputationHighWater(source.id), truncated);
       }
     }
   } catch (error) {
