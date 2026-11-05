@@ -415,6 +415,45 @@ describe.skipIf(!dbReachable)("the registry rows listing against a real database
       expect(await listingOf(second, 1, 2, 3, 4)).toEqual([LISTED, GROUPED, GROUPED, GROUPED]);
     });
 
+    it("shows a pin on the entry that carries it, with the note cleaned, a pin with no note as one with a null note, and nothing on an entry the rules list", async () => {
+      const source = await newSource();
+      await seed(source, [...platform(1, 4), draft(5)]);
+      await writer.insert(schema.agentDirectoryListingPins).values([
+        { sourceId: source.id, externalKey: keyOf(2), note: "  A working agent\u0007 on a platform host\n that strangers filled.  " },
+        { sourceId: source.id, externalKey: keyOf(3) },
+      ]);
+      await classify(source);
+      await registry.publishAgentRegistryListing(source.id);
+      const detailOf = async (n: number) => (await db.getAgentDirectoryEntry((await entryOf(source, n))!.id))!;
+      expect((await detailOf(2)).pin).toEqual({ pinnedAt: expect.any(Date), note: "A working agent on a platform host that strangers filled." });
+      expect((await detailOf(3)).pin).toEqual({ pinnedAt: expect.any(Date), note: null });
+      expect((await detailOf(5)).pin).toBeNull();
+      // The same key pinned in another source is not this source's pin.
+      const other = await newSource();
+      await writer.insert(schema.agentDirectoryListingPins).values({ sourceId: other.id, externalKey: keyOf(5), note: "another source" });
+      expect((await detailOf(5)).pin).toBeNull();
+      // The rest of the host is held out by the rules and has no entry to carry anything.
+      expect(await entryOf(source, 1)).toBeUndefined();
+    });
+
+    it("reads an entry as it did before when the pins table is not there", async () => {
+      const source = await newSource();
+      await seed(source, [draft(1)]);
+      await classify(source);
+      await registry.publishAgentRegistryListing(source.id);
+      const id = (await entryOf(source, 1))!.id;
+      const ddl = await createConnection(process.env.DATABASE_URL!);
+      await ddl.query("RENAME TABLE agent_directory_listing_pins TO agent_directory_listing_pins_away");
+      try {
+        const detail = (await db.getAgentDirectoryEntry(id))!;
+        expect(detail.pin).toBeNull();
+        expect(detail.id).toBe(id);
+      } finally {
+        await ddl.query("RENAME TABLE agent_directory_listing_pins_away TO agent_directory_listing_pins");
+        await ddl.end();
+      }
+    });
+
     it("keeps a registration with a claim in force listed when its host grows past the bar, and holds out the rest of the host", async () => {
       const source = await newSource();
       await seed(source, platform(1, 3));

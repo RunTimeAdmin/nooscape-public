@@ -1,5 +1,6 @@
 import express, { Router, type Express, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
+import { verifyEvidencePacket, type RelayKey, type VerifyResult } from "../verifier/src/verify";
 import { CHECK_MIN_TIER, tierAtLeast, type ApiTier } from "@shared/apiKey";
 import { listedChainLabel } from "@shared/chains";
 import { AGENT_ID_MAX_CHARS, API_CHAINS, agentIdOfKey, apiChainOfProtocol, servedChains, type ApiChain } from "./apiChains";
@@ -26,6 +27,8 @@ import { checkFlags, checkRequestSchemaFor, CHECK_RESULT_LIMIT, CHECK_STATEMENT,
 import { findVisibleDirectoryEntriesByKey, getAgentDirectoryEntry, listVisibleDirectoryKeys, MAX_AGENT_ENTRY_ACTIVITY_EVENTS, readAgentCheckFacts, searchAgentDirectory } from "./db";
 import { readDatabaseRoom, type DatabaseRoom } from "./databaseRoom";
 import { isCircuitOpenError } from "./dbBreaker";
+import { listRelayKeys } from "./evidence";
+import { evidencePacketSchema } from "./evidencePacketSchema";
 import { clientKeyFrom, consumeRateLimit, peekRateLimit, retryAfterSeconds } from "./rateLimit";
 import { railsOf, takesContractWallets, usdOf, type Rail, type Reply, type X402Config, type X402Endpoint } from "./x402";
 import { sharedPaymentService, type PayContext, type PaymentService } from "./x402Service";
@@ -46,6 +49,8 @@ import type { TrpcContext } from "./_core/context";
  */
 
 export const API_V1_RATE_LIMIT = { requests: 30, windowMs: 60_000 } as const;
+/** The largest packet the verify endpoint reads. The relay's own packets are far smaller (the largest known evidence body is 256 KB). */
+const VERIFY_BODY_LIMIT = "512kb";
 export const BATCH_MAX = 25;
 
 export { API_LICENSE };
@@ -117,6 +122,8 @@ export type ApiV1Deps = {
   webhooks?: WebhookService | null;
   /** How much room the database has (finding R3 of the outside audit of 2026-11-05): absent when the index is not to carry it, null when it cannot be read. */
   databaseRoom?: () => Promise<DatabaseRoom | null>;
+  /** The relay's own key list, which the free verify endpoint checks a packet's key against (the list /.well-known/nooscape-keys.json publishes). */
+  relayKeys?: () => readonly RelayKey[];
 };
 
 const callerFor = (req: Request) => appRouter.createCaller({ req, res: {}, user: null } as unknown as TrpcContext);
@@ -124,6 +131,7 @@ const callerFor = (req: Request) => appRouter.createCaller({ req, res: {}, user:
 export const defaultApiV1Deps: ApiV1Deps = {
   now: () => new Date(),
   databaseRoom: readDatabaseRoom,
+  relayKeys: listRelayKeys,
   findEntries: findVisibleDirectoryEntriesByKey,
   getEntry: getAgentDirectoryEntry,
   search: searchAgentDirectory,
@@ -223,6 +231,7 @@ function agentData(chain: ApiChain, externalKey: string, entry: Entry, claim: Cl
   const activity = (entry as { activity?: { mintBlock: number | null; secondaryTransferCount: number | null; handoutCount: number | null; uriUpdateCount: number | null } | null }).activity ?? null;
   const ratings = (entry as { ratings?: { measuredThroughBlock: number | null; ratingCount: number; activeRatingCount: number; revokedCount: number; responseCount: number; truncated: boolean } | null }).ratings ?? null;
   const twin = (entry as { twin?: { entryId: string; displayName: string; protocol: string; linkedProtocol: string; metadataKey: string; linkedExternalKey: string } | null }).twin ?? null;
+  const pin = (entry as { pin?: { pinnedAt: Date | string; note: string | null } | null }).pin ?? null;
   return {
     chain,
     agent_id: agentIdOfKey(chain, externalKey),
@@ -234,6 +243,8 @@ function agentData(chain: ApiChain, externalKey: string, entry: Entry, claim: Cl
     locator_host: entry.locatorHost,
     first_seen_at: iso(entry.firstSeenAt),
     last_seen_at: iso(entry.lastSeenAt)!,
+    listed_because: pin ? "operator_pin" : "rules",
+    pin: pin ? { pinned_at: iso(pin.pinnedAt), note: pin.note } : null,
     evidence: evidenceOf(read),
     source_note: entry.sourceSignalNote,
     feedback_count: entry.feedbackCount ?? null,
@@ -244,6 +255,39 @@ function agentData(chain: ApiChain, externalKey: string, entry: Entry, claim: Cl
       : null,
     twin: twin ? { nooscape_id: twin.entryId, name: twin.displayName, registry: twin.protocol, linked_registry: twin.linkedProtocol, metadata_key: twin.metadataKey, linked_key: twin.linkedExternalKey } : null,
     claim: claimBody(claim),
+  };
+}
+
+/** What a check of a signed evidence packet shows, and what it does not. */
+export const VERIFY_STATEMENT =
+  "Shows whether the packet is unchanged since the key that signed it signed it, and where that key stands in the published key list. Says nothing about the agent the packet is about: not that it works, and not that it is safe.";
+
+/** The answer to a signed evidence packet (docs/verifier-2026-11-05.md): the shared check's result, under the API's names. */
+function verifyAnswer(result: VerifyResult, now: Date): ApiEnvelope<Record<string, unknown>> {
+  return {
+    api_version: "v1",
+    as_of: now.toISOString(),
+    source: { kind: "evidence_packet", key_list: `${PAGE_ORIGIN}/.well-known/nooscape-keys.json` },
+    license: API_LICENSE,
+    data: {
+      valid: result.valid,
+      verified_by_nooscape: result.verifiedByNooscape,
+      hash_valid: result.hashValid,
+      signature_valid: result.signatureValid,
+      key_matches_envelope: result.keyMatchesEnvelope,
+      payload_matches_envelope_fields: result.payloadMatchesEnvelopeFields,
+      issued_by_current_relay: result.issuedByCurrentRelay,
+      key_status: result.keyStatus,
+      agent_id: result.agentId,
+      observed_at: result.observedAt,
+      sequence: result.sequence,
+      entry_count: result.entryCount,
+      signature_algorithm: result.signatureAlgorithm,
+      publisher_key_allowlisted: result.publisherKeyAllowlisted,
+      publisher_name: result.publisherName,
+      issues: result.issues,
+      statement: VERIFY_STATEMENT,
+    },
   };
 }
 
@@ -453,6 +497,7 @@ export function indexAnswer(
         path: "/api/v1/check",
         summary: `Pre-flight facts for an agent, a wallet or an endpoint URL, with their dates. Needs a Pro key${pay ? `, or ${usdOf(pay.prices.check)} a call with no key` : ""}.`,
       },
+      { method: "POST", path: "/api/v1/verify", summary: "Check a signed evidence packet: its digest, its signature and the key that signed it. Free, needs no key." },
       { method: "GET", path: "/api/v1/watches", summary: "The listings this key watches. Needs a Builder key." },
       { method: "POST", path: "/api/v1/watches", summary: "Watch up to 25 more listings, up to 100 in all. Needs a Builder key." },
       { method: "DELETE", path: "/api/v1/watches/{nooscape_id}", summary: "Stop watching a listing. Needs a Builder key." },
@@ -603,6 +648,7 @@ export function endpointOf(path: string): string {
   if (path === "/agents/search") return "search";
   if (path === "/agents/batch") return "batch";
   if (path === "/check") return "check";
+  if (path === "/verify") return "verify";
   if (isWebhookPath(path)) return path.startsWith("/watches") ? "watches" : "webhook";
   if (/^\/agents\/[^/]+\/[^/]+\/history$/.test(path)) return "history";
   if (/^\/agents\/[^/]+\/[^/]+$/.test(path)) return "agent";
@@ -795,7 +841,7 @@ export function apiV1Router(deps: ApiV1Deps = defaultApiV1Deps): Router {
     if (req.method === "OPTIONS") return void res.status(204).end();
     // The watchlist and the webhook take their own methods, and answer 405 themselves for the rest.
     if (isWebhookPath(req.path)) return next();
-    const postOnly = req.path === "/agents/batch" ? "The batch lookup takes POST." : req.path === "/check" ? "The check takes POST." : null;
+    const postOnly = req.path === "/agents/batch" ? "The batch lookup takes POST." : req.path === "/check" ? "The check takes POST." : req.path === "/verify" ? "The verify takes POST." : null;
     if (req.method === "POST" && postOnly) return next();
     if (postOnly || (req.method !== "GET" && req.method !== "HEAD")) {
       res.set("Allow", postOnly ? "POST, OPTIONS" : "GET, HEAD, OPTIONS");
@@ -934,6 +980,20 @@ export function apiV1Router(deps: ApiV1Deps = defaultApiV1Deps): Router {
       const capped = page.entries.length >= CHECK_RESULT_LIMIT;
       // A question that matches no listing is answered and not charged for, as an agent that is not listed is.
       await respond(deps, res, `${request.wallet ? "wallet" : "url"}|${request.wallet ?? request.url}|${request.chain ?? ""}`, checkAnswer({ type: request.wallet ? "wallet" : "url", value: request.wallet ?? request.url!, host }, results, results.length, capped, now), results.length > 0);
+    })
+  );
+
+  // Checks a signed evidence packet (docs/verifier-2026-11-05.md). Free and keyless: it reads no record, only the packet it is handed and the
+  // relay's published key list, and costs a hash and a signature check, so it spends the public limit of the address like any lookup and
+  // asks for nothing else. The answer is made for this body, so nothing is cached. It runs the code the nooscape-verify package runs.
+  router.post("/verify", express.json({ limit: VERIFY_BODY_LIMIT }), (req, res) =>
+    guarded(res, async () => {
+      const parsed = evidencePacketSchema.safeParse(req.body);
+      if (!parsed.success) return fail(res, "bad_request", `The body must be a Nooscape signed evidence packet, as the site's Export signed JSON button saves it. ${describeFailure(parsed.error.issues)}`);
+      const packet = parsed.data;
+      const result = verifyEvidencePacket(packet, packet.envelope.relayKeyId ? (deps.relayKeys ?? listRelayKeys)() : []);
+      res.set("Cache-Control", "no-store");
+      res.json(verifyAnswer(result, deps.now()));
     })
   );
 

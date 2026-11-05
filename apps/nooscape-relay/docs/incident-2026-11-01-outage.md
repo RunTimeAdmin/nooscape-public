@@ -26,6 +26,6 @@ It is the same family as the incident of 14 October ([record](./incident-2026-10
 
 ## What was changed and what to do next time
 
-- No code changed because of it. A start that only created its bookkeeping table when it was missing would not have helped: `SELECT` was gone too.
+- No code changed because of it. A start that only created its bookkeeping table when it was missing would not have helped: `SELECT` was gone too. (On 2026-11-05 a follow-up spaced the failed starts, which bounds the connections a loop like this spends: [the record](./boot-spacing-and-build-timing-2026-11-05.md).)
 - When a migration is run by hand in the panel, have `SHOW GRANTS FOR CURRENT_USER();` and the remote access page open, and read the runtime log for `CREATE denied` straight afterwards. A second `SHOW GRANTS` that lists the full set means the access is back.
 - A deploy during an outage is held until the site answers.

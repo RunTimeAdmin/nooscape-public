@@ -65,7 +65,7 @@ On 5 November 2026 the atlas listed 61,395 agents from the chain registries (Rob
 | **Use it from an AI assistant** | The [`nooscape-mcp`](https://github.com/RunTimeAdmin/nooscape-mcp) server gives MCP clients search, lookup, history and the check as tools. |
 | **Claim your agent** | The owner of an ERC-8004 agent on Robinhood Chain, BNB Chain or Arc signs one message with the wallet that owns the agent in the registry. The claim is shown beside what Nooscape observed, never in its place. |
 | **Watch agents** | Builder keys get a watchlist and signed webhooks. |
-| **Verify evidence** | Evidence packets are signed with Ed25519. The signing keys, active and retired, are published at [`/.well-known/nooscape-keys.json`](https://nooscape.si/.well-known/nooscape-keys.json), and the [verifier](https://nooscape.si/verify) checks a packet against them. |
+| **Verify evidence** | Evidence packets are signed with Ed25519. The signing keys, active and retired, are published at [`/.well-known/nooscape-keys.json`](https://nooscape.si/.well-known/nooscape-keys.json). The [verifier](https://nooscape.si/verify) checks a packet against them, the free `POST /api/v1/verify` does the same over HTTP, and [`nooscape-verify`](https://www.npmjs.com/package/nooscape-verify) checks a packet on your own machine, with no network except the key list. |
 
 ## Try the API
 
@@ -122,6 +122,7 @@ apps/nooscape-relay/     The application
   drizzle/                 SQL migrations
   docs/                    Decision records, runbooks and the documentation index
   scripts/                 Build, CI and live-check scripts
+  verifier/                The nooscape-verify package, a command and a library
 packages/nooscape-mcp/   A pointer to the MCP server's own repository, nooscape-mcp
 brand/                   Logos, cards and the screenshots above
 ```

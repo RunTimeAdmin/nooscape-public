@@ -1,0 +1,46 @@
+{
+  "name": "nooscape-verify",
+  "version": "0.1.0",
+  "description": "Checks a Nooscape signed evidence packet offline: its SHA-256 digest, its Ed25519 signature, and the key that signed it.",
+  "type": "module",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "nooscape-verify": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "5.9.3"
+  },
+  "homepage": "https://nooscape.si/developers",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RunTimeAdmin/nooscape-public.git",
+    "directory": "apps/nooscape-relay/verifier"
+  },
+  "keywords": [
+    "nooscape",
+    "evidence",
+    "ed25519",
+    "verification",
+    "erc-8004"
+  ]
+}
