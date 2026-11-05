@@ -33,6 +33,12 @@ It **does not** mean that Nooscape has verified a legal entity, publisher-key ow
   - **any failure** → the upgrade is revoked: the challenge is marked revoked, matching identity/endpoint rows revert to `asserted` / `unverified`, the read model returns to Tier 2, and a `DOMAIN_CONTROL_REVOKED` event records the reason.
 - Renewal is the only path forward: letting the window lapse returns the record to Tier 2 until a recheck or a new challenge succeeds.
 
+## Inviting operators (2026-11-05)
+
+The flow above was run by the operator for operators who had been asked. Option A of [the options note](./tier3-self-serve-options-2026-11-05.md) adds the invitation and nothing else: the page `/domain-control` says what Tier 3 is and is not, the four steps (write to the support address, receive a challenge good for 48 hours, publish the token at the proof address, say it is up), what is read (one HTTPS request, no redirect, no cookie or credential, 4 KiB at most, never the agent), how long it lasts (90 days, tied to the card, a recheck renews it) and that it costs nothing. A reviewed record at Tier 2 links to it from its page; a Tier 3 record does not.
+
+The page has no form and starts nothing. A person at Nooscape still decides each request, creates the challenge, triggers the fetch and rechecks, so every tier change stays operator-gated. The numbers and the proof address on the page are held to this module and to `liveData.ts` by `client/src/pages/domainControl.test.ts`, and the page names the support address through `lib/contacts.ts` like the other plain pages. It promises no reply time.
+
 ## Safeguards
 
 - The bearer token is returned only once and only its SHA-256 digest is stored.

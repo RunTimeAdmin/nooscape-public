@@ -37,6 +37,8 @@ const Disputes = lazy(() => import("./pages/Disputes"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Terms = lazy(() => import("./pages/Terms"));
 const Contact = lazy(() => import("./pages/Contact"));
+const DomainControl = lazy(() => import("./pages/DomainControl"));
+const Status = lazy(() => import("./pages/Status"));
 const Watch = lazy(() => import("./pages/Watch"));
 const Patrols = lazy(() => import("./pages/Patrols"));
 
@@ -77,6 +79,8 @@ function Router() {
         <Route path="/privacy" component={Privacy} />
         <Route path="/terms" component={Terms} />
         <Route path="/contact" component={Contact} />
+        <Route path="/domain-control" component={DomainControl} />
+        <Route path="/status" component={Status} />
         <Route path="/agents/:id" component={DirectoryAgent} />
         <Route path="/catch">{() => <Catch />}</Route>
         <Route path="/catch/:date">{params => <Catch date={params.date} />}</Route>

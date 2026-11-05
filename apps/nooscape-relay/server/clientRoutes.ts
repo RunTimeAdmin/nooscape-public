@@ -40,6 +40,8 @@ export const EXACT_CLIENT_ROUTES = [
   "/privacy",
   "/terms",
   "/contact",
+  "/domain-control",
+  "/status",
   "/admin/sources",
   "/404",
 ];
