@@ -255,3 +255,19 @@ describe("the recordings hold nothing they should not", () => {
     expect(text).not.toMatch(/[\w.+-]+@[\w-]+[.][\w.-]+/);
   });
 });
+
+describe("the locator host of a recorded URI", () => {
+  it("is stored in lower case and without its trailing dots, however the dot was written", () => {
+    // The URL parser keeps the root dot, so a host written with one was a different string from the same host without it: it escaped the
+    // suppressed-domain rule and split the per-host counts (outside audit 2026-11-05, findings R16 and R19).
+    for (const uri of ["https://Api.Example./a.json", "https://api.example../a.json", "https://api.example%2E/a.json", "https://api.example。/a.json"]) {
+      expect(uriFacts(uri).locatorHost, uri).toBe("api.example");
+    }
+  });
+
+  it("is still none for a scheme other than lower-case https, and for a name with nothing left", () => {
+    expect(uriFacts("http://api.example/a").locatorHost).toBeNull();
+    expect(uriFacts("ipfs://bafy/a").locatorHost).toBeNull();
+    expect(uriFacts("https://./a").locatorHost).toBeNull();
+  });
+});

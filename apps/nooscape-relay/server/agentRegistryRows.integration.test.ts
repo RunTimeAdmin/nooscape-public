@@ -162,6 +162,38 @@ describe.skipIf(!dbReachable)("the registry rows listing against a real database
       expect(await listingOf(source, 1, 2, 3)).toEqual([GROUPED, GROUPED, LISTED]);
     });
 
+    it("keeps a listed registration listed when a later registration copies its link, and holds out the copies", async () => {
+      // A stranger can copy any link that is already on chain. The copy used to hold out both, so one transaction delisted the original
+      // (outside audit 2026-11-05, finding R4). Now only a row that is not yet listed is weighed against a shared link.
+      const source = await newSource();
+      const shared = sha("original-link");
+      await seed(source, [draft(1, { profileUriHash: shared })]);
+      await classify(source);
+      expect(await listingOf(source, 1)).toEqual([LISTED]);
+      await registry.publishAgentRegistryListing(source.id);
+      expect(await entryOf(source, 1)).toBeDefined();
+      await seed(source, [draft(2, { profileUriHash: shared }), draft(3, { profileUriHash: shared })]);
+      await classify(source);
+      expect(await listingOf(source, 1, 2, 3)).toEqual([LISTED, GROUPED, GROUPED]);
+      // Classifying again changes nothing, and the original keeps its entry while the copies never get one.
+      await classify(source);
+      expect(await listingOf(source, 1, 2, 3)).toEqual([LISTED, GROUPED, GROUPED]);
+      await registry.publishAgentRegistryListing(source.id);
+      expect(await entryOf(source, 1)).toBeDefined();
+      expect(await entryOf(source, 2)).toBeUndefined();
+      expect(await entryOf(source, 3)).toBeUndefined();
+    });
+
+    it("still groups a host and a wallet that grow around a listed registration: only the exact link is a key a stranger can copy at will", async () => {
+      const source = await newSource();
+      await seed(source, [draft(1, { locatorHost: "platform.example.com" })]);
+      await classify(source);
+      expect(await listingOf(source, 1)).toEqual([LISTED]);
+      await seed(source, Array.from({ length: 49 }, (_unused, index) => draft(index + 2, { locatorHost: "platform.example.com" })));
+      await classify(source);
+      expect((await rowOf(source, 1)).listing).toBe(GROUPED);
+    });
+
     it("groups a host at its threshold and not below it", async () => {
       const source = await newSource();
       await seed(source, [
@@ -236,6 +268,189 @@ describe.skipIf(!dbReachable)("the registry rows listing against a real database
       expect(await listingOf(source, 1, 2)).toEqual([LISTED, LISTED]);
       expect(await listingOf(other, 1, 2, 3)).toEqual([GROUPED, GROUPED, GROUPED]);
       await seed(source, [draft(3, { registrant: wallet })]);
+      await classify(source);
+      expect(await listingOf(source, 1, 2, 3)).toEqual([GROUPED, GROUPED, GROUPED]);
+    });
+  });
+
+  // The claims table is made by a manual migration (0042), which the boot runner leaves to the operator, so it is not in this schema until the next
+  // describe makes it. A database like that has no claim to spare a row for, and the host rule must still run.
+  it("classifies a host when the claims table is not there yet", async () => {
+    const probe = await createConnection(process.env.DATABASE_URL!);
+    const [tables] = (await probe.query("SHOW TABLES LIKE 'agent_claims'")) as [unknown[], unknown];
+    await probe.end();
+    expect(tables).toHaveLength(0);
+    const source = await newSource();
+    await seed(source, Array.from({ length: 4 }, (_unused, index) => draft(index + 1, { locatorHost: "platform.example.com" })));
+    await classify(source);
+    expect(await listingOf(source, 1, 2, 3, 4)).toEqual([GROUPED, GROUPED, GROUPED, GROUPED]);
+  });
+
+  describe("what can reverse a verdict of the rules: a pin, and a claim against the host rule", () => {
+    beforeAll(async () => {
+      const { splitMigrationStatements } = await import("./dbMigrations");
+      const owner = await createConnection(process.env.DATABASE_URL!);
+      for (const statement of splitMigrationStatements(await readFile("drizzle/0042_agent_claims.sql", "utf8"))) await owner.query(statement);
+      await owner.end();
+    });
+
+    // Steps 2 and 3 of finding R4 of the outside audit of 2026-11-05. A host is the one key a stranger can fill (a platform, or someone who
+    // registers fifty agents on a host to push the rest out), so an operator pin and a claim in force reverse what the rules said.
+    const pin = (source: schema.IngestionSource, ...ids: number[]) =>
+      writer.insert(schema.agentDirectoryListingPins).values(ids.map(n => ({ sourceId: source.id, externalKey: keyOf(n), note: "test" })));
+    const unpin = (source: schema.IngestionSource, n: number) =>
+      writer
+        .delete(schema.agentDirectoryListingPins)
+        .where(and(eq(schema.agentDirectoryListingPins.sourceId, source.id), eq(schema.agentDirectoryListingPins.externalKey, keyOf(n))));
+    const claim = async (source: schema.IngestionSource, n: number, overrides: Partial<typeof schema.agentClaims.$inferInsert> = {}) => {
+      const entry = (await entryOf(source, n))!;
+      await writer.insert(schema.agentClaims).values({
+        id: `claim-${source.id}-${n}`,
+        entryId: entry.id,
+        inForceEntryId: entry.id,
+        protocol: "erc8004_bsc",
+        chainId: 56,
+        registry: REGISTRY,
+        tokenId: String(n),
+        wallet: "0x" + "9".repeat(40),
+        status: "active",
+        claimedAt: new Date(),
+        statusChangedAt: new Date(),
+        lastOwnerCheckAt: new Date(),
+        signatureDigest: "0".repeat(64),
+        ...overrides,
+      });
+    };
+    const platform = (from: number, count: number) => Array.from({ length: count }, (_unused, index) => draft(from + index, { locatorHost: "platform.example.com" }));
+
+    it("lists a pinned registration that the link, host, wallet or number-only-name rule held out, and no other", async () => {
+      const source = await newSource();
+      const wallet = "0x" + "a".repeat(40);
+      await seed(source, [
+        draft(1, { profileUriHash: sha("shared-link") }),
+        draft(2, { profileUriHash: sha("shared-link") }),
+        ...platform(3, 4),
+        draft(7, { registrant: wallet }),
+        draft(8, { registrant: wallet }),
+        draft(9, { registrant: wallet }),
+        draft(10, { displayName: "424242" }),
+        draft(11, { displayName: "4242", profileUriHash: EMPTY_HASH, listing: NO_LINK }),
+      ]);
+      await classify(source);
+      expect(await listingOf(source, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)).toEqual([GROUPED, GROUPED, GROUPED, GROUPED, GROUPED, GROUPED, GROUPED, GROUPED, GROUPED, NUMERIC, NO_LINK]);
+      await pin(source, 1, 3, 7, 10, 11);
+      await classify(source);
+      // A pin is a verdict of its own: the rules' shared-key and number-only-name verdicts are reversed, and a registration with no usable link
+      // stays out, because the rules did not judge it.
+      expect(await listingOf(source, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)).toEqual([LISTED, GROUPED, LISTED, GROUPED, GROUPED, GROUPED, LISTED, GROUPED, GROUPED, LISTED, NO_LINK]);
+      await registry.publishAgentRegistryListing(source.id);
+      for (const n of [1, 3, 7, 10]) expect(await entryOf(source, n), `entry ${n}`).toBeDefined();
+      for (const n of [2, 4, 5, 6, 8, 9, 11]) expect(await entryOf(source, n), `entry ${n}`).toBeUndefined();
+    });
+
+    it("keeps a pinned registration listed while its host or wallet grows past the bar, which holds out an unpinned one", async () => {
+      const source = await newSource();
+      const wallet = "0x" + "b".repeat(40);
+      await seed(source, [draft(1, { locatorHost: "platform.example.com" }), draft(2, { locatorHost: "other.example.com" }), draft(3, { registrant: wallet })]);
+      await classify(source);
+      expect(await listingOf(source, 1, 2, 3)).toEqual([LISTED, LISTED, LISTED]);
+      await pin(source, 1, 3);
+      await seed(source, [...platform(4, 3), draft(7, { registrant: wallet }), draft(8, { registrant: wallet })]);
+      await seed(source, [draft(9, { locatorHost: "other.example.com" }), draft(10, { locatorHost: "other.example.com" }), draft(11, { locatorHost: "other.example.com" })]);
+      await classify(source);
+      // Row 1's host now holds four registrations and row 3's wallet three. Row 2, on a second host that also reached four, has no pin.
+      expect(await listingOf(source, 1, 2, 3)).toEqual([LISTED, GROUPED, LISTED]);
+      expect(await listingOf(source, 4, 5, 6, 7, 8)).toEqual([GROUPED, GROUPED, GROUPED, GROUPED, GROUPED]);
+    });
+
+    it("never sets a pinned registration to grouped, not even for the moment before the pin lists it again", async () => {
+      // Two processes run the worker against one database. A publish that ran between a rule demoting the pinned row and the pin listing it again
+      // would delete its entry, and the page would come back only at the next publish. A trigger records every change of a listing.
+      const source = await newSource();
+      await seed(source, platform(1, 3));
+      await classify(source);
+      await pin(source, 1);
+      await seed(source, platform(4, 1));
+      const watcher = await createConnection(process.env.DATABASE_URL!);
+      try {
+        await watcher.query("CREATE TABLE IF NOT EXISTS listing_changes (externalKey varchar(512), fromListing tinyint, toListing tinyint)");
+        await watcher.query("DROP TRIGGER IF EXISTS listing_changes_t");
+        await watcher.query(
+          "CREATE TRIGGER listing_changes_t AFTER UPDATE ON agent_directory_registry_rows FOR EACH ROW INSERT INTO listing_changes VALUES (NEW.externalKey, OLD.listing, NEW.listing)"
+        );
+        await classify(source);
+        const [changes] = (await watcher.query("SELECT externalKey FROM listing_changes WHERE externalKey = ? AND toListing = ?", [keyOf(1), GROUPED])) as [unknown[], unknown];
+        expect(changes).toEqual([]);
+        // The other rows of the host were held out, so the trigger did see the classification run.
+        const [others] = (await watcher.query("SELECT COUNT(*) AS held FROM listing_changes WHERE toListing = ?", [GROUPED])) as [Array<{ held: number | string }>, unknown];
+        expect(Number(others[0]!.held)).toBeGreaterThanOrEqual(3);
+      } finally {
+        await watcher.query("DROP TRIGGER IF EXISTS listing_changes_t");
+        await watcher.query("DROP TABLE IF EXISTS listing_changes");
+        await watcher.end();
+      }
+      expect(await listingOf(source, 1, 2, 3, 4)).toEqual([LISTED, GROUPED, GROUPED, GROUPED]);
+    });
+
+    it("hands the registration back to the rules when its pin is removed", async () => {
+      const source = await newSource();
+      await seed(source, platform(1, 4));
+      await pin(source, 1);
+      await classify(source);
+      expect(await listingOf(source, 1, 2, 3, 4)).toEqual([LISTED, GROUPED, GROUPED, GROUPED]);
+      await unpin(source, 1);
+      await classify(source);
+      expect(await listingOf(source, 1, 2, 3, 4)).toEqual([GROUPED, GROUPED, GROUPED, GROUPED]);
+    });
+
+    it("scopes a pin to its own source", async () => {
+      const first = await newSource();
+      const second = await newSource();
+      await seed(first, platform(1, 4));
+      await seed(second, platform(1, 4));
+      await pin(second, 1);
+      await classify(first);
+      await classify(second);
+      expect(await listingOf(first, 1, 2, 3, 4)).toEqual([GROUPED, GROUPED, GROUPED, GROUPED]);
+      expect(await listingOf(second, 1, 2, 3, 4)).toEqual([LISTED, GROUPED, GROUPED, GROUPED]);
+    });
+
+    it("keeps a registration with a claim in force listed when its host grows past the bar, and holds out the rest of the host", async () => {
+      const source = await newSource();
+      await seed(source, platform(1, 3));
+      await classify(source);
+      await registry.publishAgentRegistryListing(source.id);
+      expect(await listingOf(source, 1, 2, 3)).toEqual([LISTED, LISTED, LISTED]);
+      await claim(source, 1);
+      await seed(source, platform(4, 1));
+      await classify(source);
+      expect(await listingOf(source, 1, 2, 3, 4)).toEqual([LISTED, GROUPED, GROUPED, GROUPED]);
+      await registry.publishAgentRegistryListing(source.id);
+      expect(await entryOf(source, 1)).toBeDefined();
+      expect(await entryOf(source, 2)).toBeUndefined();
+    });
+
+    it("spares a registration only while its claim is in force: a revoked claim no longer does, and a claim on hold still does", async () => {
+      const source = await newSource();
+      await seed(source, platform(1, 3));
+      await classify(source);
+      await registry.publishAgentRegistryListing(source.id);
+      await claim(source, 1);
+      await claim(source, 2, { status: "frozen" });
+      await claim(source, 3, { status: "revoked", inForceEntryId: null });
+      await seed(source, platform(4, 1));
+      await classify(source);
+      expect(await listingOf(source, 1, 2, 3, 4)).toEqual([LISTED, LISTED, GROUPED, GROUPED]);
+    });
+
+    it("spares a claimed registration from the host rule only: its wallet, as the claimant's own, still counts", async () => {
+      const source = await newSource();
+      const wallet = "0x" + "c".repeat(40);
+      await seed(source, [draft(1, { registrant: wallet })]);
+      await classify(source);
+      await registry.publishAgentRegistryListing(source.id);
+      await claim(source, 1);
+      await seed(source, [draft(2, { registrant: wallet }), draft(3, { registrant: wallet })]);
       await classify(source);
       expect(await listingOf(source, 1, 2, 3)).toEqual([GROUPED, GROUPED, GROUPED]);
     });
@@ -359,12 +574,16 @@ describe.skipIf(!dbReachable)("the registry rows listing against a real database
       await registry.publishAgentRegistryListing(source.id);
       const hidden = (await entryOf(source, 1))!;
       await writer.update(schema.agentDirectoryEntries).set({ hidden: true }).where(eq(schema.agentDirectoryEntries.id, hidden.id));
-      // A clone of registration 1's link appears: both are grouped and entry 1 is removed.
+      // Registration 2 takes registration 1's link in the same batch that sends registration 1 back to pending, so the two reach
+      // classification together (a copy of a link that is already listed is held out alone): both are grouped and entry 1 is removed.
       const link = (await rowOf(source, 1)).profileUriHash!;
       await registry.applyAgentRegistryUriUpdates({
         source,
         runId: "run-flap",
-        updates: [{ externalKey: keyOf(2), locatorHost: null, profileUriHash: link, hasProfileLink: true }],
+        updates: [
+          { externalKey: keyOf(1), locatorHost: null, profileUriHash: link, hasProfileLink: true },
+          { externalKey: keyOf(2), locatorHost: null, profileUriHash: link, hasProfileLink: true },
+        ],
         rules: RULES,
       });
       await classify(source);
@@ -396,11 +615,15 @@ describe.skipIf(!dbReachable)("the registry rows listing against a real database
       // An entry published before that rule has an id of its own. The row learns it when the entry goes.
       const legacy = "00000000-0000-4000-8000-0000000000e2";
       await writer.update(schema.agentDirectoryEntries).set({ id: legacy }).where(eq(schema.agentDirectoryEntries.id, two.id));
+      // Both take one link in the same batch, so they reach classification together and are both held out.
       const link = (await rowOf(source, 1)).profileUriHash!;
       await registry.applyAgentRegistryUriUpdates({
         source,
         runId: "run-id-1",
-        updates: [{ externalKey: keyOf(2), locatorHost: null, profileUriHash: link, hasProfileLink: true }],
+        updates: [
+          { externalKey: keyOf(1), locatorHost: null, profileUriHash: link, hasProfileLink: true },
+          { externalKey: keyOf(2), locatorHost: null, profileUriHash: link, hasProfileLink: true },
+        ],
         rules: RULES,
       });
       await classify(source);
@@ -503,6 +726,45 @@ describe.skipIf(!dbReachable)("the registry rows listing against a real database
       await classify(source);
       await apply(source, [update(1)]);
       expect(await listingOf(source, 1)).toEqual([NUMERIC]);
+    });
+
+    it("holds out the row that moves onto the link of a listed registration, and leaves the listed one listed", async () => {
+      const source = await newSource();
+      await seed(source, [draft(1), draft(2)]);
+      await classify(source);
+      expect(await listingOf(source, 1, 2)).toEqual([LISTED, LISTED]);
+      // Row 2 now copies row 1's link. It is the row that changed, so it is the one that is weighed again.
+      await apply(source, [update(2, { profileUriHash: sha("uri-1") })]);
+      expect(await listingOf(source, 1, 2)).toEqual([LISTED, PENDING]);
+      await classify(source);
+      expect(await listingOf(source, 1, 2)).toEqual([LISTED, GROUPED]);
+    });
+
+    it("lists a copy again when it leaves the original's link, and lists the copy when the original leaves", async () => {
+      const source = await newSource();
+      const shared = sha("original");
+      await seed(source, [draft(1, { profileUriHash: shared })]);
+      await classify(source);
+      await seed(source, [draft(2, { profileUriHash: shared })]);
+      await classify(source);
+      expect(await listingOf(source, 1, 2)).toEqual([LISTED, GROUPED]);
+      // The copy moves to a link of its own.
+      await apply(source, [update(2)]);
+      await classify(source);
+      expect(await listingOf(source, 1, 2)).toEqual([LISTED, LISTED]);
+
+      // The other way round: a second copy, then the original leaves, so the group falls below its threshold.
+      const again = await newSource();
+      const link = sha("original-again");
+      await seed(again, [draft(1, { profileUriHash: link })]);
+      await classify(again);
+      await seed(again, [draft(2, { profileUriHash: link })]);
+      await classify(again);
+      expect(await listingOf(again, 1, 2)).toEqual([LISTED, GROUPED]);
+      await apply(again, [update(1)]);
+      expect(await listingOf(again, 1, 2)).toEqual([PENDING, PENDING]);
+      await classify(again);
+      expect(await listingOf(again, 1, 2)).toEqual([LISTED, LISTED]);
     });
 
     it("sends the rows left behind in a profile link group that shrank below its threshold back to pending, and lists them", async () => {

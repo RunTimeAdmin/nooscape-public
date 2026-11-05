@@ -6,6 +6,7 @@ import { storagePut } from "../storage";
 import { assertPublicHostname } from "./a2a";
 import type { IngestionSource } from "../../drizzle/schema";
 import type { CatalogNormalizedCandidate, DirectoryEntryDraft, RawObservationInput } from "./types";
+import { canonicalHost } from "../hostName";
 
 const FEED_URL = "https://agenstry.com/api/feed/all.jsonl.gz";
 const FEED_HOSTNAME = new URL(FEED_URL).hostname;
@@ -195,7 +196,7 @@ export function agenstryDirectoryDraft(record: unknown): DirectoryEntryDraft | n
 
   let locatorHost: string | null = null;
   try {
-    locatorHost = publicHttpsUrl(value.url, "Agenstry record URL").hostname.toLowerCase();
+    locatorHost = canonicalHost(publicHttpsUrl(value.url, "Agenstry record URL").hostname);
   } catch {
     locatorHost = null;
   }

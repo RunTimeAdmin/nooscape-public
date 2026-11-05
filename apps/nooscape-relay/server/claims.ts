@@ -404,10 +404,30 @@ export async function verifyAndClaim(input: { nonce: string; message: string; si
   });
 }
 
-/** Ends a claim and says why in the history. `wallet` is the owner the registry records now, when that is the reason. */
+/**
+ * Ends a claim and says why in the history. `wallet` is the owner the registry records now, when that is the reason. A claim on hold
+ * had its text withheld by the hold alone, and the history applies a hold only to the claim in force, so ending the claim would
+ * publish every edit the operator was withholding (outside audit 2026-11-05, finding R10). The withholding is therefore written
+ * down as a removal is: the text is cleared and one "redact" row is added for each field.
+ */
 async function revokeInTransaction(tx: Tx, claim: ClaimRow, reason: "owner_changed" | "token_gone", wallet: string | null, now: Date): Promise<void> {
   await tx.update(agentClaims).set({ status: "revoked", inForceEntryId: null, statusChangedAt: now }).where(eq(agentClaims.id, claim.id));
   await tx.insert(agentClaimEdits).values({ id: randomUUID(), claimId: claim.id, entryId: claim.entryId, kind: "revoke", wallet, reason, occurredAt: now });
+  if (claim.status === "frozen") await redactInTransaction(tx, claim, CLAIM_FIELDS, "nooscape", now);
+}
+
+/** Clears a claim's current text for the fields, and adds one "redact" row per field to the history, so every earlier edit of the field shows without its text. */
+async function redactInTransaction(tx: Tx, claim: { id: string; entryId: string }, fields: readonly ClaimField[], by: RemovalBy, at: Date): Promise<void> {
+  const cleared = {
+    ...(fields.includes("name") ? { name: null } : {}),
+    ...(fields.includes("website") ? { website: null } : {}),
+    ...(fields.includes("description") ? { description: null } : {}),
+    ...(fields.includes("links") ? { links: null } : {}),
+  };
+  await tx.update(agentClaims).set(cleared).where(eq(agentClaims.id, claim.id));
+  for (const field of fields) {
+    await tx.insert(agentClaimEdits).values({ id: randomUUID(), claimId: claim.id, entryId: claim.entryId, kind: "redact", field, reason: REMOVAL_REASON[by], occurredAt: at });
+  }
 }
 
 // ---------------------------------------------------------------- 4. an edit
@@ -711,17 +731,7 @@ export async function removeClaimText(claimId: string, fields: readonly ClaimFie
     return db.transaction(async tx => {
       const [claim] = await tx.select().from(agentClaims).where(eq(agentClaims.id, claimId)).limit(1);
       if (!claim) throw fail("NO_CLAIM");
-      const cleared = {
-        ...(chosen.includes("name") ? { name: null } : {}),
-        ...(chosen.includes("website") ? { website: null } : {}),
-        ...(chosen.includes("description") ? { description: null } : {}),
-        ...(chosen.includes("links") ? { links: null } : {}),
-      };
-      await tx.update(agentClaims).set(cleared).where(eq(agentClaims.id, claimId));
-      const at = wholeSeconds(now);
-      for (const field of chosen) {
-        await tx.insert(agentClaimEdits).values({ id: randomUUID(), claimId, entryId: claim.entryId, kind: "redact", field, reason: REMOVAL_REASON[by], occurredAt: at });
-      }
+      await redactInTransaction(tx, claim, chosen, by, wholeSeconds(now));
       return { removed: chosen };
     });
   });

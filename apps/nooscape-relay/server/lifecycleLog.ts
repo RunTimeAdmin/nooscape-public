@@ -54,7 +54,7 @@ const SETTING_VALUE = /^[A-Za-z0-9._-]{0,12}$/;
 const LIMIT_NAMES = ["Max open files", "Max processes", "Max address space", "Max resident set"] as const;
 
 export type TrailEvent = {
-  ev: "start" | "beat" | "signal" | "crash" | "exit";
+  ev: "start" | "beat" | "signal" | "crash" | "exit" | "shutdown";
   inst: string;
   at: string;
   pid?: number;
@@ -65,6 +65,10 @@ export type TrailEvent = {
   origin?: string;
   message?: string;
   code?: number | null;
+  /** On a "shutdown" event, written after the signal: how the wait before the end went (see readShutdown). */
+  tookMs?: number;
+  ceilingHit?: boolean;
+  failed?: string[];
 };
 
 /** How an earlier process ended, as its successor reads it from the trail. */
@@ -87,9 +91,16 @@ export type PreviousInstance = {
   peakRssMb: number | null;
   /** The host's own count of memory kills rose between its last beat and the next start. Null where the host shows no count. */
   oomKillsRose: boolean | null;
+  /**
+   * How its stop went, for a process that waited for something between a stop signal and its end (a deploy's SIGTERM): the answer of
+   * `beforeEnd`. The process's own `nooscape_shutdown` line goes to the runtime log of the deployment it ran in, which the deploy that
+   * stopped it replaces, so this is where a stop is read. Null where it wrote none: it was killed, it crashed, the signal was not a
+   * stop, the wait was given up before it answered, or the process ran code from before this was written.
+   */
+  shutdown: { tookMs: number | null; ceilingHit: boolean; failed: string[] } | null;
 };
 
-const EVENTS = new Set(["start", "beat", "signal", "crash", "exit"]);
+const EVENTS = new Set(["start", "beat", "signal", "crash", "exit", "shutdown"]);
 
 /** The events of a trail file, oldest first. A line that is not an event, or that a stop cut short in the middle of a write, is skipped. */
 export function parseTrail(text: string): TrailEvent[] {
@@ -106,6 +117,23 @@ export function parseTrail(text: string): TrailEvent[] {
     }
   }
   return events;
+}
+
+/**
+ * What a stop's wait answered, read from the value `beforeEnd` ended with: how long it took, whether the ceiling ended it, and the
+ * names (only the names) of the tasks that did not finish well. Null for a value of another shape, so a `beforeEnd` that answers
+ * nothing writes nothing.
+ */
+export function readShutdown(result: unknown): { tookMs: number; ceilingHit: boolean; failed: string[] } | null {
+  if (typeof result !== "object" || result === null) return null;
+  const { tookMs, ceilingHit, tasks } = result as { tookMs?: unknown; ceilingHit?: unknown; tasks?: unknown };
+  if (typeof tookMs !== "number" || !Number.isFinite(tookMs) || typeof ceilingHit !== "boolean" || !Array.isArray(tasks)) return null;
+  const failed: string[] = [];
+  for (const task of tasks) {
+    const { name, ok } = (typeof task === "object" && task !== null ? task : {}) as { name?: unknown; ok?: unknown };
+    if (ok === false && typeof name === "string" && failed.length < 10) failed.push(name.slice(0, 40));
+  }
+  return { tookMs: Math.round(tookMs), ceilingHit, failed };
 }
 
 /** A trail longer than `limit` characters cut to its last `keep`, from the start of a whole line. */
@@ -156,6 +184,7 @@ export function summarizeTrail(
     const lastKills = [...list].reverse().find(event => typeof event.oomKills === "number")?.oomKills ?? null;
     const nextKills = nextStart ? nextStart.oomKills : oomKillsNow;
     const pid = start?.pid ?? null;
+    const stop = list.find(event => event.ev === "shutdown") ?? null;
     const ended: PreviousInstance["ended"] = end ? (end.ev as "signal" | "crash" | "exit") : pid !== null && alive(pid) ? "running" : "unknown";
     return {
       id,
@@ -169,6 +198,7 @@ export function summarizeTrail(
       lastRssMb: typeof rss === "number" ? rss : null,
       peakRssMb: sizes.length > 0 ? Math.max(...sizes) : null,
       oomKillsRose: typeof lastKills === "number" && typeof nextKills === "number" ? nextKills > lastKills : null,
+      shutdown: stop ? { tookMs: stop.tookMs ?? null, ceilingHit: stop.ceilingHit === true, failed: stop.failed ?? [] } : null,
     };
   });
   return summaries.slice(-limit);
@@ -293,7 +323,8 @@ export type LifecycleOptions = {
   healthEvery?: number;
   /**
    * Run when SIGTERM or SIGINT stops the process, and awaited before the signal is raised again, so the process still ends by that
-   * signal. A second signal while it runs ends the process at once, and so does `beforeEndMs`. Another signal never waits.
+   * signal. A second signal while it runs ends the process at once, and so does `beforeEndMs`. Another signal never waits. When it
+   * ends with a shutdown result (see readShutdown), the trail records it, and the next process shows it on this one's `previous` line.
    */
   beforeEnd?: (signal: string) => unknown;
   beforeEndMs?: number;
@@ -305,6 +336,8 @@ export type Lifecycle = {
   signal: (name: string) => void;
   crash: (error: unknown, origin: string) => void;
   exit: (code: number | null) => void;
+  /** Records how the wait before the end went; a value that is not a shutdown result writes nothing. */
+  shutdown: (result: unknown) => void;
 };
 
 /** The behaviour, apart from the process it watches: each call writes what it saw and none of them throws. */
@@ -420,6 +453,10 @@ export function createLifecycleLog(io: Io, options: LifecycleOptions = {}): Life
       say("exit", { code, upSeconds: Math.round(io.facts.upSeconds()) });
       record({ ev: "exit", code });
     }),
+    shutdown: safely((result: unknown) => {
+      const stop = readShutdown(result);
+      if (stop) record({ ev: "shutdown", ...stop });
+    }),
   };
 }
 
@@ -520,6 +557,7 @@ export function startLifecycleLog(options: LifecycleOptions = {}): () => void {
           const guard = setTimeout(() => end(name), options.beforeEndMs ?? BEFORE_END_MS);
           void Promise.resolve()
             .then(() => options.beforeEnd!(name))
+            .then(result => lifecycle.shutdown(result))
             .catch(() => undefined)
             .finally(() => {
               clearTimeout(guard);

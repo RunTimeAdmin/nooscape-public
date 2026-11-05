@@ -261,6 +261,19 @@ describe("the document the API serves", () => {
     expect(answer.keys.tiers).toEqual((["free", "builder", "pro"] as const).map(tier => ({ tier, per_minute: API_TIERS[tier].perMinute, per_day: API_TIERS[tier].perDay })));
   });
 
+  it("carries the room the database has as one word when the server reads it, null when it could not, and nothing when it does not", async () => {
+    for (const [room, expected] of [["ok", "ok"], ["low", "low"], ["critical", "critical"], [null, null]] as const) {
+      await start(deps({ databaseRoom: async () => room }));
+      const answer = await body(await get("/api/v1"));
+      expect(answer.database_room, String(room)).toBe(expected);
+      expect(problems(schemaOf("IndexResponse"), answer), String(room)).toEqual([]);
+    }
+    await start(deps());
+    const plain = await body(await get("/api/v1"));
+    expect("database_room" in plain).toBe(false);
+    expect(problems(schemaOf("IndexResponse"), plain)).toEqual([]);
+  });
+
   it("keeps its labels the same as the words the site's pages use", () => {
     expect(BNB_CHECKED_LABEL).toBe(CHECKED_TITLE);
     expect(BNB_NOT_CHECKED_LABEL).toBe(NOT_CHECKED_TITLE);

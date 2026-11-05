@@ -128,6 +128,14 @@ export async function runApproved8004SolanaSource(
     // a database failure and fails the pass like any other write.
     await upsertAgentRegistrationResolutions({ source, drafts: snapshot.resolutions });
     await upsertAgentDirectoryChainLinks({ source, drafts: snapshot.chainLinks });
+    if (snapshot.unanchoredCount > 0 || snapshot.unanchoredClosureCount > 0 || snapshot.deferredAttributionCount > 0 || snapshot.deferredCount > 0) {
+      // The run record has no field for these, so the server log carries them, as the SAID pass's does. A rising unanchored count after a
+      // program upgrade is the signal that the instruction vocabulary changed; deferred counts that do not fall pass to pass mean an
+      // account keeps spending the attribution budget.
+      console.warn(
+        `[8004] pass ${snapshot.slot}: ${snapshot.unanchoredCount} change(s) and ${snapshot.unanchoredClosureCount} closure(s) recorded without a ledger anchor, ${snapshot.deferredAttributionCount} event(s) deferred by the attribution budget, ${snapshot.deferredCount} account(s) deferred by the per-pass event cap.`
+      );
+    }
     return {
       requestCount: snapshot.requestCount,
       discoveredCount: snapshot.enumeratedCount,

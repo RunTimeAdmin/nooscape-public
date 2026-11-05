@@ -1,6 +1,6 @@
 # The status page (2026-11-05)
 
-> **Status:** Built, not yet live. From item 10 of the outside list of 4 November 2026 ("public status page: cheap credibility for a data service"). No migration, no setting and no new read: it uses two reads the site already serves.
+> **Status:** Live since 2026-11-05 04:24 UTC (PR 270). From item 10 of the outside list of 4 November 2026 ("public status page: cheap credibility for a data service"). No migration, no setting and no new read: it uses two reads the site already serves.
 
 ## What was missing
 
@@ -37,3 +37,13 @@ Write the record in these docs first (timeline, cause, cost), then add the entry
 ## Not done, and what comes next
 
 - **An uptime history.** It needs a monitor outside the host that the operator signs up for (one account), watching `/` and `/api/v1/stats` every minute or five. Its public page, or its badge, would be linked from this page, and the "Not here yet" section would go.
+
+## Addendum 2026-11-05: the room the database has
+
+Finding R3 of the outside audit of 2026-11-05 (a registry row cap keyed on one exact https host), on the owner's call of the same day: an alarm now, and ceilings on what the passes store after the move to a server with room. The host stops every write once a database passes the plan's limit (6 GB on Cloud Startup), and the registry rows and the activity ledgers grow with what registrants write on chain. Nothing in the app looked at the size.
+
+The API index (`/api/v1`) now carries `database_room`: `ok`, `low` from 70 percent of the limit, `critical` from 85, or null when the size could not be read. It is one word and never a figure, because the index is public and the limit is a fact about the hosting. The size is the information schema's data and index length of the app's own database, asked at most once in ten minutes (once a minute after a failed ask, and a failed ask is null, never ok). hPanel's figure runs about 180 MB above it, which the bars leave room for. While the room is low or critical the size goes to the runtime log, in megabytes, at most once an hour: `[Database] room is low: 4500 MB of 6144 MB`. `NOOSCAPE_DATABASE_LIMIT_MB` replaces the limit after a change of plan or host.
+
+The status page prints it as "Database room" (room to grow, getting full, nearly full, or not read just now), and its headline says the database is getting full or nearly full, after a late source, a failing one and a waiting payment. The live check reads the same word: low is a warning and critical fails, which opens the health issue; a server that does not report it, or cannot read it, is a warning. The code is `server/databaseRoom.ts`; the tests are `databaseRoom.test.ts`, `databaseRoom.integration.test.ts` (the size query against MySQL 8.4 and MariaDB 10.11), `apiV1.test.ts`, `statusModel.test.ts` and `status.test.ts`.
+
+When it fires, read the biggest tables in phpMyAdmin, naming the schema (there `DATABASE()` can point at the information schema): `SELECT table_name, ROUND((data_length + index_length) / 1048576) AS mb FROM information_schema.tables WHERE table_schema = 'the app database' ORDER BY mb DESC LIMIT 8`. The clean-up of 21 October 2026 (docs/flood-host-cap-2026-10-21.md) is the precedent. Not done: the ceilings on what the passes store, which are a policy choice (a ceiling stops storing new registrations) and wait for the move.

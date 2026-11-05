@@ -22,6 +22,20 @@ export function sanitizePublicText(value: string | null | undefined, maxLength =
 }
 
 /**
+ * The name a reader shows for a directory entry: the registrant's text with control characters, zero-width characters and
+ * bidirectional overrides taken out, or, when nothing is left of it, the placeholder the registries already use for a registration
+ * that carries no name: "Agent #<id>" on the chains that number their agents (the id is the last part of the entry's key), plain
+ * "Agent" for a key that is not a number. The fallback is never the raw text: a name made only of invisible characters would be
+ * shown as an empty label, or a reversed one (outside audit of 2026-11-05, finding R17).
+ */
+export function publicDisplayName(raw: string | null | undefined, externalKey?: string | null): string {
+  const cleaned = sanitizePublicText(raw, 255);
+  if (cleaned !== null) return cleaned;
+  const id = typeof externalKey === "string" ? (externalKey.split(":").pop() ?? "") : "";
+  return /^[0-9]{1,9}$/.test(id) ? `Agent #${id}` : "Agent";
+}
+
+/**
  * A bare protocol version is metadata, never a capability. Catalog records
  * without a category previously leaked `protocol_version` values (`1.0`,
  * `0.3.0`, …) into the capability field through a positional fallback; those

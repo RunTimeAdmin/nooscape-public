@@ -114,62 +114,82 @@ describe("classifySaidDiff", () => {
   const b = identity("BBBB");
 
   it("the seed pass is a plain inventory with no events", () => {
-    const result = classifySaidDiff({ seed: true, identities: [a, b], prior: new Map() });
+    const result = classifySaidDiff({ passSlot: 1, seed: true, identities: [a, b], prior: new Map() });
     expect(result.plain).toEqual([a, b]);
     expect(result.eventful).toEqual([]);
   });
 
   it("an identity with no prior row registers", () => {
-    const result = classifySaidDiff({ seed: false, identities: [a], prior: new Map() });
+    const result = classifySaidDiff({ passSlot: 1, seed: false, identities: [a], prior: new Map() });
     expect(result.eventful).toHaveLength(1);
     expect(result.eventful[0]!.events).toEqual([{ kind: "register", fromOwner: null, toOwner: "AAAA" }]);
   });
 
   it("an unchanged identity is a plain upsert", () => {
-    const result = classifySaidDiff({ seed: false, identities: [a], prior: new Map([["AAAA", priorFor(a)]]) });
+    const result = classifySaidDiff({ passSlot: 1, seed: false, identities: [a], prior: new Map([["AAAA", priorFor(a)]]) });
     expect(result.plain).toEqual([a]);
     expect(result.eventful).toEqual([]);
   });
 
   it("a different authority is a transfer, from the prior registrant to the new authority", () => {
     const moved = identity("AAAA", { authority: "NEWAUTH" });
-    const result = classifySaidDiff({ seed: false, identities: [moved], prior: new Map([["AAAA", priorFor(a)]]) });
+    const result = classifySaidDiff({ passSlot: 1, seed: false, identities: [moved], prior: new Map([["AAAA", priorFor(a)]]) });
     expect(result.eventful[0]!.events).toEqual([{ kind: "transfer", fromOwner: "AAAA", toOwner: "NEWAUTH" }]);
   });
 
   it("a different metadata URI is a profile_update", () => {
     const edited = identity("AAAA", { uri: "https://elsewhere.example/card.json" });
-    const result = classifySaidDiff({ seed: false, identities: [edited], prior: new Map([["AAAA", priorFor(a)]]) });
+    const result = classifySaidDiff({ passSlot: 1, seed: false, identities: [edited], prior: new Map([["AAAA", priorFor(a)]]) });
     expect(result.eventful[0]!.events).toEqual([{ kind: "profile_update", fromOwner: null, toOwner: "AAAA" }]);
   });
 
   it("a transfer and an edit on the same identity are two events", () => {
     const both = identity("AAAA", { authority: "NEWAUTH", uri: "https://elsewhere.example/card.json" });
-    const result = classifySaidDiff({ seed: false, identities: [both], prior: new Map([["AAAA", priorFor(a)]]) });
+    const result = classifySaidDiff({ passSlot: 1, seed: false, identities: [both], prior: new Map([["AAAA", priorFor(a)]]) });
     expect(result.eventful[0]!.events.map(e => e.kind)).toEqual(["transfer", "profile_update"]);
   });
 
   it("adopts silently when the prior row was never chain-acknowledged (null registrant) or has no URI hash", () => {
     const moved = identity("AAAA", { authority: "NEWAUTH", uri: "https://elsewhere.example/card.json" });
-    expect(classifySaidDiff({ seed: false, identities: [moved], prior: new Map([["AAAA", { registrant: null, profileUriHash: null }]]) }).plain).toEqual([moved]);
+    expect(classifySaidDiff({ passSlot: 1, seed: false, identities: [moved], prior: new Map([["AAAA", { registrant: null, profileUriHash: null }]]) }).plain).toEqual([moved]);
     const edited = identity("AAAA", { uri: "https://elsewhere.example/card.json" });
-    expect(classifySaidDiff({ seed: false, identities: [edited], prior: new Map([["AAAA", priorFor(a, { profileUriHash: null })]]) }).plain).toEqual([edited]);
+    expect(classifySaidDiff({ passSlot: 1, seed: false, identities: [edited], prior: new Map([["AAAA", priorFor(a, { profileUriHash: null })]]) }).plain).toEqual([edited]);
   });
 
   it("badge, stake, and slash changes fire no event: the note refreshes and that is all", () => {
     const staked = identity("AAAA", { isVerified: false, stakeLamports: BigInt(100_000_000), slashCount: 1 });
-    const result = classifySaidDiff({ seed: false, identities: [staked], prior: new Map([["AAAA", priorFor(a)]]) });
+    const result = classifySaidDiff({ passSlot: 1, seed: false, identities: [staked], prior: new Map([["AAAA", priorFor(a)]]) });
     expect(result.plain).toEqual([staked]);
     expect(result.eventful).toEqual([]);
   });
 
-  it("defers every eventful identity past the per-pass event cap, in owner order, without losing the first ones", () => {
+  it("defers every eventful identity past the per-pass event cap, whole, and lists the served ones in owner order", () => {
     const many = Array.from({ length: SAID_CHAIN_MAX_EVENTS_PER_PASS + 5 }, (_v, i) => identity(`OWNER${String(i).padStart(3, "0")}`));
-    const result = classifySaidDiff({ seed: false, identities: many, prior: new Map() });
+    const result = classifySaidDiff({ passSlot: 1, seed: false, identities: many, prior: new Map() });
     expect(result.eventful).toHaveLength(SAID_CHAIN_MAX_EVENTS_PER_PASS);
     expect(result.deferredByCap).toBe(5);
-    expect(result.eventful[0]!.identity.owner).toBe("OWNER000");
+    const owners = result.eventful.map(entry => entry.identity.owner);
+    expect(owners).toEqual([...owners].sort());
     expect(result.plain).toEqual([]);
+  });
+
+  it("serves a late-sorting identity in most passes when 25 early-sorting identities change in every pass", () => {
+    // A registrant chooses the key, so 25 identities whose owners sort first, each changed once a pass, would fill the cap in owner
+    // order in every pass and keep the 5 honest changes deferred for as long as they paid the fees (outside audit R11).
+    const attackers = Array.from({ length: SAID_CHAIN_MAX_EVENTS_PER_PASS }, (_v, i) => `AAAA${String(i).padStart(2, "0")}`);
+    const honest = Array.from({ length: 5 }, (_v, i) => `ZZZZ${i}`);
+    const identities = [...attackers, ...honest].map(owner => identity(owner));
+    const served = new Map<string, number>(honest.map(owner => [owner, 0]));
+    for (let passSlot = 1; passSlot <= 60; passSlot += 1) {
+      const result = classifySaidDiff({ passSlot, seed: false, identities, prior: new Map() });
+      expect(result.eventful).toHaveLength(SAID_CHAIN_MAX_EVENTS_PER_PASS);
+      expect(result.deferredByCap).toBe(5);
+      const owners = result.eventful.map(entry => entry.identity.owner);
+      expect(owners).toEqual([...owners].sort());
+      for (const owner of honest) if (owners.includes(owner)) served.set(owner, served.get(owner)! + 1);
+    }
+    // Each is served in about 50 of 60 passes (25 of 30 places); in owner order it was served in none.
+    for (const owner of honest) expect(served.get(owner)!).toBeGreaterThan(35);
   });
 });
 

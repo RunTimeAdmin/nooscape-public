@@ -49,7 +49,8 @@ classifies each asset against its prior acknowledged state.
 
 Every diff event is attributed the asset's **newest successful transaction signature**
 (`getSignaturesForAddress`, failed transactions skipped) as its evidence anchor. An asset whose
-history shows no successful transaction fails the pass loudly.
+newest signatures hold no successful transaction is **adopted without a ledger row and counted**
+(`unanchoredCount`, addendum 2026-11-05); it used to fail the pass.
 
 ## 3. Pass anatomy and cost
 
@@ -66,7 +67,8 @@ history is not backfilled — `firstSeenAt` starts at seed date, an honest, docu
 **Bounded deferral:** at most 25 events per pass
 (`METAPLEX_CHAIN_MAX_EVENTS_PER_PASS`), each costing one attribution call. A busier day is
 processed over consecutive passes: deferred assets are neither evented nor upserted, so their
-stale prior state re-diffs next pass. Lossless by construction, bounded by design.
+stale prior state re-diffs next pass. Lossless by construction, bounded by design. (Since 2026-11-05 the 25 are chosen in a
+per-pass order and not in asset-key order: see section 12.)
 
 **Fail-closed persistence:** the snapshot (including every attribution) completes before
 anything is written; a failure anywhere leaves prior directory state and cursor intact, and the
@@ -220,3 +222,25 @@ spec-verified layout constant with loud-failure decode guards — the production
 `@metaplex-foundation/mpl-core` deserializer, queued with future layout work. The source's
 "Boundary" column showing `api.metaplex.com` is the fetch-origin allowlist policy, not a
 display label; changing it would break the observe path's origin check, so it stays as-is.
+
+## 11. Addendum 2026-11-05: an asset with no successful signature no longer fails the pass
+
+From the outside audit of 2026-11-05 (finding R1). `getSignaturesForAddress` lists every transaction that names an address, failed ones included, and anyone can submit transactions that do. The pass scans the newest five signatures of each event-bearing asset and threw when none of them had succeeded. Five failed transactions newer than the real change were enough, and the audit's reproduction made the pass throw at every run: a failed run leaves the directory and the cursor where they were, so the same change was detected and refused again, and every Metaplex update (new agents, transfers, renames, closures) waited behind it until a code change. An outsider can use an asset it registered itself, so no victim is needed.
+
+Now a scan with no successful signature answers null, and the change is adopted: the draft stays among the upserts, so the directory row takes the new owner or name, the ledger gets no row (it holds only honestly anchored events), and the change is counted in `unanchoredCount`. A closure is still acknowledged closed, because it is a real disappearance: the adapter returns the keys to mark in `closedExternalKeys`, anchored and unanchored closures alike, and the runner marks that list instead of deriving it from the events. The runner writes a `[METAPLEX] pass <slot>:` warning with the unanchored and deferred counts when either is above zero. It is the SAID pass's design (`saidActivity.ts`). A signature scan that is not a list, or an RPC error, is still a provider fault and still fails the pass.
+
+**Not changed, and open.** The anchor is still the newest successful signature among the newest five, with no check that it acted on the asset. One successful third-party transaction that names the asset, newer than the real change, becomes the ledger anchor for a change it did not make (the audit's second reproduction). Closing that means reading the transaction and requiring a Metaplex Core or identity-program instruction that lists the asset among its accounts, with a bounded walk. A live read of one listed asset's recent transactions on 2026-11-05 showed the shape such a check would use: each has a top-level Core instruction (program `CoREEN…`) whose accounts include the asset, in legacy and in version 0 transactions alike (with an address-table lookup the keys come from `meta.loadedAddresses`), and Core writes no `Instruction:` log line, only invoke, consume and success, so the kind of change cannot be read from the logs. The identity program's registration transaction has not been read yet. The per-pass cap of 25 events still fills in asset-key order (finding R11).
+
+The tests are in `metaplexChain.test.ts` (a scan of failed signatures, a closure with failed signatures, an anchored closure in the marker list, an RPC error that still fails the pass) and `runMetaplex.test.ts` (a closure with no ledger event is still marked, and the log line).
+
+## 12. Addendum 2026-11-05: the per-pass cap serves in the pass's own order
+
+From the outside audit of 2026-11-05 (finding R11). The Metaplex, 8004 and SAID passes each take at most 25 events in a run and defer the rest, whole, to the next run. They walked their candidates in key order (asset, or owner for SAID), and a registrant chooses the key. Someone who registers 25 or more agents whose keys sort first and changes each once a run (one fee-sized transaction each) fills the cap in every run, and every change by an agent whose key sorts later stays deferred for as long as the pattern is paid for. The audit reproduced this on all three passes: 25 events, none of them honest, 5 honest changes deferred in each of three runs in a row. The 2026-10-11 false-close incident (section 9) was the same failure by accident.
+
+The cap now serves in an order that depends on the run: each candidate is ranked by the SHA-256 of the slot the pass read and its key (`server/ingestion/passOrder.ts`), and the candidates whose events fit under the cap, taken in that order, are the ones served. An asset's events are still served whole or not at all, and a candidate that does not fit is skipped so a lighter one after it can still fit, as before. The lists a pass returns are still in key order, so the order of ledger rows and upserts is unchanged.
+
+What this gives: in any one run every pending change is as likely as any other to be served, and no key can be ground to come first in a run that has not happened. It is not a guarantee. A flood of changes still slows the honest ones in proportion to its size: with 25 changing flood accounts and 5 honest changes, each honest change is served in about 5 runs out of 6, where before it was served in none. A change deferred in one run is as likely to be served in the next as one that was never deferred, so a deferral is not remembered between runs. A hard guarantee (oldest deferral first) needs the first-deferred time stored, which is a column and a migration, and was not judged worth one for a delay that costs the flooder a fee per account per run.
+
+The deferred counts were already in the log lines of the three runners (`[METAPLEX] pass`, `[8004] pass`, `[SAID] pass`); a count that does not fall from run to run is the sign of a flood. The 8004 and SAID records carry a pointer to this section.
+
+The tests: `passOrder.test.ts` (the order is the same for the same slot and another for another slot, no key is first in every run, the cap is never exceeded, an item that does not fit is skipped, and 25 early-sorting keys do not keep 5 late-sorting ones out), the same flood on each classifier (`solana8004.test.ts`, `metaplexChain.test.ts`, `saidActivity.test.ts`), and a source test that each pass hands its classifier the slot it read.

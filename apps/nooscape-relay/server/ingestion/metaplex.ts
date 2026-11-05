@@ -3,6 +3,7 @@ import { storagePut } from "../storage";
 import { assertPublicHostname } from "./a2a";
 import type { IngestionSource } from "../../drizzle/schema";
 import type { DirectoryEntryDraft, RawObservationInput, SolanaRegistryCandidate } from "./types";
+import { canonicalHost } from "../hostName";
 
 export const METAPLEX_LIST_URL = "https://api.metaplex.com/v1/agents?page=1&pageSize=24&sort=latest&activeOnly=true";
 const MAX_RESPONSE_BYTES = 1 * 1024 * 1024;
@@ -208,7 +209,7 @@ function metaplexDirectoryDrafts(agents: unknown[]): DirectoryEntryDraft[] {
     let locatorHost: string | null = null;
     if (typeof agent.agentMetadataUri === "string" && agent.agentMetadataUri.startsWith("https://")) {
       try {
-        locatorHost = new URL(agent.agentMetadataUri).hostname.toLowerCase();
+        locatorHost = canonicalHost(new URL(agent.agentMetadataUri).hostname);
       } catch {
         locatorHost = null;
       }

@@ -82,7 +82,9 @@ type MockChainSnapshot = {
   closedExternalKeys: string[];
   deferredCount: number;
   closedAcknowledgedCount: number;
+  deferredAttributionCount: number;
   unanchoredClosureCount: number;
+  unanchoredCount: number;
   resolutions: MockResolutionDraft[];
   chainLinks: MockChainLinkDraft[];
   requestCount: number;
@@ -173,7 +175,9 @@ function chainSnapshot(overrides: Partial<MockChainSnapshot> = {}): MockChainSna
     closedExternalKeys: [ASSET_CLOSED],
     deferredCount: 0,
     closedAcknowledgedCount: 0,
+    deferredAttributionCount: 0,
     unanchoredClosureCount: 1,
+    unanchoredCount: 0,
     resolutions: [
       {
         externalKey: ASSET_OPEN,
@@ -306,6 +310,24 @@ describe("runApproved8004SolanaSource", () => {
     expect(mocks.finishIngestionRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: "completed", nextCursor: "s8004:4242" })
     );
+  });
+
+  it("says in the log how many changes and closures were recorded without an anchor and how many events were deferred, and says nothing when there were none", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      mocks.fetchSolana8004ChainState.mockResolvedValue(chainSnapshot({ unanchoredClosureCount: 0 }));
+      await runApproved8004SolanaSource(activeSource, "manual");
+      expect(warn).not.toHaveBeenCalled();
+
+      mocks.fetchSolana8004ChainState.mockResolvedValue(chainSnapshot({ unanchoredCount: 2, unanchoredClosureCount: 1, deferredAttributionCount: 3, deferredCount: 4 }));
+      await runApproved8004SolanaSource(activeSource, "manual");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toBe(
+        "[8004] pass 4242: 2 change(s) and 1 closure(s) recorded without a ledger anchor, 3 event(s) deferred by the attribution budget, 4 account(s) deferred by the per-pass event cap."
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("seeds when the source has no s8004 inventory position yet", async () => {

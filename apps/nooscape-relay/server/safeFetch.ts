@@ -269,10 +269,13 @@ function requestOnce(
     }, Math.max(1, remainingMs));
 
     // The only addresses the socket may use are the ones that were checked. Node asks for all of them when it tries
-    // addresses in turn, and for one when it does not.
+    // addresses in turn, and for one when it does not. The answer is given on a later tick, as dns.lookup gives it. Node connects inside the call
+    // that starts the request, as the answer arrives, and a connect that fails at once (no route to the address, an address family the host does
+    // not have) destroys the socket before the request has an error listener: the call throws, the socket's error reaches no one and ends the
+    // process (reproduced on Node 22.23.4, lead N10 of the outside audit of 2026-11-05).
     const lookup = (_name: string, options: { all?: boolean } | number | undefined, callback: (...args: unknown[]) => void) => {
-      if (typeof options === "object" && options !== null && options.all) callback(null, addresses.map(answer => ({ address: answer.address, family: answer.family })));
-      else callback(null, addresses[0]!.address, addresses[0]!.family);
+      if (typeof options === "object" && options !== null && options.all) setImmediate(callback, null, addresses.map(answer => ({ address: answer.address, family: answer.family })));
+      else setImmediate(callback, null, addresses[0]!.address, addresses[0]!.family);
     };
 
     try {

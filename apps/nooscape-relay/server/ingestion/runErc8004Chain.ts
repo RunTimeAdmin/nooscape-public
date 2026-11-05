@@ -36,9 +36,9 @@ import type { Erc8004IngestionResult } from "./types";
  * later window updated), then the ledger (INSERT-IGNORE, with an incremental rollup onto the registry rows), then the URI facts.
  * Every write is idempotent, so a retry after any failure is safe. The cursor advances only past windows that were fully applied.
  *
- * A window the node refuses as too large (its own limit, or the response cap in erc8004Rpc.ts) goes back to the front of the queue as its
- * two halves, and each half is fetched and applied as a window of its own, so the response cap, the log bound and the cursor all hold per
- * half. A half that is still refused splits again, down to MIN_SPLIT_WIDTH.
+ * A window the node refuses as too large (its own limit, or the response cap in erc8004Rpc.ts), or answers with more events than the chain's
+ * log bound, goes back to the front of the queue as its two halves, and each half is fetched and applied as a window of its own, so the
+ * response cap, the log bound and the cursor all hold per half. A half that is still too large splits again, down to MIN_SPLIT_WIDTH.
  *
  * Registrations go to the registry rows table, not the directory: a registry can hold hundreds of thousands, mostly templates
  * and platform issuers. After the windows, a listing refresh classifies the rows against the published rules and, once the walk
@@ -89,6 +89,24 @@ async function fetchWindowLogs(chain: Erc8004Chain, rpc: RpcCall, window: ChainW
 /** A result-size refusal of a window wide enough to halve. A block-range refusal is a planner bug and is not split. */
 const refusedAsTooLarge = (reason: unknown, window: ChainWindow) =>
   reason instanceof Erc8004RpcRangeError && reason.reason === "result_size" && window.to - window.from + 1 > MIN_SPLIT_WIDTH;
+
+/**
+ * An answer the node and the response cap both accepted that holds more events than the chain's log bound, for a window wide enough to
+ * halve. The bound is a property of what the decoder will take in one window, not of the answer's fault, so it is handled like a refusal:
+ * the window is read as its two halves. Left to the decoder it failed the run at that window for good, because the same window is
+ * planned again at the same cursor on every later run.
+ */
+const overTheLogBound = (chain: Erc8004Chain, logs: unknown[], window: ChainWindow) =>
+  logs.length > chain.maxWindowLogs && window.to - window.from + 1 > MIN_SPLIT_WIDTH;
+
+/** A window as its two halves, in chain order. */
+const halves = (window: ChainWindow): ChainWindow[] => {
+  const middle = Math.floor((window.from + window.to) / 2);
+  return [
+    { from: window.from, to: middle },
+    { from: middle + 1, to: window.to },
+  ];
+};
 
 /** A refresh failure never fails a run whose windows are already applied; the next run refreshes again. */
 async function refreshListing(chain: Erc8004Chain, source: IngestionSource, options: { classify: boolean; publish: boolean }) {
@@ -233,14 +251,20 @@ export async function runApprovedErc8004ChainSource(
           if (refusedAsTooLarge(outcome.reason, window)) {
             // Its two halves go back ahead of the windows fetched after it, which are read again, so the order stays the chain's.
             console.warn(`[${chain.logTag}] blocks ${window.from} to ${window.to} were too large for one read and are read in halves.`);
-            const middle = Math.floor((window.from + window.to) / 2);
-            windows.unshift({ from: window.from, to: middle }, { from: middle + 1, to: window.to }, ...batch.slice(offset + 1));
+            windows.unshift(...halves(window), ...batch.slice(offset + 1));
             continue outer;
           }
           stopReason = outcome.reason instanceof Error ? outcome.reason : new Error(`${label} window fetch failed.`);
           break outer;
         }
         if (now() - startedAt > budget.maxElapsedMs || acceptedCount >= budget.maxEvents) break outer;
+        if (overTheLogBound(chain, outcome.value, window)) {
+          // Same order as a refusal: the halves go back ahead of the windows fetched after it. Only a window already at the narrowest split
+          // that is still over the bound reaches the decoder, which fails the run there, loudly.
+          console.warn(`[${chain.logTag}] blocks ${window.from} to ${window.to} held more than ${chain.maxWindowLogs} events and are read in halves.`);
+          windows.unshift(...halves(window), ...batch.slice(offset + 1));
+          continue outer;
+        }
 
         try {
           const parsed = parseWindowLogs(chain, outcome.value, bounds(window));

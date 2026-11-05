@@ -1,6 +1,6 @@
 # Building the database from nothing (4 November 2026)
 
-**Status.** Built on 2026-11-04 and not yet live; the merge is recorded here when it is done. The path it adds is not taken by any boot on the host, so there is nothing to see live.
+**Status.** Live since 2026-11-04 20:49 UTC (PR 263). The path it adds is not taken by any boot on the host, so there is nothing new to see live: the first boots after the merge, two processes, each logged `Schema is current; nothing to apply.`, the path a database with tables always took.
 
 **Decided:** 2026-11-04, by the operator, in chat: "next", after "go" and the list I gave after the third outside review ("graceful shutdown plus the bootstrap-from-empty path as the second PR"). The finding was C1 of that review (S6), the same as finding 9's remainder in the [12 October response](./security-review-response-2026-10-12.md), which was queued there as "new to us and unverified".
 

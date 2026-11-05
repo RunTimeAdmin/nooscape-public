@@ -49,7 +49,7 @@ export async function fetchSaidPass(input: {
     nowMs: input.nowMs,
   });
 
-  const classification = classifySaidDiff({ seed: input.seed, identities: chain.identities, prior: input.prior });
+  const classification = classifySaidDiff({ seed: input.seed, passSlot: chain.slot, identities: chain.identities, prior: input.prior });
 
   let attributionRequests = 0;
   const pacingMs = input.pacingMs ?? SOLANA_RPC_PACING_MS;

@@ -114,9 +114,9 @@ export function buildProtocolPopulation(byProtocol: readonly ProtocolCount[], re
 export function listingRulesSentence(rules: { sharedProfileLinkFrom: number; sharedHostFrom: number; sharedWalletFrom: number }): string {
   const link =
     rules.sharedProfileLinkFrom === 2
-      ? "a profile link no other registration holds"
-      : `a profile link held by fewer than ${rules.sharedProfileLinkFrom.toLocaleString()} registrations`;
-  return `Listed means ${link}, a host fewer than ${rules.sharedHostFrom.toLocaleString()} registrations point at, a wallet that registered fewer than ${rules.sharedWalletFrom.toLocaleString()} agents, and a name that is not only a number`;
+      ? "a profile link no other registration held when it was listed"
+      : `a profile link held by fewer than ${rules.sharedProfileLinkFrom.toLocaleString()} registrations when it was listed`;
+  return `Listed means ${link}, a host fewer than ${rules.sharedHostFrom.toLocaleString()} registrations point at (unless its owner has claimed the entry), a wallet that registered fewer than ${rules.sharedWalletFrom.toLocaleString()} agents, and a name that is not only a number; the operator can pin an entry to keep it listed`;
 }
 
 /**

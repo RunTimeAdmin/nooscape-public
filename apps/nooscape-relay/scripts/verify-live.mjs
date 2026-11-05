@@ -162,6 +162,17 @@ async function run() {
     if (stuck === undefined) check("no payment is stuck", true, "pay per call is off");
     else if (stuck === null) check("no payment is stuck", false, "the count could not be read", "warn");
     else check("no payment is stuck", stuck === 0, stuck === 0 ? "none unresolved for over an hour" : `${stuck} payment(s) unresolved for over an hour: open Pay per call on /admin/sources`);
+
+    // 7. The database's room. The host stops every write once a database passes the plan's limit, and the registry rows and ledgers grow with what
+    //    registrants write on chain. The index carries one word and never a figure: ok, low from 70 percent of the limit, critical from 85. The
+    //    size itself is in the runtime log while the room is not ok.
+    const room = index.database_room;
+    if (room === undefined) check("the database has room", false, "the index does not report it", "warn");
+    else if (room === null) check("the database has room", false, "the size could not be read", "warn");
+    else if (room === "ok") check("the database has room", true, "ok");
+    else if (room === "low") check("the database has room", false, "over 70 percent of its limit: read the biggest tables and plan the ceilings", "warn");
+    else if (room === "critical") check("the database has room", false, "over 85 percent of its limit: every write stops at the limit");
+    else check("the database has room", false, `an answer this check does not know: ${JSON.stringify(room)}`, "warn");
   } catch (error) {
     check("the API index is served", false, why(error), "warn");
   }

@@ -36,7 +36,7 @@ It states facts and never a verdict.
 - **Payment changes nothing.** A key, a payment or a claim never changes a record, a tier or an evidence level.
 - **Every answer says when it was read and where from.**
 
-On 5 November 2026 the atlas listed 61,292 agents from the chain registries (Robinhood Chain 21,403, Solana 17,928, Base 9,186, BNB Chain 6,969, Ethereum 5,210, Arc 449, Monad 147), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
+On 5 November 2026 the atlas listed 61,395 agents from the chain registries (Robinhood Chain 21,418, Solana 17,993, Base 9,180, BNB Chain 6,974, Ethereum 5,210, Arc 473, Monad 147), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
 
 ## See it
 

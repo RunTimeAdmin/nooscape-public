@@ -189,6 +189,9 @@ describe("POST /api/v1/check, the request", () => {
   it("takes the host of an address and nothing else of it, and fetches nothing", () => {
     expect(hostOfUrl("https://Alice.Example:8443/path?q=1#frag")).toBe("alice.example");
     expect(hostOfUrl("http://alice.example./a")).toBe("alice.example");
+    // A host written with more than one trailing dot, or with the dot escaped, is the same host as the one stored without them.
+    expect(hostOfUrl("https://alice.example../a")).toBe("alice.example");
+    expect(hostOfUrl("https://alice.example%2E/a")).toBe("alice.example");
     expect(hostOfUrl("https://[2001:db8::1]/agent")).toBe("[2001:db8::1]");
     expect(hostOfUrl("https://203.0.113.7/agent")).toBe("203.0.113.7");
     for (const bad of ["", "alice.example", "ftp://alice.example", "javascript:alert(1)", "https://u:p@alice.example", "https://"]) expect(hostOfUrl(bad), bad).toBeNull();

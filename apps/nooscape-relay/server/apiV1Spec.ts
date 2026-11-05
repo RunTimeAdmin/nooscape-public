@@ -315,6 +315,7 @@ const indexResponse = {
       additionalProperties: false,
       properties: { requests: { type: "integer" }, per: { const: "minute" }, scope: { const: "ip_address" } },
     },
+    database_room: { type: ["string", "null"], enum: ["ok", "low", "critical", null], description: "Whether the database has room before the host stops its writes: ok, low from 70 percent of the limit, critical from 85 percent. Never a figure. Null when it cannot be read." },
     payments_unresolved_over_hour: { type: ["integer", "null"], description: "Present while pay per call is on or paused: how many payments have not settled for over an hour and are waiting for the operator, or null when that cannot be read." },
     pay_per_call: {
       type: "object",

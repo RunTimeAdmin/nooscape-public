@@ -3,6 +3,7 @@ import type { IngestionSource } from "../../drizzle/schema";
 import type { DirectoryEntryDraft } from "./types";
 import { encodeBase58 } from "./metaplexChain";
 import { callSolanaRpc, parseSolanaRpcResult } from "./solanaRpc";
+import { canonicalHost } from "../hostName";
 
 /**
  * On-chain SAID Protocol identity registry reads (docs/said-solana-2026-10-13.md).
@@ -313,7 +314,7 @@ export function buildSaidDirectoryDraft(identity: SaidIdentity): DirectoryEntryD
   let locatorHost: string | null = null;
   if (identity.uri.startsWith("https://")) {
     try {
-      locatorHost = new URL(identity.uri).hostname.toLowerCase();
+      locatorHost = canonicalHost(new URL(identity.uri).hostname);
     } catch {
       locatorHost = null;
     }

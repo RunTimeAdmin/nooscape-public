@@ -30,10 +30,9 @@ function uintWord(value: number | bigint) {
   return BigInt(value).toString(16).padStart(64, "0");
 }
 
-/** Two's-complement int128 data word for a signed value. */
+/** The ABI encoding of an int128 data word: sign-extended to the full 32 bytes, so -5 is sixty-three f digits and a b. */
 function int128Word(value: bigint) {
-  const modulus = BigInt(1) << BigInt(128);
-  return (value < BigInt(0) ? value + modulus : value).toString(16).padStart(64, "0");
+  return BigInt.asUintN(256, value).toString(16).padStart(64, "0");
 }
 
 /**
@@ -71,6 +70,12 @@ function buildNewFeedbackData(input: {
     (input.feedbackHash ?? `0x${"ab".repeat(32)}`).slice(2),
   ];
   return `0x${head.join("")}${encoded.join("")}`;
+}
+
+/** A NewFeedback log whose value word is the given 64 hex digits, whatever they are. */
+function logWithValueWord(word: string) {
+  const data = buildNewFeedbackData({ feedbackIndex: 2, strings: ["t1", "t2", "", ""] });
+  return buildNewFeedbackLog({ agentId: 1, feedbackIndex: 2, data: `${data.slice(0, 66)}${word}${data.slice(130)}` });
 }
 
 function buildNewFeedbackLog(input: {
@@ -179,6 +184,32 @@ describe("Robinhood ERC-8004 reputation registry adapter", () => {
     const event = decodeNewFeedbackLog(buildNewFeedbackLog({ agentId: 1, feedbackIndex: 2, value: BigInt(-5) }), BOUNDS);
     expect(event?.valueRaw).toBe("-5");
     expect(event?.feedbackIndex).toBe(2);
+  });
+
+  it("decodes the values the ABI really sends, negative ones sign-extended to 32 bytes, at the edges of an int128 too", () => {
+    // The fixture used to write a negative with zeros above 128 bits, which no contract emits, and the decoder took that shape and turned
+    // the real one (ff...fb) into a 78-digit positive number (outside audit 2026-11-05, finding R15).
+    const sent = (value: bigint) => decodeNewFeedbackLog(buildNewFeedbackLog({ agentId: 1, feedbackIndex: 2, value }), BOUNDS)?.valueRaw;
+    expect(sent(BigInt(-5))).toBe("-5");
+    expect(sent(BigInt(-1))).toBe("-1");
+    expect(sent(BigInt(0))).toBe("0");
+    expect(sent((BigInt(1) << BigInt(127)) - BigInt(1))).toBe("170141183460469231731687303715884105727");
+    expect(sent(-(BigInt(1) << BigInt(127)))).toBe("-170141183460469231731687303715884105728");
+    // The word a Solidity contract emits for -5, written out.
+    expect(decodeNewFeedbackLog(logWithValueWord(`${"f".repeat(63)}b`), BOUNDS)?.valueRaw).toBe("-5");
+  });
+
+  it("rejects a value word that is not an int128 sign-extended to 32 bytes, because no contract can emit one", () => {
+    const hex = (value: bigint) => value.toString(16).padStart(64, "0");
+    const words = [
+      // The old shape for -5, two's complement in 128 bits with zeros above: it decoded as a 78-digit positive number.
+      hex((BigInt(1) << BigInt(128)) - BigInt(5)),
+      // Dirty high bits on a positive value, the lowest bit of the top half set on a negative one, and the int256 minimum.
+      hex(BigInt(1) << BigInt(200)),
+      `${"f".repeat(32)}${"0".repeat(31)}1`,
+      hex(BigInt(1) << BigInt(255)),
+    ];
+    for (const word of words) expect(decodeNewFeedbackLog(logWithValueWord(word), BOUNDS), word).toBeNull();
   });
 
   it("caps untrusted strings at 512 characters with an explicit truncation marker", () => {

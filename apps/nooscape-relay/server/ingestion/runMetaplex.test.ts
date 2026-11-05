@@ -27,6 +27,8 @@ type MockChainSnapshot = {
   closedCount: number;
   drafts: Array<{ externalKey: string; displayName: string; locatorHost: string | null; registrant: string | null; sourceSignalNote: string }>;
   events: Array<{ kind: string; externalKey: string; transactionSignature: string; slot: number; fromOwner: string | null; toOwner: string | null }>;
+  closedExternalKeys: string[];
+  unanchoredCount: number;
   deferredCount: number;
   closedSkippedCount: number;
   closedAcknowledgedCount: number;
@@ -127,6 +129,8 @@ function chainSnapshot(overrides: Partial<MockChainSnapshot> = {}): MockChainSna
       { kind: "transfer", externalKey: ASSET_OPEN, transactionSignature: SIGNATURE, slot: 4242, fromOwner: OWNER_C, toOwner: OWNER_C },
       { kind: "asset_closed", externalKey: ASSET_CLOSED, transactionSignature: SIGNATURE, slot: 4242, fromOwner: OWNER_C, toOwner: null },
     ],
+    closedExternalKeys: [ASSET_CLOSED],
+    unanchoredCount: 0,
     deferredCount: 0,
     closedSkippedCount: 0,
     closedAcknowledgedCount: 0,
@@ -202,6 +206,34 @@ describe("runApprovedMetaplexRegistrySource", () => {
     );
   });
 
+  it("marks a closure that has no ledger event, because the marker list is the adapter's and not derived from the events", async () => {
+    // A closure whose signature scans held nothing to anchor it: still a real disappearance, so the row is marked closed (hide-once),
+    // with no asset_closed event in the ledger. Deriving the marker list from the events would leave it visible and re-detected for ever.
+    mocks.listAgentDirectoryEntriesForSource.mockResolvedValue([{ externalKey: ASSET_CLOSED, displayName: "Closed", registrant: OWNER_C, assetClosedAt: null }]);
+    mocks.fetchMetaplexChainState.mockResolvedValue(chainSnapshot({ drafts: [], events: [], closedExternalKeys: [ASSET_CLOSED], unanchoredCount: 1 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await runApprovedMetaplexRegistrySource(scheduledSource, "scheduled", "activity");
+      expect(mocks.applySolanaActivityWindow.mock.calls[0]![0]!.events).toEqual([]);
+      expect(mocks.markAgentDirectoryEntriesClosed.mock.calls[0]![0]!.externalKeys).toEqual([ASSET_CLOSED]);
+      expect(warn).toHaveBeenCalledWith("[METAPLEX] pass 4242: 1 change(s) recorded without a ledger anchor, 0 changed asset(s) deferred to the next pass by the per-pass event cap.");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("says nothing in the log when every change was anchored and none was deferred", async () => {
+    mocks.listAgentDirectoryEntriesForSource.mockResolvedValue([]);
+    mocks.fetchMetaplexChainState.mockResolvedValue(chainSnapshot());
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await runApprovedMetaplexRegistrySource(scheduledSource, "scheduled", "activity");
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("runs the second pass without re-marking or re-eventing an already-acknowledged closure", async () => {
     // Pass two's prior state: the closure marker is set, and the chain pass
     // reports the same closed asset with no new closure event.
@@ -213,6 +245,7 @@ describe("runApprovedMetaplexRegistrySource", () => {
       liveCount: 1,
       drafts: [{ externalKey: ASSET_OPEN, displayName: "Open", locatorHost: null, registrant: OWNER_C, sourceSignalNote: "note" }],
       events: [{ kind: "transfer", externalKey: ASSET_OPEN, transactionSignature: SIGNATURE, slot: 4242, fromOwner: OWNER_C, toOwner: OWNER_C }],
+      closedExternalKeys: [],
       closedAcknowledgedCount: 1,
     });
     mocks.fetchMetaplexChainState.mockResolvedValue(passTwo);
