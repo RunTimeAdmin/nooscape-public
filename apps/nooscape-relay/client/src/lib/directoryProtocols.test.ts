@@ -97,7 +97,7 @@ describe("lookalikeLine", () => {
 describe("listingRulesSentence", () => {
   it("states the published thresholds, so the page cannot disagree with the rule", () => {
     expect(listingRulesSentence({ sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 })).toBe(
-      "Listed means a profile link no other registration held when it was listed, a host fewer than 50 registrations point at (unless its owner has claimed the entry), a wallet that registered fewer than 10 agents, and a name that is not only a number; the operator can pin an entry to keep it listed"
+      "Listed means a profile link no other registration held when it was listed, a host fewer than 50 registrations point at (unless its owner has claimed the entry), a wallet that registered fewer than 10 agents, and a name that is not only a number; the operator can pin an entry to keep it listed, and an entry listed that way says so on its page and in the API, with the operator's note"
     );
   });
 
@@ -107,6 +107,7 @@ describe("listingRulesSentence", () => {
     expect(sentence).toContain("a host fewer than 1,000 registrations point at");
     expect(sentence).toContain("unless its owner has claimed the entry");
     expect(sentence).toContain("the operator can pin an entry to keep it listed");
+    expect(sentence).toContain("says so on its page and in the API, with the operator's note");
     expect(sentence).toContain("a wallet that registered fewer than 5 agents");
   });
 });

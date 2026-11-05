@@ -473,6 +473,50 @@ describe("the check", () => {
   });
 });
 
+describe("the verify", () => {
+  /** A packet in the right shape and signed by nobody: the answer is 200 either way, and says it is not valid. */
+  const PACKET = {
+    format: "Nooscape Signed Evidence Envelope v1",
+    exportedAt: "2026-10-19T03:00:00.000Z",
+    verification: { signatureAlgorithm: "Ed25519", signedField: "envelope.canonicalPayload", publicKeyPem: "not a key", instructions: "none" },
+    envelope: {
+      agentId: "agent-1",
+      observedAt: "2026-10-19T03:00:00.000Z",
+      sequence: 1,
+      algorithm: "SHA-256",
+      integrityHash: "0".repeat(64),
+      signatureAlgorithm: "Ed25519",
+      signature: "AAAA",
+      relayPublicKeyPem: "not a key",
+      canonicalPayload: "{}",
+      relayMode: "test",
+      entries: [],
+    },
+  };
+  const verify = (headers: Record<string, string> = {}) => fetch(`${base}/api/v1/verify`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(PACKET) });
+
+  it("is free while pay per call is on: no price is asked, with no key or with a key", async () => {
+    const { deps } = world();
+    await start(deps);
+    const callers: Array<Record<string, string>> = [{}, { authorization: `Bearer ${KEY_FREE}` }];
+    for (const headers of callers) {
+      const response = await verify(headers);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("payment-required")).toBeNull();
+      expect((await json(response)).data.valid).toBe(false);
+    }
+  });
+
+  it("is not for sale past the free limit either: it is limited as before, and never offered for a payment", async () => {
+    const { deps } = world();
+    await start(deps);
+    await useUpFreeLookups();
+    const response = await verify();
+    expect(response.status).toBe(429);
+    expect(response.headers.get("payment-required")).toBeNull();
+  });
+});
+
 describe("the index", () => {
   it("names the price and the receiving address only while pay per call is on", async () => {
     const live = world();

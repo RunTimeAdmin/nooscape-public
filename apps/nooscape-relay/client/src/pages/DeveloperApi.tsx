@@ -183,6 +183,19 @@ const { data } = await response.json();
 for (const { agent, flags } of data.results) {
   console.log(agent.agent_id, flags.fleet.listed_by_same_wallet, flags.ownership_changes.changes_recorded);
 }`;
+  const restVerifyCurl = `curl -X POST "${baseUrl}/api/v1/verify" \\
+  -H "Content-Type: application/json" \\
+  --data-binary @packet.json`;
+  const restVerifyJs = `import { readFile } from "node:fs/promises";
+
+const response = await fetch("${baseUrl}/api/v1/verify", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: await readFile("packet.json", "utf8"),
+});
+const { data } = await response.json();
+
+console.log(data.valid, data.key_status, data.issues);`;
   const evidenceCurl = `curl -G "${baseUrl}/api/trpc/atlas.evidence" \\
   --data-urlencode 'input=${evidenceInput}'`;
   const evidenceJs = `const agentId = "${selectedAgentId}";
@@ -318,6 +331,18 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
               ["registrations_on_chain", "integer | null", "What the chain's registry holds, where Nooscape counts that apart from the entries it lists. The registrations the published listing rules do not list are held out, and held out is not judged."],
               ["new_in_24h", "integer | null", "Entries Nooscape first saw on the chain in the last day. It says when Nooscape saw an entry, not when the agent was made."],
               ["registries, last_read_at", "array, ISO 8601", "The registries behind the chain's entries with how many each lists, largest first, and when a source last read the chain."],
+            ]} />
+
+            <EndpointCard method="POST" path="/api/v1/verify" label="Public · 30 a minute" />
+            <p className="developer-body-copy">Check a signed evidence packet: send the file the &ldquo;Export signed JSON&rdquo; button saves in a reviewed record&rsquo;s panel. The answer says whether the SHA-256 digest and the Ed25519 signature hold, whether the fields the packet displays are the ones that were signed, and where the key that signed it stands in <a className="underline underline-offset-4" href="/.well-known/nooscape-keys.json">the published key list</a>. It says nothing about the agent. Free, with no key. The same check runs on your own machine with the <code>nooscape-verify</code> package, which needs no network at all once you have the key list.</p>
+            <SnippetTabs curl={restVerifyCurl} javascript={restVerifyJs} />
+            <SchemaPanel title="The check" rows={[
+              ["valid", "boolean", "True when every check holds and issues is empty."],
+              ["verified_by_nooscape", "boolean", "True when the digest, the signature, the key and the displayed fields all hold: the packet is unchanged since a key Nooscape publishes signed it."],
+              ["hash_valid, signature_valid", "boolean", "The SHA-256 digest matches the signed payload, and the Ed25519 signature holds for it under the key in the packet."],
+              ["payload_matches_envelope_fields", "boolean", "The signed payload is exactly the one rebuilt from the fields the packet displays, so a displayed field cannot be changed under an untouched signature."],
+              ["key_status", "active | retired | revoked | unknown", "Where the packet's key stands in the published key list. A retired key's packets are accepted up to the day it was retired. unknown: the list does not have the key, or the packet names none."],
+              ["issues", "array of strings", "Each reason the packet is not valid, in words."],
             ]} />
 
             <EndpointCard method="POST" path="/api/v1/agents/batch" label="Key · counts as one request" />

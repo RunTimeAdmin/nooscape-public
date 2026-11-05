@@ -574,3 +574,7 @@ A signing key per webhook, several webhooks for a key, event filters, replay of 
 ## Files
 
 `server/safeFetch.ts` (the POST), `server/webhooks.ts` (the secret, the signature, the address rules, the schedule, the body), `server/webhookStore.ts` (the tables), `server/webhookEvents.ts` (what is read), `server/webhookPass.ts` (the run), `server/apiWebhooks.ts` (the calls), `server/apiChains.ts` and `server/apiLicense.ts` (moved out of `apiV1.ts` so the pass can name an agent without the router), `server/apiV1.ts` and `server/apiV1Spec.ts`, `server/routers/liveData.ts` (`runWebhooks`), `drizzle/0045_api_webhooks.sql`, `drizzle/schema.ts` and the snapshot, `server/dbMigrations.ts` (0045 is manual), `server/db.ts` (exports the hand-out rule), and the Terms, Privacy and developer pages with their pins in `legalPages.test.ts`. Tests: the files named above, with `webhookTesting.ts` as the shared test support.
+
+## Addendum 2026-11-05: checking a signed evidence packet
+
+`POST /api/v1/verify` takes a signed evidence packet (the file the site's "Export signed JSON" button saves) and answers whether its digest and signature hold, whether its displayed fields are the signed ones, and where its key stands in `/.well-known/nooscape-keys.json`. It is free, needs no key, uses the public limit of 30 a minute from one address, is not for sale, stores and caches nothing, and says nothing about the agent. It runs the same file as the `nooscape-verify` package ([the record](./verifier-2026-11-05.md)).

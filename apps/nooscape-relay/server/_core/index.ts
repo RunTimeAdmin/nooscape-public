@@ -16,6 +16,7 @@ import { registerDiscovery } from "../discovery";
 import { TRPC_MAX_BATCH_SIZE } from "@shared/trpcBatch";
 import { describeDatabaseTarget } from "../databaseTarget";
 import { applyPendingMigrations } from "../dbMigrations";
+import { clearBootFailure, recordBootFailure, waitOutBootFailure } from "../bootBackoff";
 import { startReadWarming } from "../warmReads";
 import { startLifecycleLog } from "../lifecycleLog";
 import { drainHttpServer, onShutdown, runShutdown } from "../gracefulShutdown";
@@ -52,8 +53,13 @@ async function startServer() {
   // serving an API that would silently fail closed on missing columns. Local
   // tooling runs without DATABASE_URL and skips this step.
   if (process.env.DATABASE_URL) {
+    // A start that failed on the database a moment ago left a note. Wait out its delay before opening a connection, so a crash loop cannot spend
+    // the host's allowance of new connections (docs/boot-spacing-and-build-timing-2026-11-05.md). A normal boot finds no note and waits for nothing.
+    const spaced = process.env.NODE_ENV === "production";
+    if (spaced) await waitOutBootFailure();
     try {
       const appliedMigrations = await applyPendingMigrations(process.env.DATABASE_URL);
+      if (spaced) clearBootFailure();
       if (appliedMigrations.length > 0) {
         console.log(`[Migrations] Applied ${appliedMigrations.length} pending: ${appliedMigrations.join(", ")}`);
       } else {
@@ -61,6 +67,7 @@ async function startServer() {
       }
     } catch (error) {
       console.error("[Migrations] Failed to apply pending migrations:", error);
+      if (spaced) recordBootFailure();
       console.error(`[Migrations] ${await describeDatabaseTarget(process.env.DATABASE_URL)}`);
       process.exit(1);
     }

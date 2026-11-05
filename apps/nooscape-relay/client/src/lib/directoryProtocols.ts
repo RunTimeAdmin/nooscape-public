@@ -116,7 +116,7 @@ export function listingRulesSentence(rules: { sharedProfileLinkFrom: number; sha
     rules.sharedProfileLinkFrom === 2
       ? "a profile link no other registration held when it was listed"
       : `a profile link held by fewer than ${rules.sharedProfileLinkFrom.toLocaleString()} registrations when it was listed`;
-  return `Listed means ${link}, a host fewer than ${rules.sharedHostFrom.toLocaleString()} registrations point at (unless its owner has claimed the entry), a wallet that registered fewer than ${rules.sharedWalletFrom.toLocaleString()} agents, and a name that is not only a number; the operator can pin an entry to keep it listed`;
+  return `Listed means ${link}, a host fewer than ${rules.sharedHostFrom.toLocaleString()} registrations point at (unless its owner has claimed the entry), a wallet that registered fewer than ${rules.sharedWalletFrom.toLocaleString()} agents, and a name that is not only a number; the operator can pin an entry to keep it listed, and an entry listed that way says so on its page and in the API, with the operator's note`;
 }
 
 /**

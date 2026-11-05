@@ -1,3 +1,4 @@
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { join, relative } from "node:path";
@@ -20,6 +21,7 @@ import {
   endpointOf,
   OWNER_TEXT_STATEMENT,
   registerApiV1,
+  VERIFY_STATEMENT,
   type ApiV1Deps,
   type ClaimHistoryRead,
   type ClaimStateRead,
@@ -228,9 +230,9 @@ describe("the document the API serves", () => {
     }
     const documented = Object.fromEntries(Object.entries(API_V1_SPEC.paths).map(([path, item]) => [path, Object.keys(item).sort()]));
     expect(found).toEqual(documented);
-    // The batch lookup and the check read from a body and write nothing. The watchlist and the webhook write the key's own, and nothing else does.
+    // The batch lookup, the check and the verify read from a body and write nothing. The watchlist and the webhook write the key's own, and nothing else does.
     const notReads = Object.keys(found).filter(path => found[path]!.some(method => method !== "get"));
-    expect(notReads.sort()).toEqual(["/api/v1/agents/batch", "/api/v1/check", "/api/v1/watches", "/api/v1/watches/{nooscape_id}", "/api/v1/webhook", "/api/v1/webhook/rotate-secret"]);
+    expect(notReads.sort()).toEqual(["/api/v1/agents/batch", "/api/v1/check", "/api/v1/verify", "/api/v1/watches", "/api/v1/watches/{nooscape_id}", "/api/v1/webhook", "/api/v1/webhook/rotate-secret"]);
   });
 
   it("lists in the index only routes the document describes, each with a method the document gives it, and lists the stats among them", async () => {
@@ -298,6 +300,35 @@ describe("GET /api/v1/agents/{chain}/{id}", () => {
     expect(answer.data.related).toEqual({ same_wallet: 3, same_name: 0, same_host: 1 });
     expect(answer.data.ratings).toMatchObject({ rating_count: 3, revoked_count: 1, measured_through_block: 500, truncated: false });
     expect(answer.data.claim).toBeNull();
+    expect(answer.data.listed_because).toBe("rules");
+    expect(answer.data.pin).toBeNull();
+  });
+
+  it("says when the operator's pin, and not the rules, lists the agent: the day it was set and the operator's note", async () => {
+    await start({
+      ...deps(),
+      getEntry: async () => entry({ pin: { pinnedAt: new Date("2026-11-05T18:00:00Z"), note: "A working agent on a platform host that strangers filled." } }),
+    });
+    const answer = await body(await get("/api/v1/agents/robinhood/7"));
+    expect(problems(schemaOf("AgentResponse"), answer)).toEqual([]);
+    expect(answer.data.listed_because).toBe("operator_pin");
+    expect(answer.data.pin).toEqual({ pinned_at: "2026-11-05T18:00:00.000Z", note: "A working agent on a platform host that strangers filled." });
+  });
+
+  it("requires every field the document declares for an agent, the pin fields among them, so a caller can rely on all of them", () => {
+    const { Agent } = API_V1_SPEC.components.schemas;
+    expect([...Agent.required].sort()).toEqual(Object.keys(Agent.properties).sort());
+    expect(Agent.additionalProperties).toBe(false);
+    expect(Agent.properties.listed_because.enum).toEqual(["rules", "operator_pin"]);
+    expect([...Agent.properties.pin.required].sort()).toEqual(["note", "pinned_at"]);
+  });
+
+  it("gives a pin the operator wrote no note for as a pin with a null note, and still says the operator listed it", async () => {
+    await start({ ...deps(), getEntry: async () => entry({ pin: { pinnedAt: new Date("2026-11-05T18:00:00Z"), note: null } }) });
+    const answer = await body(await get("/api/v1/agents/robinhood/7"));
+    expect(problems(schemaOf("AgentResponse"), answer)).toEqual([]);
+    expect(answer.data.listed_because).toBe("operator_pin");
+    expect(answer.data.pin).toEqual({ pinned_at: "2026-11-05T18:00:00.000Z", note: null });
   });
 
   it("says when the ratings it read are fewer events than the agent has", async () => {
@@ -819,10 +850,11 @@ describe("what the API is held to at the source", () => {
   const files = [...sourceFiles(server), ...sourceFiles(join(app, "client", "src")), ...sourceFiles(join(app, "shared"))].map(path => ({ file: relative(app, path).replaceAll("\\", "/"), text: read(path) }));
   const api = read(join(server, "apiV1.ts"));
 
-  it("reads the record and writes nothing itself: its two POSTs are the batch lookup and the check, which read from a body, and the one place that writes is the watchlist file", () => {
-    expect(api.match(/router\.(post|put|patch|delete|all)\(/g)).toEqual(["router.post(", "router.post("]);
+  it("reads the record and writes nothing itself: its three POSTs are the batch lookup, the check and the verify, which read from a body, and the one place that writes is the watchlist file", () => {
+    expect(api.match(/router\.(post|put|patch|delete|all)\(/g)).toEqual(["router.post(", "router.post(", "router.post("]);
     expect(api).toContain('router.post("/agents/batch"');
     expect(api).toContain('router.post("/check"');
+    expect(api).toContain('router.post("/verify"');
     expect(api).not.toMatch(/\.(insert|update|delete)\(/);
     expect(api).not.toMatch(/(INSERT INTO|UPDATE [a-z_]+ SET|DELETE FROM)/);
     expect(api).toContain("webhookRoutes(");
@@ -1035,6 +1067,7 @@ describe("a key", () => {
     expect(endpointOf("/")).toBe("index");
     expect(endpointOf("/openapi.json")).toBe("openapi");
     expect(endpointOf("/usage")).toBe("usage");
+    expect(endpointOf("/verify")).toBe("verify");
     expect(endpointOf("/agents/search")).toBe("search");
     expect(endpointOf("/stats")).toBe("stats");
     expect(endpointOf("/agents/batch")).toBe("batch");
@@ -1242,3 +1275,159 @@ describe("GET /api/v1/agents/{chain}/{id}/history", () => {
 });
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("POST /api/v1/verify", () => {
+  const signer = generateKeyPairSync("ed25519");
+  const pem = signer.publicKey.export({ type: "spki", format: "pem" }).toString();
+  const KEY_LIST = [{ keyId: "key-1", publicKeyPem: pem, status: "active" as const }];
+  const OBSERVED = "2026-11-01T12:00:00.000Z";
+
+  /** A packet as the relay exports it: the payload in the order it is signed, its digest and its signature. */
+  function packet(keyId: string | null = "key-1", detail = "Observed.") {
+    const entries = [{ id: "obs-1", observedAt: OBSERVED, event: "AGENT_OBSERVED", detail, source: "census", proofReference: "proof-1" }];
+    const canonicalPayload = JSON.stringify({ envelopeVersion: "Nooscape Persisted Evidence v1", agentId: "agent-1", observedAt: OBSERVED, publisherValidation: undefined, provenance: undefined, entries });
+    return {
+      format: "Nooscape Signed Evidence Envelope v1",
+      exportedAt: OBSERVED,
+      verification: { signatureAlgorithm: "Ed25519", signedField: "envelope.canonicalPayload", publicKeyPem: pem, instructions: "Verify the signature, then the digest." },
+      envelope: {
+        agentId: "agent-1",
+        observedAt: OBSERVED,
+        sequence: 2,
+        algorithm: "SHA-256",
+        integrityHash: createHash("sha256").update(canonicalPayload).digest("hex"),
+        signatureAlgorithm: "Ed25519",
+        signature: sign(null, Buffer.from(canonicalPayload), signer.privateKey).toString("base64"),
+        relayPublicKeyPem: pem,
+        ...(keyId ? { relayKeyId: keyId } : {}),
+        canonicalPayload,
+        relayMode: "production persisted-observation relay",
+        entries,
+      },
+    };
+  }
+
+  it("checks a packet for no key and no payment, in the shape the document describes, and says what a check shows and does not show", async () => {
+    await start(deps({ relayKeys: () => KEY_LIST }));
+    const response = await post("/api/v1/verify", packet(), null);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-ratelimit-limit")).toBe("30");
+    const answer = await body(response);
+    expect(problems(schemaOf("VerifyResponse"), answer)).toEqual([]);
+    expect(answer.api_version).toBe("v1");
+    expect(answer.as_of).toBe(NOW.toISOString());
+    expect(answer.source).toEqual({ kind: "evidence_packet", key_list: "https://nooscape.si/.well-known/nooscape-keys.json" });
+    expect(answer.license).toEqual(API_LICENSE);
+    expect(answer.data).toEqual({
+      valid: true,
+      verified_by_nooscape: true,
+      hash_valid: true,
+      signature_valid: true,
+      key_matches_envelope: true,
+      payload_matches_envelope_fields: true,
+      issued_by_current_relay: true,
+      key_status: "active",
+      agent_id: "agent-1",
+      observed_at: OBSERVED,
+      sequence: 2,
+      entry_count: 1,
+      signature_algorithm: "Ed25519",
+      publisher_key_allowlisted: false,
+      publisher_name: null,
+      issues: [],
+      statement: VERIFY_STATEMENT,
+    });
+    expect(VERIFY_STATEMENT).toContain("Says nothing about the agent");
+  });
+
+  it("reports a displayed field changed under an untouched signature, and a key the list does not have, each with its reason", async () => {
+    await start(deps({ relayKeys: () => KEY_LIST }));
+    const changed = packet();
+    changed.envelope.entries[0]!.detail = "Changed after signing.";
+    const first = await body(await post("/api/v1/verify", changed, null));
+    expect(problems(schemaOf("VerifyResponse"), first)).toEqual([]);
+    expect(first.data).toMatchObject({ valid: false, hash_valid: true, signature_valid: true, payload_matches_envelope_fields: false, verified_by_nooscape: false });
+    expect(first.data.issues).toContain("The signed canonical payload does not match the envelope's displayed fields.");
+    const unknown = await body(await post("/api/v1/verify", packet("key-9"), null));
+    expect(problems(schemaOf("VerifyResponse"), unknown)).toEqual([]);
+    expect(unknown.data).toMatchObject({ valid: false, signature_valid: true, key_status: "unknown", verified_by_nooscape: false });
+    expect(unknown.data.issues).toContain("The envelope key is not pinned as an active Nooscape relay key.");
+  });
+
+  it("takes a packet of the size the relay writes: a couple of hundred kilobytes of entries still verifies", async () => {
+    await start(deps({ relayKeys: () => KEY_LIST }));
+    const big = packet("key-1", "x".repeat(200_000));
+    expect(JSON.stringify(big).length).toBeGreaterThan(200_000);
+    const response = await post("/api/v1/verify", big, null);
+    expect(response.status).toBe(200);
+    expect((await body(response)).data).toMatchObject({ valid: true, entry_count: 1 });
+  });
+
+  it("reads the relay's key list only for a packet that names a key", async () => {
+    const relayKeys = vi.fn(() => KEY_LIST);
+    await start(deps({ relayKeys }));
+    expect((await body(await post("/api/v1/verify", packet(null), null))).data.key_status).toBe("unknown");
+    expect(relayKeys).not.toHaveBeenCalled();
+    expect((await body(await post("/api/v1/verify", packet(), null))).data.key_status).toBe("active");
+    expect(relayKeys).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a body that is not a packet, names the field that is wrong, and never repeats the body", async () => {
+    await start(deps({ relayKeys: () => KEY_LIST }));
+    const empty = await post("/api/v1/verify", {}, null);
+    expect(empty.status).toBe(400);
+    const emptyAnswer = await body(empty);
+    expect(problems(schemaOf("Error"), emptyAnswer)).toEqual([]);
+    expect(emptyAnswer.error.code).toBe("bad_request");
+    expect(emptyAnswer.error.message).toContain("Nooscape signed evidence packet");
+    // The marker comes first in the body, so an answer that repeated even the start of the body would repeat it.
+    const wrong = { marker: "do-not-echo-this-marker", ...packet() };
+    (wrong.envelope as Record<string, unknown>).sequence = "do-not-echo-this-marker";
+    const wrongAnswer = await body(await post("/api/v1/verify", wrong, null));
+    expect(wrongAnswer.error.message).toContain("envelope.sequence");
+    expect(JSON.stringify(wrongAnswer)).not.toContain("do-not-echo-this-marker");
+    for (const payload of ["[]", "7", '"text"', "null"]) expect((await post("/api/v1/verify", payload, null)).status, payload).toBe(400);
+    const noType = await fetch(`${base}/api/v1/verify`, { method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify(packet()) });
+    expect(noType.status).toBe(400);
+  });
+
+  it("takes POST only: another method is refused with 405 and what is allowed", async () => {
+    await start(deps({ relayKeys: () => KEY_LIST }));
+    for (const method of ["GET", "PUT", "DELETE"]) {
+      const response = await get("/api/v1/verify", { method });
+      expect(response.status, method).toBe(405);
+      expect(response.headers.get("allow")).toBe("POST, OPTIONS");
+    }
+  });
+
+  it("answers a body that is not JSON, or larger than it takes, in the API's own words", async () => {
+    await start(deps({ relayKeys: () => KEY_LIST }));
+    const notJson = await post("/api/v1/verify", "{ not json", null);
+    expect(notJson.status).toBe(400);
+    expect((await body(notJson)).error.message).toContain("JSON");
+    const large = await post("/api/v1/verify", JSON.stringify({ ...packet(), pad: "x".repeat(600_000) }), null);
+    expect(large.status).toBe(413);
+    const largeAnswer = await body(large);
+    expect(problems(schemaOf("Error"), largeAnswer)).toEqual([]);
+    expect(largeAnswer.error.code).toBe("bad_request");
+  });
+
+  it("spends the public limit of the address like any lookup, and a key's request is counted under its own name", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const keys = fakeKeys();
+      await start(deps({ relayKeys: () => KEY_LIST, keys: keys.access }));
+      expect((await post("/api/v1/verify", packet(), KEY_FREE)).status).toBe(200);
+      expect(keys.consumed.map(item => item.endpoint)).toEqual(["verify"]);
+      await start(deps({ relayKeys: () => KEY_LIST }));
+      resetRateLimits();
+      for (let index = 0; index < API_V1_RATE_LIMIT.requests; index += 1) expect((await post("/api/v1/verify", packet(), null)).status, `request ${index + 1}`).toBe(200);
+      const refused = await post("/api/v1/verify", packet(), null);
+      expect(refused.status).toBe(429);
+      expect((await body(refused)).error.code).toBe("rate_limited");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});

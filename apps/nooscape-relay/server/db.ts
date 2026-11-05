@@ -7,6 +7,7 @@ import {
   agentDirectoryChainActivity,
   chainReputationCounts,
   agentDirectoryChainLinks,
+  agentDirectoryListingPins,
   agentDirectoryEntries,
   agentDirectoryRegistryRows,
   agentDirectoryUsdgSettlements,
@@ -1472,6 +1473,16 @@ type AgentDirectoryEntryTwin = {
   linkedExternalKey: string;
 };
 
+/** The longest note a pin can carry (the column's width); the same bound goes on what is served. */
+const PIN_NOTE_MAX = 300;
+
+/**
+ * An operator pin on the registration this entry was published from (migration 0056; docs/pin-disclosure-2026-11-05.md): the entry is listed
+ * because the operator decided so, and the page and the API say that, with the date and the operator's note. Null when there is no pin, and
+ * when the pins table cannot be read.
+ */
+type AgentDirectoryEntryPin = { pinnedAt: Date; note: string | null };
+
 /**
  * The visible directory entries of the given registries that carry a registry key (`eip155:4663:<registry>:<token>` or a Solana
  * address). The same visibility rule as every public read: nothing hidden, closed, on a suppressed host or from an inactive source.
@@ -1745,6 +1756,19 @@ export async function getAgentDirectoryEntry(id: string) {
       else noteSectionFailure("Entry registration read", error);
     }
   }
+  // An operator pin on this entry's registration. The table comes with the boot runner (migration 0056); until it is there, or if it cannot be
+  // read, the section is null and the entry reads as it did, quietly for a missing table and logged for any other failure.
+  let pin: AgentDirectoryEntryPin | null = null;
+  try {
+    const [pinned] = await db
+      .select({ pinnedAt: agentDirectoryListingPins.pinnedAt, note: agentDirectoryListingPins.note })
+      .from(agentDirectoryListingPins)
+      .where(and(eq(agentDirectoryListingPins.sourceId, selected.sourceId), eq(agentDirectoryListingPins.externalKey, selected.externalKey)))
+      .limit(1);
+    if (pinned) pin = { pinnedAt: pinned.pinnedAt, note: sanitizePublicText(pinned.note, PIN_NOTE_MAX) };
+  } catch (error) {
+    if (!isMissingTable(error)) noteSectionFailure("Entry pin", error);
+  }
   return sanitizeDirectoryEntry({
     ...row,
     displayName: publicDisplayName(row.displayName, selected.externalKey),
@@ -1752,6 +1776,7 @@ export async function getAgentDirectoryEntry(id: string) {
     activity,
     twin,
     ratings,
+    pin,
     ...(row.protocol === "erc8004_bsc" ? { registrationRead } : {}),
   });
 }

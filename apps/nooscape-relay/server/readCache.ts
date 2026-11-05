@@ -63,6 +63,8 @@ type ReadCacheOptions = {
   now?: () => number;
   /** Called when a background reload fails (the value being served is unaffected). */
   onRefreshError?: (key: string, error: unknown) => void;
+  /** Called after each load that finished without an error, with how long its loader ran. A callback that throws changes nothing. */
+  onLoaded?: (key: string, ms: number) => void;
 };
 
 /**
@@ -80,6 +82,7 @@ export function createReadCache(options: ReadCacheOptions = {}) {
   const maxKeys = options.maxKeys ?? 64;
   const now = options.now ?? (() => Date.now());
   const onRefreshError = options.onRefreshError ?? (() => {});
+  const onLoaded = options.onLoaded ?? (() => {});
   const softQuietMs = () => (typeof options.softQuietMs === "function" ? options.softQuietMs() : (options.softQuietMs ?? DEFAULT_SOFT_QUIET_MS));
   // `epoch` counts soft invalidations; a value loaded in an earlier one is stale.
   const values = new Map<string, { value: unknown; loadedAt: number; expiresAt: number; epoch: number }>();
@@ -98,7 +101,13 @@ export function createReadCache(options: ReadCacheOptions = {}) {
     let promise!: Promise<T>;
     promise = (async () => {
       try {
+        const startedAt = now();
         const value = await loader();
+        try {
+          onLoaded(key, now() - startedAt);
+        } catch {
+          // A logger that fails must not fail a read.
+        }
         // A write invalidated the cache while this load ran: serve the value
         // to the callers that were already waiting, but never store it.
         if (startedIn === generation && ttlMs > 0) {
@@ -177,9 +186,18 @@ export function setDirectorySoftQuietMsForTests(ms: number) {
   directorySoftQuietMs = ms;
 }
 
+/** An aggregate build at least this slow is written to the runtime log, so what each one costs is on record (docs/boot-spacing-and-build-timing-2026-11-05.md). */
+export const SLOW_BUILD_LOG_MS = 200;
+
+/** One log line for a directory aggregate build that took SLOW_BUILD_LOG_MS or more; nothing for a faster one. */
+export function logSlowBuild(key: string, ms: number, log: (line: string) => void = line => console.log(line)) {
+  if (ms >= SLOW_BUILD_LOG_MS) log(`[ReadCache] built ${key} in ${Math.round(ms)} ms`);
+}
+
 const directoryReads = createReadCache({
   ttlMs: configuredTtlMs(),
   softQuietMs: () => directorySoftQuietMs,
+  onLoaded: (key, ms) => logSlowBuild(key, ms),
   onRefreshError: (key, error) => console.warn(`[ReadCache] background reload of ${key} failed; the current value is served until it expires: ${error instanceof Error ? error.message.split("\nparams:")[0] : String(error)}`),
 });
 

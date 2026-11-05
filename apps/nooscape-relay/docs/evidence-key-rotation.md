@@ -7,7 +7,7 @@ Nooscape signs every evidence packet with one Ed25519 key. This note covers chan
 - **The signing key** is set by two environment variables: `NOOSCAPE_EVIDENCE_SIGNING_PRIVATE_KEY` (the private key as PEM, then base64) and `NOOSCAPE_EVIDENCE_SIGNING_KEY_ID` (a name for it). Every packet states `relayKeyId` and `relayPublicKeyPem`, and both are covered by the packet's own checks.
 - **Old keys** are listed in `NOOSCAPE_EVIDENCE_RETIRED_KEYS`, a JSON array. The key that signs today is never listed there.
 - **The key list** at `/.well-known/nooscape-keys.json` is built from those variables when asked. It cannot drift from the key that is really signing. It shows the active key, then every retired and revoked key, with `status`, `retiredAt` and `note`. It carries only public keys.
-- **The verifier** (`atlas.verifyEvidence` and the `/verify` page) finds the packet's key in that list by id and key bytes together. It answers with `keyStatus`: `active`, `retired`, `revoked` or `unknown`.
+- **The verifier** (`atlas.verifyEvidence` and the `/verify` page; the check itself is `verifier/src/verify.ts`, which also runs behind the free `POST /api/v1/verify` and in the `nooscape-verify` package, [the record](./verifier-2026-11-05.md)) finds the packet's key in that list by id and key bytes together. It answers with `keyStatus`: `active`, `retired`, `revoked` or `unknown`.
 
 | keyStatus | `valid` and `verifiedByNooscape` | Meaning |
 |---|---|---|

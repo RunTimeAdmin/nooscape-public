@@ -30,6 +30,6 @@ export default defineConfig({
     // same pass so a client-side regression cannot hide behind the default
     // server-only include. The shared suite is the same kind of pure logic, used by both sides; it was left out of
     // the include, so shared/arrivals.test.ts never ran in `pnpm test` or in CI.
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts", "client/src/**/*.test.ts", "shared/**/*.test.ts"],
+    include: ["server/**/*.test.ts", "server/**/*.spec.ts", "client/src/**/*.test.ts", "shared/**/*.test.ts", "verifier/src/**/*.test.ts"],
   },
 });

@@ -1,4 +1,5 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign } from "node:crypto";
+import { canonicalPem, findKey, signedAfterRetirement as signedAfterRetirementOf, type KeyStatus, type RelayKey } from "../verifier/src/verify";
 import { ENV } from "./_core/env";
 import { getDb, listPersistedEvidenceEntries } from "./db";
 import { evidenceRetentionDays } from "./storage";
@@ -67,21 +68,11 @@ function getEvidenceSigner(): EvidenceSigner {
   return signer;
 }
 
-export type RelayKeyStatus = "active" | "retired" | "revoked" | "unknown";
+// The key list's types, the matching of a packet's key to it and the retirement rule are in verifier/src/verify.ts, the file the
+// package and the free verify endpoint also run, so the three cannot disagree. This file builds the list from the environment.
+export type RelayKeyStatus = KeyStatus;
 
-type RelayKeyEntry = {
-  keyId: string;
-  publicKeyPem: string;
-  status: Exclude<RelayKeyStatus, "unknown">;
-  retiredAt?: string;
-  note?: string;
-};
-
-/**
- * The one written form of a public key: what Node exports, which is also what every signed packet carries in
- * relayPublicKeyPem. Two spellings of one key (line breaks, a missing final newline) compare equal after this.
- */
-const canonicalPem = (pem: string) => createPublicKey(pem).export({ type: "spki", format: "pem" }).toString();
+type RelayKeyEntry = RelayKey;
 
 const warned = new Set<string>();
 function ignoreEntry(reason: string): [] {
@@ -157,14 +148,13 @@ export function listRelayKeys(raw = ENV.nooscapeEvidenceRetiredKeys): RelayKeyEn
  */
 export function findRelayKey(keyId: string | undefined, publicKeyPem: string, raw = ENV.nooscapeEvidenceRetiredKeys): RelayKeyEntry | undefined {
   if (!keyId) return undefined;
-  let pem: string;
+  // A key that does not parse finds nothing, before the list is built.
   try {
-    pem = canonicalPem(publicKeyPem);
+    canonicalPem(publicKeyPem);
   } catch {
     return undefined;
   }
-  const matches = listRelayKeys(raw).filter(entry => entry.keyId === keyId && entry.publicKeyPem === pem);
-  return matches.find(entry => entry.status === "revoked") ?? matches.find(entry => entry.status === "active") ?? matches.find(entry => entry.status === "retired");
+  return findKey(listRelayKeys(raw), keyId, publicKeyPem);
 }
 
 export function relayKeyStatus(keyId: string | undefined, publicKeyPem: string, raw = ENV.nooscapeEvidenceRetiredKeys): RelayKeyStatus {
@@ -178,8 +168,7 @@ export function relayKeyStatus(keyId: string | undefined, publicKeyPem: string, 
  * packet and they choose it. A leaked key is stopped by marking it "revoked".
  */
 export function signedAfterRetirement(entry: RelayKeyEntry | undefined, observedAt: string): boolean {
-  if (entry?.status !== "retired" || !entry.retiredAt) return false;
-  return !(Date.parse(observedAt) <= Date.parse(entry.retiredAt));
+  return signedAfterRetirementOf(entry, observedAt);
 }
 
 export function sealEvidencePayload(payload: Record<string, unknown>) {

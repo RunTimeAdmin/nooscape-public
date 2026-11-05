@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { createReadCache } from "./readCache";
+import { SLOW_BUILD_LOG_MS, createReadCache, logSlowBuild } from "./readCache";
 
 /** A manually advanced clock and a loader that counts its calls. */
 function harness(options: { ttlMs?: number; maxKeys?: number; refreshAheadMs?: number; refreshRetryMs?: number; softQuietMs?: number | (() => number); onRefreshError?: (key: string, error: unknown) => void } = {}) {
@@ -442,5 +443,67 @@ describe("softInvalidate", () => {
     advance(1);
     await cache.read("k", reload.load);
     expect(reload.calls()).toBe(1);
+  });
+});
+
+describe("how long a load took", () => {
+  it("reports the key and the loader's time for each load that finished, and for none that failed", async () => {
+    let time = 1_000;
+    const seen: Array<[string, number]> = [];
+    const cache = createReadCache({ now: () => time, onLoaded: (key, ms) => seen.push([key, ms]) });
+    await cache.read("a", async () => {
+      time += 250;
+      return 1;
+    });
+    await cache.read("b", async () => {
+      time += 900;
+      throw new Error("down");
+    }).catch(() => undefined);
+    expect(seen).toEqual([["a", 250]]);
+  });
+
+  it("reports a reload in the background as well as a first load", async () => {
+    let time = 1_000;
+    const seen: Array<[string, number]> = [];
+    const cache = createReadCache({ now: () => time, ttlMs: 100_000, refreshAheadMs: 10_000, onLoaded: (key, ms) => seen.push([key, ms]) });
+    await cache.read("k", async () => {
+      time += 40;
+      return "v1";
+    });
+    time += 11_000;
+    await cache.read("k", async () => {
+      time += 300;
+      return "v2";
+    });
+    // The second read was answered from the cache; its reload ran behind it.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(seen).toEqual([
+      ["k", 40],
+      ["k", 300],
+    ]);
+  });
+
+  it("a callback that throws changes nothing about the read", async () => {
+    const cache = createReadCache({
+      onLoaded: () => {
+        throw new Error("the logger is down");
+      },
+    });
+    expect(await cache.read("k", async () => "v")).toBe("v");
+    expect(await cache.read("k", async () => "other")).toBe("v");
+  });
+
+  it("logs a directory build from SLOW_BUILD_LOG_MS on, and nothing for a faster one", () => {
+    const lines: string[] = [];
+    logSlowBuild("directory:funnel", SLOW_BUILD_LOG_MS - 1, line => lines.push(line));
+    expect(lines).toEqual([]);
+    logSlowBuild("directory:funnel", SLOW_BUILD_LOG_MS, line => lines.push(line));
+    logSlowBuild("directory:breakdown", 1234.6, line => lines.push(line));
+    expect(lines).toEqual(["[ReadCache] built directory:funnel in 200 ms", "[ReadCache] built directory:breakdown in 1235 ms"]);
+  });
+
+  it("the directory cache is created with the logger", () => {
+    const source = readFileSync(new URL("./readCache.ts", import.meta.url), "utf8");
+    expect(source).toMatch(/const directoryReads = createReadCache\(\{[^}]*onLoaded: \(key, ms\) => logSlowBuild\(key, ms\)/s);
   });
 });

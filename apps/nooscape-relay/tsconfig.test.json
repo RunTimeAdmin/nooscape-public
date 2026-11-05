@@ -1,7 +1,7 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
-  "exclude": ["node_modules", "build", "dist"],
+  "include": ["client/src/**/*", "shared/**/*", "server/**/*", "verifier/**/*"],
+  "exclude": ["node_modules", "build", "dist", "verifier/dist"],
   "compilerOptions": {
     "target": "ES2022",
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo.test"

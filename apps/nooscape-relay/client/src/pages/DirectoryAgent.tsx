@@ -9,6 +9,7 @@ import { claimChainLabel } from "@/lib/claimFlow";
 import { trpc } from "@/lib/trpc";
 import { checkSentence, formatWhen, type AgentCheck } from "@/lib/checkText";
 import { directoryProtocolLabel, lookalikeLine } from "@/lib/directoryProtocols";
+import { PIN_TITLE, pinSentence } from "@/lib/pinText";
 import { registrationReadLine, type RegistrationRead } from "@/lib/registrationReadText";
 import {
   acknowledgedExplanation,
@@ -189,6 +190,9 @@ type AcknowledgedEntry = {
   // A BNB entry only: whether Nooscape has read its registration, and when (docs/approvals/2026-10-18-bnb-checked-unproven.md).
   // Absent for every other protocol, and null when the read cannot be answered, in which case the page says nothing.
   registrationRead?: RegistrationRead | null;
+  // An operator pin on this entry's registration (migration 0056; docs/pin-disclosure-2026-11-05.md): the entry is listed because the operator
+  // decided so. Absent or null when the listing rules list it, and when the pins cannot be read.
+  pin?: { pinnedAt: Date; note: string | null } | null;
 };
 
 const card ="rounded-2xl border border-[var(--ns-glass-border)] bg-[var(--ns-glass)] p-5 sm:p-6";
@@ -418,6 +422,12 @@ export default function DirectoryAgent() {
                     <Part label="Source note">
                       <p className={note}>{entry.sourceSignalNote ?? "No source note recorded for this entry."}</p>
                     </Part>
+                    {entry.pin && (
+                      <Part label={PIN_TITLE}>
+                        <p className={note}>{pinSentence(formatDate(entry.pin.pinnedAt))}</p>
+                        {entry.pin.note && <p className={note}>The operator's note: {entry.pin.note}</p>}
+                      </Part>
+                    )}
                     {entry.registrationRead && <RegistrationReadPart read={entry.registrationRead} />}
                     <Part label="Why this page is sparse">
                       <p className={note}>{acknowledgedExplanation}</p>

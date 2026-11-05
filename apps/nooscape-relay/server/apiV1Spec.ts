@@ -98,7 +98,7 @@ const claim = {
 
 const agent = {
   type: "object",
-  required: ["chain", "agent_id", "registry", "nooscape_id", "page_url", "name", "registrant", "locator_host", "first_seen_at", "last_seen_at", "evidence", "source_note", "feedback_count", "related", "activity", "ratings", "twin", "claim"],
+  required: ["chain", "agent_id", "registry", "nooscape_id", "page_url", "name", "registrant", "locator_host", "first_seen_at", "last_seen_at", "listed_because", "pin", "evidence", "source_note", "feedback_count", "related", "activity", "ratings", "twin", "claim"],
   additionalProperties: false,
   properties: {
     chain: { enum: CHAINS },
@@ -111,6 +111,20 @@ const agent = {
     locator_host: nullable("string", { description: "The host of the link the registration carries." }),
     first_seen_at: nullableDateTime,
     last_seen_at: dateTime,
+    listed_because: {
+      enum: ["rules", "operator_pin"],
+      description: "Why the agent is listed: \"rules\" when the published listing rules list it, \"operator_pin\" when the operator pinned its registration, which keeps it listed whatever the rules say about its link, host, wallet or name.",
+    },
+    pin: {
+      type: ["object", "null"],
+      description: "The operator's pin on the agent's registration, when there is one: the day it was set and the operator's note, if the operator wrote one. Null when the rules list the agent.",
+      required: ["pinned_at", "note"],
+      additionalProperties: false,
+      properties: {
+        pinned_at: dateTime,
+        note: nullable("string", { description: "The operator's reason, cleaned of control and invisible characters and at most 300 characters." }),
+      },
+    },
     evidence,
     source_note: nullable("string", { description: "Where this entry came from, in words." }),
     feedback_count: nullable("integer", { description: "The registry's own count of feedback, where Nooscape reads it." }),
@@ -906,6 +920,150 @@ const webhookDeliveries = envelope({
     },
   },
 });
+const hashText = { type: "string" } as const;
+const validationStatus = { enum: ["valid", "invalid", "partial"] } as const;
+
+/** The signed evidence packet the verify endpoint takes: the file the site's download button saves. */
+const evidencePacket = {
+  type: "object",
+  description:
+    "A signed evidence packet as the site's Export signed JSON button saves it. A field the packet does not define is ignored, and the rest is rebuilt in the order the relay signed it before the signed payload is rebuilt from it.",
+  required: ["format", "exportedAt", "verification", "envelope"],
+  properties: {
+    format: { const: "Nooscape Signed Evidence Envelope v1" },
+    exportedAt: { type: "string" },
+    verification: {
+      type: "object",
+      required: ["signatureAlgorithm", "signedField", "publicKeyPem", "instructions"],
+      properties: { signatureAlgorithm: { type: "string" }, signedField: { type: "string" }, publicKeyPem: { type: "string" }, instructions: { type: "string" } },
+    },
+    envelope: {
+      type: "object",
+      required: ["agentId", "observedAt", "sequence", "algorithm", "integrityHash", "signatureAlgorithm", "signature", "relayPublicKeyPem", "canonicalPayload", "relayMode", "entries"],
+      properties: {
+        agentId: { type: "string" },
+        observedAt: { type: "string" },
+        sequence: { type: "number" },
+        algorithm: { type: "string" },
+        integrityHash: hashText,
+        signatureAlgorithm: { type: "string" },
+        signature: { type: "string", description: "Base64." },
+        relayPublicKeyPem: { type: "string" },
+        relayKeyId: { type: "string", description: "The id the key has in /.well-known/nooscape-keys.json. A packet without one cannot be matched to a published key." },
+        canonicalPayload: { type: "string", description: "The string the signature covers." },
+        relayMode: { type: "string" },
+        publisherValidation: {
+          type: "object",
+          required: ["status", "publisherName", "publicKeyFingerprint", "verifiedAt", "statusChangedAt"],
+          properties: {
+            status: { enum: ["allowlisted", "expired", "revoked", "unverified"] },
+            publisherName: nullable("string"),
+            publicKeyFingerprint: nullable("string"),
+            verifiedAt: nullable("string"),
+            statusChangedAt: nullable("string"),
+          },
+        },
+        entries: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["id", "observedAt", "event", "detail", "source", "proofReference"],
+            properties: {
+              id: { type: "string" },
+              observedAt: { type: "string" },
+              event: { type: "string" },
+              detail: { type: "string" },
+              source: { type: "string" },
+              proofReference: { type: "string" },
+              provenance: {
+                type: "object",
+                required: ["observationId", "contentHash", "canonicalLocator", "validationStatus"],
+                properties: { observationId: { type: "string" }, contentHash: hashText, canonicalLocator: { type: "string" }, validationStatus },
+              },
+            },
+          },
+        },
+        provenance: {
+          type: "object",
+          required: ["evidenceClass", "sourceLabel", "sourceRoot", "canonicalLocator", "contentHash", "rawPayloadAccess", "retentionPolicy", "validationStatus"],
+          properties: {
+            evidenceClass: { const: "persisted-observation" },
+            sourceLabel: { type: "string" },
+            sourceRoot: { type: "string" },
+            canonicalLocator: { type: "string" },
+            contentHash: hashText,
+            rawPayloadAccess: { const: "private-object-store" },
+            retentionPolicy: { type: "string" },
+            validationStatus,
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+const verifyResponse = {
+  type: "object",
+  required: ["api_version", "as_of", "source", "license", "data"],
+  additionalProperties: false,
+  properties: {
+    api_version: { const: "v1" },
+    as_of: { ...dateTime, description: "When the check ran." },
+    source: {
+      type: "object",
+      required: ["kind", "key_list"],
+      additionalProperties: false,
+      properties: { kind: { const: "evidence_packet" }, key_list: { type: "string", description: "Where the keys the check used are published." } },
+    },
+    license: { $ref: "#/components/schemas/License" },
+    data: {
+      type: "object",
+      required: [
+        "valid",
+        "verified_by_nooscape",
+        "hash_valid",
+        "signature_valid",
+        "key_matches_envelope",
+        "payload_matches_envelope_fields",
+        "issued_by_current_relay",
+        "key_status",
+        "agent_id",
+        "observed_at",
+        "sequence",
+        "entry_count",
+        "signature_algorithm",
+        "publisher_key_allowlisted",
+        "publisher_name",
+        "issues",
+        "statement",
+      ],
+      additionalProperties: false,
+      properties: {
+        valid: { type: "boolean", description: "True when every check holds and issues is empty." },
+        verified_by_nooscape: {
+          type: "boolean",
+          description: "True when the digest, the signature, the key and the displayed fields all hold: the packet is unchanged since a key Nooscape publishes signed it. It can be true while valid is false, when only a label in the export wrapper is wrong.",
+        },
+        hash_valid: { type: "boolean", description: "The SHA-256 digest matches the canonical payload." },
+        signature_valid: { type: "boolean", description: "The Ed25519 signature holds for the canonical payload, under the key in the packet." },
+        key_matches_envelope: { type: "boolean", description: "The key in the export wrapper is the key in the envelope." },
+        payload_matches_envelope_fields: { type: "boolean", description: "The signed payload is exactly the one rebuilt from the displayed fields, so a displayed field cannot be changed under an untouched signature." },
+        issued_by_current_relay: { type: "boolean", description: "The key is the one that signs today." },
+        key_status: { enum: ["active", "retired", "revoked", "unknown"], description: "Where the packet's key stands in the published key list. unknown: the list does not have it, or the packet names no key." },
+        agent_id: { type: "string" },
+        observed_at: { type: "string", description: "As the packet states it. The signed payload carries the same date." },
+        sequence: { type: "number", description: "Echoed from beside the signed bytes: a label and not a checkpoint." },
+        entry_count: { type: "integer", description: "The number of entries in the signed payload." },
+        signature_algorithm: { type: "string" },
+        publisher_key_allowlisted: { type: "boolean", description: "The relay stated, when it issued the packet, that the publisher's key was allowlisted, and the whole proof chain holds with the key that signs today." },
+        publisher_name: nullable("string", { description: "The publisher the relay named, when publisher_key_allowlisted is true." }),
+        issues: { type: "array", items: { type: "string" }, description: "Each reason the packet is not valid, in words." },
+        statement: { type: "string", description: "What the check shows and does not show: nothing about the agent the packet is about." },
+      },
+    },
+  },
+} as const;
+
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 const json = (name: string, description: string) => ({ description, content: { "application/json": { schema: ref(name) } } });
 const errors = (...statuses: number[]) =>
@@ -913,7 +1071,7 @@ const errors = (...statuses: number[]) =>
     statuses.map(status => [
       String(status),
       {
-        ...json("Error", { 400: "The request is not valid.", 401: "The key is missing or not valid. A wrong key is refused, not treated as no key.", 403: "The key is valid but its tier does not open this endpoint. The body names the tier that does.", 404: "Nothing listed matches. A hidden, withdrawn or closed record is never served, and looks the same as one that does not exist.", 405: "That method is not one this path takes. The Allow header names the ones it does.", 409: "More than one registry lists that address.", 429: "Over the limit for the minute (rate_limited) or for the day (quota_exceeded). Wait Retry-After seconds.", 503: "The data cannot be read now. Wait Retry-After seconds." }[status] ?? "Error"),
+        ...json("Error", { 400: "The request is not valid.", 401: "The key is missing or not valid. A wrong key is refused, not treated as no key.", 403: "The key is valid but its tier does not open this endpoint. The body names the tier that does.", 404: "Nothing listed matches. A hidden, withdrawn or closed record is never served, and looks the same as one that does not exist.", 405: "That method is not one this path takes. The Allow header names the ones it does.", 409: "More than one registry lists that address.", 413: "The body is larger than this endpoint takes.", 429: "Over the limit for the minute (rate_limited) or for the day (quota_exceeded). Wait Retry-After seconds.", 503: "The data cannot be read now. Wait Retry-After seconds." }[status] ?? "Error"),
         ...(status === 429 || status === 503 ? { headers: { "Retry-After": { description: "Seconds to wait.", schema: { type: "string" } } } } : {}),
       },
     ])
@@ -987,6 +1145,16 @@ export const API_V1_SPEC = {
           "402": paymentRequiredResponse("No key and no payment, or a payment that was not taken. The body is the price and how to pay it; nothing was charged."),
           ...errors(400, 401, 403, 404, 409, 429, 503),
         },
+      },
+    },
+    "/api/v1/verify": {
+      post: {
+        operationId: "verifyEvidence",
+        summary: "Check a signed evidence packet.",
+        description:
+          "Free, and needs no key. The body is a packet as the site's Export signed JSON button saves it. The answer says whether the SHA-256 digest and the Ed25519 signature hold, whether the displayed fields are the signed ones, and which key signed it and where that key stands in /.well-known/nooscape-keys.json. It says nothing about the agent the packet is about. The same check runs offline in the nooscape-verify package, which reads that key list from a file you keep.",
+        requestBody: { required: true, content: { "application/json": { schema: ref("EvidencePacket") } } },
+        responses: { "200": { ...json("VerifyResponse", "The result of the check."), headers: keyedHeaders }, ...errors(400, 401, 413, 429, 503) },
       },
     },
     "/api/v1/watches": {
@@ -1139,6 +1307,8 @@ export const API_V1_SPEC = {
       CheckRequest: checkRequest,
       CheckResult: checkResult,
       CheckResponse: checkResponse,
+      EvidencePacket: evidencePacket,
+      VerifyResponse: verifyResponse,
       PaymentRequired: paymentRequired,
       WatchList: watchList,
       WatchAddRequest: watchAddRequest,
