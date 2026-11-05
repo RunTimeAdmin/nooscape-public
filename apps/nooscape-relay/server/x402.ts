@@ -101,6 +101,11 @@ export type X402Config = {
    * Coinbase. Null: not asked. Unset, or not an https address, it is null and never stops payments from starting. Never put in an error or a log: it may carry a key.
    */
   baseRpc: string | null;
+  /**
+   * Whether a smart-contract wallet may pay on Base (X402_BASE_SMART_WALLETS=1, with BASE_RPC_URL set). The Base node is then asked whether the
+   * wallet's own code (ERC-1271) accepts the signature, as Arc's node is for Arc, and Coinbase settles it. Off unless the operator switches it on.
+   */
+  baseSmartWallets: boolean;
 };
 
 /**
@@ -161,6 +166,7 @@ export function loadX402(env: NodeJS.ProcessEnv = process.env): X402Config | nul
     cdp,
     baseProblem,
     baseRpc: httpsAddress(env.BASE_RPC_URL),
+    baseSmartWallets: (env.X402_BASE_SMART_WALLETS ?? "").trim() === "1",
   };
 }
 
@@ -222,6 +228,15 @@ export function railFor(cfg: X402Config, network: string): Rail | null {
  */
 export function ledgerNetworks(cfg: X402Config): string[] {
   return Array.from(new Set([cfg.network, BASE_MAINNET]));
+}
+
+/**
+ * Whether a smart-contract wallet's payment can be taken on a network: on Arc when its node is set (X402_RPC), and on Base when the operator has
+ * switched it on (X402_BASE_SMART_WALLETS=1) and Base's node is set (BASE_RPC_URL). The index publishes this, and the service acts on the same rule.
+ */
+export function takesContractWallets(cfg: X402Config, rail: Rail): boolean {
+  if (rail.network === cfg.network) return cfg.rpc !== null;
+  return rail.network === BASE_MAINNET && cfg.baseSmartWallets && cfg.baseRpc !== null;
 }
 
 // ---------------------------------------------------------------- the terms
@@ -351,7 +366,7 @@ export function signatureProblem(cfg: X402Config, payment: PaymentPayload): stri
   const rail = railFor(cfg, payment.accepted.network) ?? arcRail(cfg);
   const signature = payment.payload.signature;
   if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(signature) || signature.length > 2 + 2 * 2048) return "malformed signature (hex)";
-  if (signature.toLowerCase().endsWith(ERC_6492_SUFFIX)) return "the wallet is not deployed yet (an ERC-6492 signature): use a regular wallet";
+  if (signature.toLowerCase().endsWith(ERC_6492_SUFFIX)) return "the wallet is not deployed yet (an ERC-6492 signature): send one transaction from it first, or use a regular wallet's key";
   if (signature.length !== 132) return "payments from smart-contract wallets are not accepted yet: sign with a regular wallet's key";
   // The token contract takes only 27 or 28 as the recovery byte. Another form recovers here and is refused there, after a record and a call.
   if (!/^(1b|1c)$/i.test(signature.slice(130))) return "the last byte of the signature (v) must be 27 or 28";

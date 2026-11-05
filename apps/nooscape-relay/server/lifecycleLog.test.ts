@@ -470,9 +470,19 @@ describe("starting it on a process", () => {
   it("is called only in production, once, before the server is built", () => {
     const index = readFileSync(path.join(appRoot, "server", "_core", "index.ts"), "utf8").replace(/\r\n/g, "\n");
     expect(index).toContain('import { startLifecycleLog } from "../lifecycleLog";');
-    expect(index).toContain('if (process.env.NODE_ENV === "production") startLifecycleLog();');
-    expect(index.indexOf("startLifecycleLog();")).toBeLessThan(index.indexOf("async function startServer"));
-    expect(index.match(/startLifecycleLog\(\)/g)).toHaveLength(1);
+    expect(index).toContain('if (process.env.NODE_ENV === "production") startLifecycleLog({ beforeEnd: () => runShutdown() });');
+    expect(index.indexOf("startLifecycleLog({")).toBeLessThan(index.indexOf("async function startServer"));
+    expect(index.match(/startLifecycleLog\(/g)).toHaveLength(1);
+  });
+
+  it("is told what a stop waits for once the server exists: the HTTP server and the meter", () => {
+    const index = readFileSync(path.join(appRoot, "server", "_core", "index.ts"), "utf8").replace(/\r\n/g, "\n");
+    expect(index).toContain('import { drainHttpServer, onShutdown, runShutdown } from "../gracefulShutdown";');
+    expect(index).toContain('import { apiMeter } from "../apiKeys";');
+    expect(index).toContain('onShutdown("http", drainHttpServer(server));');
+    expect(index).toContain('onShutdown("api meter", () => apiMeter.flush());');
+    expect(index.indexOf('onShutdown("http"')).toBeGreaterThan(index.indexOf("const server = createServer(app);"));
+    expect(index.match(/onShutdown\(/g)).toHaveLength(2);
   });
 
   it("adds its handlers to the process and takes every one away again when it is stopped", () => {
@@ -511,7 +521,8 @@ describe.skipIf(process.platform === "win32")("a real process", () => {
     writeFileSync(
       path.join(dir, "child.mjs"),
       `import { startLifecycleLog } from "./lifecycle.mjs";
-startLifecycleLog({ dir: process.env.TRAIL_DIR, beatMs: 100 });
+const drainMs = Number(process.env.DRAIN_MS || 0);
+startLifecycleLog({ dir: process.env.TRAIL_DIR, beatMs: 100, ...(drainMs ? { beforeEnd: async () => { await new Promise(resolve => setTimeout(resolve, drainMs)); console.log("DRAINED"); }, beforeEndMs: Number(process.env.GUARD_MS || 20000) } : {}) });
 const mode = process.env.MODE;
 if (mode === "serve") { setInterval(() => {}, 1000); console.log("READY"); }
 if (mode === "crash") { setInterval(() => {}, 1000); console.log("READY"); setTimeout(() => { throw new Error("boom at mysql://admin:hunter2@db.example/app"); }, 350); }
@@ -582,6 +593,51 @@ if (mode === "exit") { setInterval(() => {}, 1000); console.log("READY"); setTim
     const third = await run("exit", trailDir);
     expect(lifecycle(third, "previous").map(line => line.ended)).toEqual(["signal", "exit"]);
     expect(lifecycle(third, "start")[0]).toMatchObject({ othersRunning: 0 });
+  });
+
+  it("waits for what a stop must finish before it ends by SIGTERM or SIGINT, and is still ended by that signal", async () => {
+    for (const signal of ["SIGTERM", "SIGINT"] as const) {
+      const stopped = await run("serve", fresh(), child => child.kill(signal), { DRAIN_MS: "400" });
+      expect(stopped.stdout, signal).toContain("DRAINED");
+      expect(stopped.signal, signal).toBe(signal);
+      expect(stopped.code, signal).toBeNull();
+      expect(lifecycle(stopped, "signal"), signal).toEqual([expect.objectContaining({ signal })]);
+    }
+  });
+
+  it("ends at once on a second signal, and gives up on a wait that does not end", async () => {
+    let sentAt = 0;
+    const second = await run("serve", fresh(), child => {
+      sentAt = Date.now();
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGTERM"), 150);
+    }, { DRAIN_MS: "30000" });
+    const secondTook = Date.now() - sentAt;
+    expect(second.signal).toBe("SIGTERM");
+    expect(second.stdout).not.toContain("DRAINED");
+    // It waited until the second signal, and no longer.
+    expect(secondTook).toBeGreaterThanOrEqual(140);
+    expect(secondTook).toBeLessThan(2500);
+    const stuck = await run("serve", fresh(), child => {
+      sentAt = Date.now();
+      child.kill("SIGTERM");
+    }, { DRAIN_MS: "30000", GUARD_MS: "400" });
+    const stuckTook = Date.now() - sentAt;
+    expect(stuck.signal).toBe("SIGTERM");
+    expect(stuck.stdout).not.toContain("DRAINED");
+    expect(stuckTook).toBeGreaterThanOrEqual(380);
+    expect(stuckTook).toBeLessThan(2500);
+  });
+
+  it("does not wait for the signals that were never a stop", async () => {
+    let sentAt = 0;
+    const hangup = await run("serve", fresh(), child => {
+      sentAt = Date.now();
+      child.kill("SIGHUP");
+    }, { DRAIN_MS: "30000" });
+    expect(hangup.signal).toBe("SIGHUP");
+    expect(hangup.stdout).not.toContain("DRAINED");
+    expect(Date.now() - sentAt).toBeLessThan(1500);
   });
 
   it("is killed by SIGKILL with nothing written, and the next process says it ended unknown, with its last beat", async () => {

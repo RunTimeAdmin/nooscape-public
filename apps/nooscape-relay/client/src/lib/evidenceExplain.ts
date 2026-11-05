@@ -166,6 +166,9 @@ export const handoutExplanation =
 export const registryRatingsExplanation =
   "Ratings are submitted on-chain by external wallets to the ERC-8004 Reputation Registry and shown exactly as recorded. Nooscape does not score, weight, or endorse them. A revoked rating stays visible and marked, because hiding it would misstate the ledger.";
 
+export const registryRatingsTruncatedNote =
+  "This agent has more events than this list holds. The counts and the list cover the oldest events, in chain order. Later events, a later revocation included, are not shown here.";
+
 // Chain-activity event kinds, in plain words. Counted facts decoded from the
 // identity registry's Transfer and URIUpdated events — never self-descriptions.
 const chainActivityEventLabels: Record<string, string> = {

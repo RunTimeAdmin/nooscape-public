@@ -1,3 +1,4 @@
+import type { ChainStat } from "@shared/chains";
 import { FLEET_MIN, LIGHT_CHAIN_ORDER, MAX_FLEETS, type Fleet, type NoosphereSample } from "@shared/noosphere";
 import { CHAIN_STYLE, type MarkerShape } from "./constellationModel";
 import { formatAsOf } from "./chainTabsModel";
@@ -56,13 +57,24 @@ export function sweepHeading(sweptAt: string | null, status: ReadStatus = "ready
 type HeroFigure = { label: string; value: number };
 
 /**
- * The three numbers under the buttons, each one a count the sample returned. With no fleet found the third is
- * a zero that says so, never a number borrowed from somewhere else.
+ * The agents listed across every chain, from the chain stats answer: the three chains Nooscape has always read and the extra chains
+ * whose switch is on, which the answer carries apart. Null while no chain has a count: a chain that is not read is not a zero.
  */
-export function heroFigures(sample: NoosphereSample): HeroFigure[] {
+export function listedTotal(stats: { chains: ReadonlyArray<Pick<ChainStat, "acknowledged">>; extras?: ReadonlyArray<Pick<ChainStat, "acknowledged">> } | undefined): number | null {
+  const counted = [...(stats?.chains ?? []), ...(stats?.extras ?? [])].filter(row => row.acknowledged !== null);
+  return counted.length === 0 ? null : counted.reduce((sum, row) => sum + (row.acknowledged ?? 0), 0);
+}
+
+/**
+ * The three numbers under the buttons. The first is the agents listed across every chain, the figure the chain tabs and the API's
+ * stats add up to. The map draws three chains only, so its own count is smaller: it is the first figure only while the chain stats
+ * are not there, and then it says it is the map's. With no fleet found the third is a zero that says so, never a number borrowed
+ * from somewhere else.
+ */
+export function heroFigures(sample: NoosphereSample, listed: number | null = null): HeroFigure[] {
   const largest = sample.fleets[0];
   return [
-    { label: "registered agents indexed", value: sample.total },
+    listed !== null ? { label: "agents listed from the registries", value: listed } : { label: "registered agents on the map", value: sample.total },
     { label: "reviewed, with signed evidence kept", value: sample.steady },
     largest ? { label: "registered by the largest fleet's wallet", value: largest.size } : { label: `fleets of ${FLEET_MIN} or more found`, value: 0 },
   ];
@@ -84,7 +96,7 @@ export function fleetSightedText(fleet: Pick<Fleet, "size">): string {
 
 /** The caption under the field. N is what is drawn, so it is never claimed before the canvas has drawn it. */
 export function sampleCaption(drawn: number, total: number): string {
-  return `Sample of ${count(drawn)} of ${count(total)} registered agents`;
+  return `Sample of ${count(drawn)} of ${count(total)} registered agents on the map`;
 }
 
 // ---------------------------------------------------------------- placement

@@ -48,6 +48,9 @@ type PaymentChange = { status: "open" | "paid" | "refused"; transaction?: string
 
 export type PaymentSummary = { status: string; count: number; amount: number };
 
+/** The start of the reason recorded for a smart-contract wallet's payment that the facilitator refused after the chain check had passed it. It pauses the wallet for a short while. */
+export const CONTRACT_REFUSED_REASON = "refused after a passing check";
+
 /** Where payments are kept. The default is the database; a test gives its own. */
 export type PaymentLedger = {
   /** Whether payments can be recorded: the table exists and the database answers. Held for a few seconds. */
@@ -67,6 +70,8 @@ export type PaymentLedger = {
   openFor: (network: string, payer: string) => Promise<number>;
   /** How many payments from one wallet had a settlement that failed after the facilitator broadcast it, since a time (their reason starts "failed after broadcast"). */
   failedFor: (network: string, payer: string, since: Date) => Promise<number>;
+  /** How many payments from one wallet were refused by the facilitator after the chain check passed them, since a time (their reason starts with CONTRACT_REFUSED_REASON). */
+  refusedFor: (network: string, payer: string, since: Date) => Promise<number>;
   /** Counts one more serve of a paid payment, up to `max`. False when it is not paid or has been served `max` times. */
   countServe: (id: string, max: number) => Promise<boolean>;
   recent: (network: string, limit: number) => Promise<PaymentRow[]>;
@@ -177,6 +182,15 @@ export const dbPaymentLedger: PaymentLedger = {
       .select({ total: sql<string>`count(*)` })
       .from(apiPayments)
       .where(and(eq(apiPayments.network, network), eq(apiPayments.payer, payer), like(apiPayments.reason, "failed after broadcast%"), gte(apiPayments.updatedAt, since)));
+    return Number(counted?.total ?? 0);
+  },
+
+  refusedFor: async (network, payer, since) => {
+    const db = requireDb(await getDb());
+    const [counted] = await db
+      .select({ total: sql<string>`count(*)` })
+      .from(apiPayments)
+      .where(and(eq(apiPayments.network, network), eq(apiPayments.payer, payer), like(apiPayments.reason, `${CONTRACT_REFUSED_REASON}%`), gte(apiPayments.updatedAt, since)));
     return Number(counted?.total ?? 0);
   },
 

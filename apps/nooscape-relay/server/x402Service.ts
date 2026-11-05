@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { dbPaymentLedger, type PaymentLedger, type PaymentRow } from "./apiPayments";
+import { CONTRACT_REFUSED_REASON, dbPaymentLedger, type PaymentLedger, type PaymentRow } from "./apiPayments";
 import { consumeRateLimit } from "./rateLimit";
 import {
-  ARC_USDC,
   BASE_MAINNET,
   base64Json,
   contractCandidate,
@@ -19,6 +18,7 @@ import {
   termsReply,
   timeProblem,
   type PaymentPayload,
+  type Rail,
   type Reply,
   type X402Config,
   type X402Endpoint,
@@ -38,11 +38,12 @@ import { checkContractSignature, rpcClient, usdcBalance, type Rpc } from "./x402
  *    three times. It is never given up on as refused after being sent: a late refusal does not undo a settlement that may have happened.
  *  - At most eight settlements are in flight (the place is taken before the database is touched, so a burst cannot get past the cap), at
  *    most 300 new payments start in a minute, and a pause switch stops new payments while resolving the ones already recorded.
- *  - A smart-contract wallet (stage D4b) is taken only when a chain node is set, and only after the chain says the wallet's own code accepts
- *    the signature and the transfer would settle (a simulation, before anything is recorded). One such wallet has one payment unresolved at a
- *    time, is paused for a day after a settlement that failed after it was broadcast, and is sent to the facilitator at most twice, because
- *    a wallet's code can change its answer between the simulation and the settlement and the facilitator pays that gas. The node is Arc's,
- *    so only Arc takes such a wallet: a payment on Base must be signed by a regular wallet's key.
+ *  - A smart-contract wallet (stage D4b) is taken only when a chain node is set for its network, and only after the chain says the wallet's own
+ *    code accepts the signature and the transfer would settle (a simulation, before anything is recorded). One such wallet has one payment
+ *    unresolved at a time on a network, is paused for a day on it after a settlement that failed after it was broadcast, and is sent to the
+ *    facilitator at most twice, because a wallet's code can change its answer between the simulation and the settlement and the facilitator
+ *    pays that gas. Arc's node is X402_RPC. Base's is BASE_RPC_URL and is used only when the operator has switched Base's smart wallets on
+ *    (X402_BASE_SMART_WALLETS=1, docs/x402-base-smart-wallets-2026-11-04.md); until then a payment on Base must be signed by a regular wallet's key.
  *  - A payment belongs to the network it names (docs/x402-base-bazaar-2026-10-21.md): it is recorded under that network, and sent to the
  *    facilitator that settles it. The same authorization on two networks is two payments.
  *  - A new payment is screened before it takes a place in the shared budget (docs/x402-base-bazaar-2026-10-21.md, "Funds and pace"): a
@@ -56,6 +57,18 @@ export const MAX_SENDS = 3;
 export const MAX_SENDS_CONTRACT = 2;
 /** How long a smart-contract wallet is paused after a settlement of its failed after the facilitator broadcast it. */
 export const CONTRACT_PAUSE_MS = 24 * 60 * 60 * 1000;
+/** How long a smart-contract wallet is paused after the facilitator refused a payment of its that the chain check had passed. */
+export const CONTRACT_REFUSED_PAUSE_MS = 15 * 60 * 1000;
+/**
+ * Payments of smart-contract wallets on one network that were refused or failed in an hour, past which that network takes no more of them until the
+ * hour has moved on, and the operator is told. A wallet's code can pass the chain check and still fail where the facilitator runs it, and a wallet
+ * costs nothing to make, so the pause of one wallet is not a limit on all of them. Held in this process's memory.
+ */
+export const MAX_CONTRACT_FAULTS_PER_HOUR = 20;
+const CONTRACT_FAULT_WINDOW_MS = 60 * 60 * 1000;
+/** Base's node is a metered provider: it is given less time than Arc's, and its latest block may be less behind (about seven blocks). */
+export const BASE_CONTRACT_TIMEOUT_MS = 5_000;
+export const BASE_MAX_BEHIND_SECONDS = 15;
 /** Chain checks of smart-contract wallets: how many at once, and how many a minute from everyone (each is a read on a metered node). */
 export const MAX_CONTRACT_CHECKS_AT_ONCE = 16;
 export const MAX_CONTRACT_CHECKS_PER_MINUTE = 600;
@@ -105,6 +118,8 @@ type PaymentServiceOptions = {
   settleTimeoutMs?: number;
   /** The chain node used to check a smart-contract wallet's signature. Defaults to the one in the settings, if any. */
   rpc?: Rpc | null;
+  /** The same for a payment on Base, used only when Base's smart wallets are switched on. Defaults to the one in the settings (BASE_RPC_URL), if any. */
+  baseRpc?: Rpc | null;
   /** Nodes that say what a payer holds, by network (see balanceNodesOf). None by default, so a service built any other way asks no node. */
   balanceNodes?: Record<string, Rpc>;
 };
@@ -125,10 +140,18 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
   const now = options.now ?? (() => new Date());
   const locks = new Map<string, Promise<unknown>>();
   let inFlight = 0;
-  let contractChecks = 0;
+  // Wallet checks running now, by network, so that one network's slow node cannot hold another's places.
+  const contractChecks = new Map<string, number>();
+  // When smart-contract wallets' payments were refused or failed, by network.
+  const contractFaults = new Map<string, number[]>();
   let balanceChecks = 0;
   const balanceNodes = options.balanceNodes ?? {};
-  const rpc: Rpc | null = options.rpc !== undefined ? options.rpc : cfg.rpc ? rpcClient(cfg.rpc, fetchImpl) : null;
+  // The chain node that checks a smart-contract wallet's signature, by network. Base's is used only when the operator has switched it on.
+  const contractNodes: Record<string, Rpc> = {};
+  const arcNode: Rpc | null = options.rpc !== undefined ? options.rpc : cfg.rpc ? rpcClient(cfg.rpc, fetchImpl) : null;
+  if (arcNode) contractNodes[cfg.network] = arcNode;
+  const baseNode: Rpc | null = !cfg.baseSmartWallets ? null : options.baseRpc !== undefined ? options.baseRpc : cfg.baseRpc ? rpcClient(cfg.baseRpc, fetchImpl, BASE_CONTRACT_TIMEOUT_MS) : null;
+  if (baseNode) contractNodes[BASE_MAINNET] = baseNode;
 
   /** One at a time for one authorization, so two requests carrying it cannot both start a settlement. */
   async function locked<T>(key: string, run: () => Promise<T>): Promise<T> {
@@ -198,7 +221,10 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
         await record(row, { status: "open", reason: `refused on resend: ${result.reason}` });
         return again(ctx, `The payment could not be confirmed (${result.reason}). Check your wallet before paying again: if the USDC was not sent, sign a new payment, and if it was, contact the operator and quote ${row.paymentId}.`);
       }
-      await record(row, { status: "refused", reason: result.reason });
+      // A smart-contract wallet's payment that the chain check passed and the facilitator refused cost the shared budget a send for nothing:
+      // the wallet is paused for a short while (contractGate), and the network counts it toward its limit.
+      if (ctx.contract) noteContractFault(row.network);
+      await record(row, { status: "refused", reason: ctx.contract ? `${CONTRACT_REFUSED_REASON}: ${result.reason}` : result.reason });
       return again(ctx, `The payment was refused (${result.reason}). Nothing was charged. Sign a new payment.`);
     }
     if (result.kind === "unavailable") {
@@ -216,6 +242,7 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
     }
     // A transaction was named and the facilitator did not call it pending: it was broadcast and failed. The wallet is paused for a day.
     const failed = result.transaction !== undefined && !result.pending;
+    if (failed && ctx.contract) noteContractFault(row.network);
     const said = failed ? `failed after broadcast: ${result.reason}` : result.reason;
     // The ledger keeps the first transaction a payment named. A later send that names another (a broadcast that reverted because the first had
     // spent the authorization, for one) is told in the reason, because either may be the one that moved the money.
@@ -260,12 +287,32 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
     }
   }
 
-  /** What a smart-contract wallet may not do: pay while another payment of its is unresolved, or after a settlement of its failed. */
-  async function contractGate(payer: string): Promise<Charge | null> {
-    if ((await ledger.failedFor(cfg.network, payer, new Date(now().getTime() - CONTRACT_PAUSE_MS))) > 0) {
+  /** Notes that a smart-contract wallet's payment was refused or failed on a network, and tells the operator when the network reaches its limit. */
+  function noteContractFault(network: string): void {
+    const at = now().getTime();
+    const recent = (contractFaults.get(network) ?? []).filter(time => at - time < CONTRACT_FAULT_WINDOW_MS);
+    recent.push(at);
+    contractFaults.set(network, recent);
+    if (recent.length === MAX_CONTRACT_FAULTS_PER_HOUR) console.error(`[x402] smart-contract wallets are paused on ${network}: ${recent.length} of their payments were refused or failed in the last hour`);
+  }
+
+  const contractBreakerOpen = (network: string): boolean => {
+    const at = now().getTime();
+    return (contractFaults.get(network) ?? []).filter(time => at - time < CONTRACT_FAULT_WINDOW_MS).length >= MAX_CONTRACT_FAULTS_PER_HOUR;
+  };
+
+  /**
+   * What a smart-contract wallet may not do on a network: pay while another payment of its is unresolved there, for a day after a settlement of
+   * its failed there, or for a quarter of an hour after the facilitator refused a payment of its that the chain check had passed.
+   */
+  async function contractGate(payer: string, network: string): Promise<Charge | null> {
+    if ((await ledger.failedFor(network, payer, new Date(now().getTime() - CONTRACT_PAUSE_MS))) > 0) {
       return { deliver: false, reply: unavailable("Payments from this wallet are paused for a day after a settlement of its failed. Use another wallet, or a key.", 3600) };
     }
-    if ((await ledger.openFor(cfg.network, payer)) >= 1) return { deliver: false, reply: unavailable("A payment from this wallet is still settling. Try again in a moment.", 10) };
+    if ((await ledger.refusedFor(network, payer, new Date(now().getTime() - CONTRACT_REFUSED_PAUSE_MS))) > 0) {
+      return { deliver: false, reply: unavailable("Payments from this wallet are paused for a few minutes after the payment service refused one. Try again later, or use a regular wallet's key.", 900) };
+    }
+    if ((await ledger.openFor(network, payer)) >= 1) return { deliver: false, reply: unavailable("A payment from this wallet is still settling. Try again in a moment.", 10) };
     return null;
   }
 
@@ -301,7 +348,7 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
     const late = timeProblem(ctx.payment, nowSeconds());
     if (late) return again(ctx, late);
     if (ctx.contract) {
-      const blocked = await contractGate(payer);
+      const blocked = await contractGate(payer, ctx.payment.accepted.network);
       if (blocked) return blocked;
     }
     const screened = await screenPayer(ctx, payer);
@@ -355,27 +402,48 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
   }
 
   /**
-   * A smart-contract wallet's payment. One that is recorded already (the same signature, which the idempotency key holds) is not asked of the
-   * chain again: its authorization is spent by then, and a caller whose answer was lost must be served, not refused. A new one is simulated.
+   * A smart-contract wallet's payment that is recorded already (the same signature, which the idempotency key holds), as a payment to resume, or
+   * null. It is not asked of the chain again, and not turned away when the setting for such wallets has been switched off since: its authorization
+   * is spent by then, and a caller whose answer was lost must be served, not refused and invited to pay twice.
    */
-  async function verifyContract(endpoint: X402Endpoint, payment: PaymentPayload, resource: string, node: Rpc): Promise<Accepted> {
+  async function recordedContract(endpoint: X402Endpoint, payment: PaymentPayload, resource: string, rail: Rail): Promise<Accepted | null> {
+    const z = payment.payload.authorization;
+    const existing = await ledger.find(rail.network, z.from.toLowerCase(), z.nonce.toLowerCase());
+    return existing && paymentIdOf(cfg, payment, existing.subjectHash) === existing.paymentId ? { ok: true, context: { endpoint, payment, resource, contract: true } } : null;
+  }
+
+  /** A new smart-contract wallet's payment: simulated on the node of the network it names. `keyProblem` is why it was not a regular key's. */
+  async function verifyContract(endpoint: X402Endpoint, payment: PaymentPayload, resource: string, node: Rpc, rail: Rail, keyProblem: string): Promise<Accepted> {
     const z = payment.payload.authorization;
     const context: PayContext = { endpoint, payment, resource, contract: true };
     const refuse = (why: string): Accepted => ({ ok: false, reply: termsReply(cfg, endpoint, resource, why) });
-    const existing = await ledger.find(cfg.network, z.from.toLowerCase(), z.nonce.toLowerCase());
-    if (existing && paymentIdOf(cfg, payment, existing.subjectHash) === existing.paymentId) return { ok: true, context };
-    if (!consumeRateLimit("x402-contract-check", MAX_CONTRACT_CHECKS_PER_MINUTE, 60_000).allowed || contractChecks >= MAX_CONTRACT_CHECKS_AT_ONCE) {
+    if (contractBreakerOpen(rail.network)) {
+      return { ok: false, reply: unavailable("Payments from smart-contract wallets are paused for a while after several were refused or failed. Use a regular wallet's key, or try again later.", 600) };
+    }
+    const running = contractChecks.get(rail.network) ?? 0;
+    if (!consumeRateLimit(`x402-contract-check:${rail.network}`, MAX_CONTRACT_CHECKS_PER_MINUTE, 60_000).allowed || running >= MAX_CONTRACT_CHECKS_AT_ONCE) {
       return { ok: false, reply: unavailable("Too many wallet checks are being made right now. Try again in a moment.", 5) };
     }
-    contractChecks += 1;
+    contractChecks.set(rail.network, running + 1);
     let verdict: Awaited<ReturnType<typeof checkContractSignature>>;
     try {
-      verdict = await checkContractSignature(node, { chainId: cfg.chainId, usdc: ARC_USDC, authorization: z, signature: payment.payload.signature, nowSeconds: nowSeconds() });
+      verdict = await checkContractSignature(node, {
+        chainId: rail.chainId,
+        usdc: rail.asset,
+        authorization: z,
+        signature: payment.payload.signature,
+        nowSeconds: nowSeconds(),
+        ...(rail.network === BASE_MAINNET ? { maxBehindSeconds: BASE_MAX_BEHIND_SECONDS } : {}),
+      });
     } finally {
-      contractChecks -= 1;
+      contractChecks.set(rail.network, (contractChecks.get(rail.network) ?? 1) - 1);
     }
     if (verdict === null) return { ok: false, reply: unavailable("The wallet's signature cannot be checked on chain right now. Nothing was charged. Try again shortly.", 10) };
-    return verdict.ok ? { ok: true, context } : refuse(`${verdict.why}. A payment from a smart-contract wallet is taken only when its own code accepts it.`);
+    if (verdict.ok) return { ok: true, context };
+    // A signature of 65 bytes is a regular key's as much as a contract's (a Safe with one owner signs that way), so it is checked as both. When the chain
+    // refuses it, the reason it was not a regular key's is told too, so that the real cause is not lost behind the ERC-1271 sentence.
+    const regular = payment.payload.signature.length === 132 ? ` As a regular wallet's key it was refused too: ${keyProblem}.` : "";
+    return refuse(`${verdict.why}. A payment from a smart-contract wallet is taken only when its own code accepts it.${regular}`);
   }
 
   return {
@@ -404,10 +472,16 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
       const seen = inspect(endpoint, header, resource);
       if (seen.kind === "ok") return { ok: true, context: seen.context };
       if (seen.kind === "refused") return { ok: false, reply: seen.reply };
-      // Not a regular wallet's key's signature. Without a node, a smart-contract wallet is not accepted, and the node is Arc's: on any
-      // other network the chain is not asked.
-      if (!rpc || seen.payment.accepted.network !== cfg.network) return { ok: false, reply: termsReply(cfg, endpoint, resource, seen.keyProblem) };
-      return verifyContract(endpoint, seen.payment, resource, rpc);
+      // Not a regular wallet's key's signature. A payment of a smart-contract wallet that is recorded already is resumed whatever the settings are now.
+      // A new one is accepted only where a node is set for the network it pays on (Arc's X402_RPC; Base's BASE_RPC_URL once the operator has switched
+      // Base's smart wallets on): no other network's node is ever asked.
+      const rail = railFor(cfg, seen.payment.accepted.network);
+      if (!rail) return { ok: false, reply: termsReply(cfg, endpoint, resource, seen.keyProblem) };
+      const recorded = await recordedContract(endpoint, seen.payment, resource, rail).catch(() => null);
+      if (recorded) return recorded;
+      const node = contractNodes[rail.network];
+      if (!node) return { ok: false, reply: termsReply(cfg, endpoint, resource, seen.keyProblem) };
+      return verifyContract(endpoint, seen.payment, resource, node, rail, seen.keyProblem);
     },
     charge: (context, subject) => {
       const z = context.payment.payload.authorization;
@@ -451,6 +525,11 @@ export function paymentServiceFromEnv(env: NodeJS.ProcessEnv = process.env, ledg
     if (config.baseProblem) console.error(`[x402] Base is not offered: ${config.baseProblem}`);
     const balanceNodes = balanceNodesOf(config);
     const unchecked = railsOf(config).filter(rail => !balanceNodes[rail.network]);
+    if (config.baseSmartWallets) {
+      if (!railFor(config, BASE_MAINNET)) console.log("[x402] smart-contract wallets are not taken on Base: Base is not offered");
+      else if (!config.baseRpc) console.log("[x402] smart-contract wallets are not taken on Base: BASE_RPC_URL is not set");
+      else console.log("[x402] Base takes smart-contract wallets (deployed ones, whose own code accepts the signature)");
+    }
     if (unchecked.length > 0) console.log(`[x402] funds are not checked before a payment is sent on, on ${unchecked.map(rail => rail.network).join(" and ")} (no node is set for it)`);
     return createPaymentService({ config, ledger, balanceNodes });
   } catch (error) {

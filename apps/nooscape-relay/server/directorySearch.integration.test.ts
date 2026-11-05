@@ -251,4 +251,28 @@ describe.skipIf(!dbReachable)("directory search against a real database", { time
     const retried = await db.searchAgentDirectory({ query: "never-searched-before-xyz", limit: 12 });
     expect(retried).not.toHaveProperty("busy");
   });
+
+  it("finds a listing by its whole host when a label of the host is a full-text stopword", async () => {
+    // "com" and "www" are on InnoDB's default stopword list, so the full-text query for "cubicle.algotrada.com" matches nothing. The
+    // rows: two visible, one hidden and one in a paused source (neither may show), and two other hosts.
+    await raw.query(
+      `INSERT INTO agent_directory_entries (id, sourceId, externalKey, displayName, locatorHost, protocol, hidden, lastSeenAt) VALUES
+         ('com-1', 'src-active', 'cat-com-1', 'Cubicle one', 'cubicle.algotrada.com', 'catalog', 0, TIMESTAMP('2030-02-01')),
+         ('com-2', 'src-active', 'cat-com-2', 'Cubicle two', 'cubicle.algotrada.com', 'catalog', 0, TIMESTAMP('2030-02-02')),
+         ('com-3', 'src-active', 'cat-com-3', 'Cubicle hidden', 'cubicle.algotrada.com', 'catalog', 1, TIMESTAMP('2030-02-03')),
+         ('com-4', 'src-paused', 'cat-com-4', 'Cubicle paused', 'cubicle.algotrada.com', 'catalog', 0, TIMESTAMP('2030-02-04')),
+         ('com-5', 'src-active', 'cat-com-5', 'Elsewhere', 'www.example.com', 'catalog', 0, TIMESTAMP('2030-02-05')),
+         ('com-6', 'src-active', 'cat-com-6', 'Another', 'other.algotrada.com', 'catalog', 0, TIMESTAMP('2030-02-06'))`
+    );
+    const ids = async (query: string) => (await db.searchAgentDirectory({ query, limit: 12 })).entries.map(entry => entry.id);
+    expect(await ids("cubicle.algotrada.com")).toEqual(["com-2", "com-1"]);
+    expect(await ids("Cubicle.Algotrada.COM")).toEqual(["com-2", "com-1"]);
+    expect(await ids("www.example.com")).toEqual(["com-5"]);
+    expect(await ids("nobody.example.com")).toEqual([]);
+    const whole = await db.searchAgentDirectory({ query: "cubicle.algotrada.com", limit: 12 });
+    expect(whole.matchedTotal).toBe(2);
+    expect(whole.matchedTotalCapped).toBe(false);
+    // A word of the host still finds it through the full-text index, as before.
+    expect(await ids("cubicle")).toEqual(["com-2", "com-1"]);
+  });
 });

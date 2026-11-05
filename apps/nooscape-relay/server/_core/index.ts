@@ -18,11 +18,14 @@ import { describeDatabaseTarget } from "../databaseTarget";
 import { applyPendingMigrations } from "../dbMigrations";
 import { startReadWarming } from "../warmReads";
 import { startLifecycleLog } from "../lifecycleLog";
+import { drainHttpServer, onShutdown, runShutdown } from "../gracefulShutdown";
+import { apiMeter } from "../apiKeys";
 import { preferIPv4 } from "./ipv4First";
 
 preferIPv4();
 // In production the host's runtime log is the only record of why the process stopped or was restarted (docs/lifecycle-logging-2026-11-01.md).
-if (process.env.NODE_ENV === "production") startLifecycleLog();
+// A stop signal also waits, for 15 seconds at most, for what the app has to finish (docs/graceful-shutdown-2026-11-04.md).
+if (process.env.NODE_ENV === "production") startLifecycleLog({ beforeEnd: () => runShutdown() });
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -66,6 +69,9 @@ async function startServer() {
   }
   const app = express();
   const server = createServer(app);
+  // What a stop signal waits for: the requests in flight (a paid one among them), and what the meter has counted since its last write.
+  onShutdown("http", drainHttpServer(server));
+  onShutdown("api meter", () => apiMeter.flush());
   // The relay sits behind the Hostinger edge (hcdn): trust the single proxy
   // hop so req.ip / req.secure reflect the real client.
   app.set("trust proxy", 1);

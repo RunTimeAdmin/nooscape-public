@@ -20,6 +20,17 @@ re-probed independently via the owned keyless RPC unless marked otherwise.
 > 1 revoked / 2 active; unrated erc8004 agents render an honest zero; solana_8004 entries keep
 > `ratings: null`. Step 7 (the 0017-style scheduled-policy flip) remains a deliberate operator
 > decision after a full unattended-clean forward-walk day.
+>
+> **Addendum 2026-11-04: an agent with more events than the page reads.** The entry read keeps the oldest 200 events of
+> an agent, in chain order, and asks for one more to learn whether there are more. The summary carries the answer as
+> `truncated`. The agent page says it in one sentence under the counts, the REST agent record gives it as
+> `ratings.truncated` (and the OpenAPI document lists it), and the pre-flight check gives no revoked share and no "none"
+> for such an agent: its `revoked_feedback.present` is null unless a revocation was read, `revoked_share` is null, and
+> its `basis` says why. The counts are those of the events read, so a revocation after the 200th event is not in them.
+> The order flip and the revocation-aware tail that the 12 October response queued are not done: a tail would mix counts
+> of events read with counts of events not read. The census average is about 2 ratings an agent, so almost no page is cut
+> today. The tests are `server/apiCheck.integration.test.ts` (201 events are cut, 200 are not, on MySQL 8 and MariaDB
+> 10.11), `server/apiCheck.test.ts`, `server/ratingsSurface.test.ts` and `server/apiV1.test.ts`.
 
 ## 1. Registry facts (verified 2026-10-11)
 

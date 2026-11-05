@@ -888,6 +888,13 @@ a.directory-ack-row:hover, a.directory-ack-row:focus-visible { background: rgba(
 .developer-hero-meta { display: flex; flex-wrap: wrap; gap: .55rem .7rem; margin-top: 1.5rem; }
 .developer-hero-meta span { display: inline-flex; align-items: center; gap: .36rem; border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: .38rem .56rem; background: rgba(255,255,255,.025); font-family: "DM Mono", monospace; font-size: 9px; letter-spacing: .06em; color: #b5c7b9; }
 .developer-hero-meta svg { color: #c3a6ff; }
+.developer-start { display: grid; gap: .7rem; max-width: 670px; margin: 1.5rem 0 0; padding: 0; list-style: none; counter-reset: developer-start; }
+.developer-start li { display: grid; grid-template-columns: 1.4rem 1fr; gap: .1rem .6rem; counter-increment: developer-start; font-size: 14px; line-height: 1.65; color: #aebcb3; }
+.developer-start li::before { content: counter(developer-start); grid-row: span 2; font-family: "DM Mono", monospace; font-size: 13px; line-height: 1.65; color: #bfff76; }
+.developer-start strong { color: #effff3; font-weight: 600; }
+.developer-start code { font-family: "DM Mono", monospace; font-size: 13px; color: #d7ffc4; overflow-wrap: anywhere; }
+.developer-hero > p.developer-start-note { margin-top: 1rem; font-size: 13px; }
+.developer-start-note a { color: #bfff76; text-underline-offset: 3px; }
 .developer-callout { display: flex; align-items: center; justify-content: space-between; gap: 1.2rem; margin-top: 2.4rem; border: 1px solid rgba(191,255,118,.19); border-radius: .85rem; padding: 1rem; background: linear-gradient(100deg, rgba(191,255,118,.09), rgba(195,166,255,.05)); }
 .developer-callout > div { display: flex; gap: .7rem; align-items: flex-start; color: #cfffad; }
 .developer-callout > div > svg { flex: none; margin-top: .13rem; }

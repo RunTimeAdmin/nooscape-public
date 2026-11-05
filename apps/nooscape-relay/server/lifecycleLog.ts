@@ -37,6 +37,10 @@ const PREVIOUS_SHOWN = 5;
 const OTHERS_LOOKED_AT = 50;
 /** Signals whose default is to end the process. Each is written and raised again. SIGUSR1 is left alone: Node uses it to start its inspector. */
 const SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT", "SIGUSR2"] as const;
+/** The signals that mean stop: the process waits, up to a limit, for what the app has to finish (`beforeEnd`). The others end it at once. */
+const STOP_SIGNALS = new Set<string>(["SIGTERM", "SIGINT"]);
+/** The longest the process waits for `beforeEnd`: more than the 15 seconds the shutdown allows itself, so its own line is written first. */
+const BEFORE_END_MS = 20_000;
 /** The names that say what runs the process, in the environment. Only the names are ever written. */
 const HOST_HINT = /^(PASSENGER|LSAPI|LSNODE|LS_|LVE|CAGEFS|HOSTINGER|HBUILD|PM2|SUPERVISOR|S6_|KUBERNETES|DOCKER|CONTAINER)|^(INVOCATION_ID|JOURNAL_STREAM)$/i;
 /**
@@ -287,6 +291,12 @@ export type LifecycleOptions = {
   dir?: string;
   beatMs?: number;
   healthEvery?: number;
+  /**
+   * Run when SIGTERM or SIGINT stops the process, and awaited before the signal is raised again, so the process still ends by that
+   * signal. A second signal while it runs ends the process at once, and so does `beforeEndMs`. Another signal never waits.
+   */
+  beforeEnd?: (signal: string) => unknown;
+  beforeEndMs?: number;
 };
 
 export type Lifecycle = {
@@ -477,7 +487,8 @@ function realIo(): { io: Io; stop: () => void } {
 /**
  * Starts the lifecycle log on this process and returns a function that stops it (the tests use it; the app never does). It changes no
  * behaviour: a signal is written and then raised again with this handler removed, so the process ends as it would have, by that signal;
- * a crash is only observed; and the timer does not keep the process alive.
+ * a crash is only observed; and the timer does not keep the process alive. The one thing it may do is wait: when `beforeEnd` is given,
+ * a stop signal (SIGTERM or SIGINT) is raised again only once that has ended, or the limit has passed, or a second signal has come.
  */
 export function startLifecycleLog(options: LifecycleOptions = {}): () => void {
   const { io, stop: stopLag } = realIo();
@@ -491,13 +502,32 @@ export function startLifecycleLog(options: LifecycleOptions = {}): () => void {
     handlers.forEach((handler, name) => process.removeListener(name, handler));
     handlers.clear();
   };
+  let ended = false;
+  let waiting = false;
+  const end = (name: string) => {
+    if (ended) return;
+    ended = true;
+    removeSignalHandlers();
+    process.kill(process.pid, name);
+  };
   for (const name of SIGNALS) {
     const handler = () => {
       try {
         lifecycle.signal(name);
       } finally {
-        removeSignalHandlers();
-        process.kill(process.pid, name);
+        if (options.beforeEnd && STOP_SIGNALS.has(name) && !waiting) {
+          waiting = true;
+          const guard = setTimeout(() => end(name), options.beforeEndMs ?? BEFORE_END_MS);
+          void Promise.resolve()
+            .then(() => options.beforeEnd!(name))
+            .catch(() => undefined)
+            .finally(() => {
+              clearTimeout(guard);
+              end(name);
+            });
+        } else {
+          end(name);
+        }
       }
     };
     handlers.set(name, handler);

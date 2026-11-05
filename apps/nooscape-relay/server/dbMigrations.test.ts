@@ -41,6 +41,8 @@ let connectionEnded = false;
 let lockAvailable = true;
 let lockEvents: string[] = [];
 let lockArguments: unknown[][] = [];
+// How many tables besides the bookkeeping table the database holds. The first boot asks, to tell an empty database from one built by hand.
+let scriptedTableCount = 5;
 
 vi.mock("mysql2/promise", () => ({
   createConnection: vi.fn(async () => ({
@@ -59,6 +61,9 @@ vi.mock("mysql2/promise", () => ({
         throw new Error("simulated migration failure");
       }
       captured.push({ sql, params: params ?? [] });
+      if (sql.includes("information_schema")) {
+        return [[{ n: scriptedTableCount }], []];
+      }
       if (sql.includes("SELECT")) {
         return [scriptedAppliedVersions, []];
       }
@@ -78,6 +83,7 @@ function resetRun(appliedVersions: Array<number>, recordedNames: Record<number, 
   lockAvailable = true;
   lockEvents = [];
   lockArguments = [];
+  scriptedTableCount = 5;
   scriptedAppliedVersions = appliedVersions.map(version => (recordedNames[version] === undefined ? { version } : { version, name: recordedNames[version] }));
 }
 
@@ -143,18 +149,20 @@ describe("applyPendingMigrations", () => {
     const baselineInserts = captured.filter(entry => entry.sql.includes("INSERT") && entry.params.length === 2 && entry.params[0] === 1);
     expect(baselineInserts.length).toBe(1);
     expect(captured.every(entry => !entry.sql.includes("baseline_never_runs"))).toBe(true);
-    // Sequence after the applied-set read: baseline stamp insert, 0015's two
-    // statements in order, its bookkeeping insert, then 0016 and its insert.
+    // Sequence after the applied-set read: the count of the database's tables (an
+    // empty database is told from one built by hand), the baseline stamp insert,
+    // 0015's two statements in order, its bookkeeping insert, then 0016 and its insert.
     const sqlSequence = captured.map(entry => entry.sql.replace(/\s+/g, " ").trim());
-    expect(sqlSequence[2]).toContain("INSERT IGNORE");
-    expect(sqlSequence[2]).toContain("nooscape_schema_migrations");
-    expect(sqlSequence[3]).toContain("ALTER TABLE `t1` ADD `col` int");
-    expect(sqlSequence[4]).toContain("UPDATE `t1` SET `col` = 1");
-    expect(sqlSequence[5]).toContain("INSERT");
-    expect(captured[5].params).toEqual([15, "0015_a.sql"]);
-    expect(sqlSequence[6]).toContain("CREATE INDEX `t1_col_idx`");
-    expect(sqlSequence[7]).toContain("INSERT");
-    expect(captured[7].params).toEqual([16, "0016_b.sql"]);
+    expect(sqlSequence[2]).toContain("information_schema.tables");
+    expect(sqlSequence[3]).toContain("INSERT IGNORE");
+    expect(sqlSequence[3]).toContain("nooscape_schema_migrations");
+    expect(sqlSequence[4]).toContain("ALTER TABLE `t1` ADD `col` int");
+    expect(sqlSequence[5]).toContain("UPDATE `t1` SET `col` = 1");
+    expect(sqlSequence[6]).toContain("INSERT");
+    expect(captured[6].params).toEqual([15, "0015_a.sql"]);
+    expect(sqlSequence[7]).toContain("CREATE INDEX `t1_col_idx`");
+    expect(sqlSequence[8]).toContain("INSERT");
+    expect(captured[8].params).toEqual([16, "0016_b.sql"]);
     expect(connectionEnded).toBe(true);
   });
 
@@ -192,6 +200,102 @@ describe("applyPendingMigrations", () => {
     } finally {
       rmSync(failing, { recursive: true, force: true });
     }
+  });
+});
+
+describe("building a database from nothing", () => {
+  const url = "mysql://test:test@localhost:3306/nooscape_test";
+  // Version 36 is a manual migration (MANUAL_MIGRATIONS): a boot never applies it, and a build from nothing does.
+  const files = {
+    "0001_seed.sql": "CREATE TABLE `seed` (id int);",
+    "0015_a.sql": "ALTER TABLE `seed` ADD `a` int;",
+    "0036_manual.sql": "CREATE TABLE `manual_one` (id int);",
+    "0050_c.sql": "CREATE INDEX `seed_a_idx` ON `seed` (`a`);",
+  };
+  async function inFolder(run: (dir: string) => Promise<void>) {
+    const dir = mkdtempSync(path.join(process.cwd(), "migration-test-"));
+    try {
+      for (const [name, content] of Object.entries(files)) writeFixture(dir, name, content);
+      await run(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("is refused for an empty database unless the operator asked, with what to do, and nothing is written", async () => {
+    resetRun([]);
+    scriptedTableCount = 0;
+    await inFolder(async dir => {
+      const refused = applyPendingMigrations(url, dir, 60, { bootstrapEmpty: false });
+      await expect(refused).rejects.toThrow(/The database is empty/);
+      await expect(applyPendingMigrations(url, dir, 60, { bootstrapEmpty: false })).rejects.toThrow(/NOOSCAPE_BOOTSTRAP_EMPTY_DATABASE=1/);
+      expect(captured.some(entry => /CREATE TABLE `seed`|`manual_one`|INSERT/.test(entry.sql))).toBe(false);
+      expect(connectionEnded).toBe(true);
+    });
+  });
+
+  it("builds every file in order when asked, the baseline and the manual migrations included, and records each", async () => {
+    resetRun([]);
+    scriptedTableCount = 0;
+    await inFolder(async dir => {
+      const applied = await applyPendingMigrations(url, dir, 60, { bootstrapEmpty: true });
+      expect(applied).toEqual(["0001_seed.sql", "0015_a.sql", "0036_manual.sql", "0050_c.sql"]);
+      const statements = captured.map(entry => entry.sql.replace(/\s+/g, " ").trim()).filter(sql => !/nooscape_schema_migrations|information_schema|^SELECT/.test(sql));
+      expect(statements).toEqual([
+        "CREATE TABLE `seed` (id int);",
+        "ALTER TABLE `seed` ADD `a` int;",
+        "CREATE TABLE `manual_one` (id int);",
+        "CREATE INDEX `seed_a_idx` ON `seed` (`a`);",
+      ]);
+      const recorded = captured.filter(entry => entry.sql.includes("INSERT INTO") && entry.sql.includes("nooscape_schema_migrations")).map(entry => entry.params);
+      expect(recorded).toEqual([[1, "0001_seed.sql"], [15, "0015_a.sql"], [36, "0036_manual.sql"], [50, "0050_c.sql"]]);
+      // Nothing is stamped as applied by hand: every file ran.
+      expect(captured.some(entry => entry.sql.includes("INSERT IGNORE"))).toBe(false);
+    });
+  });
+
+  it("does not build over a database that already has tables, even when asked, and says the word changed nothing", async () => {
+    resetRun([]);
+    scriptedTableCount = 3;
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await inFolder(async dir => {
+        const applied = await applyPendingMigrations(url, dir, 60, { bootstrapEmpty: true });
+        // The way it has always been: the hand-applied baseline is stamped, the manual migration waits, the rest runs.
+        expect(applied).toEqual(["0015_a.sql", "0050_c.sql"]);
+        expect(captured.some(entry => entry.sql.includes("manual_one"))).toBe(false);
+        expect(captured.some(entry => entry.sql.includes("INSERT IGNORE"))).toBe(true);
+      });
+      expect(log.mock.calls.map(call => String(call[0])).join("\n")).toContain("NOOSCAPE_BOOTSTRAP_EMPTY_DATABASE is set, but this database already has tables");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("leaves a database with a log alone, asks nothing of its tables, and still says the word is not needed", async () => {
+    resetRun([1, 15, 36, 50]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await inFolder(async dir => {
+        expect(await applyPendingMigrations(url, dir, 60, { bootstrapEmpty: true })).toEqual([]);
+        expect(captured.length).toBe(2);
+      });
+      expect(log.mock.calls.map(call => String(call[0])).join("\n")).toContain("Unset it");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("says the database is partly built, and which file stopped it, when a build from nothing fails", async () => {
+    resetRun([]);
+    scriptedTableCount = 0;
+    failOnSql = "manual_one";
+    await inFolder(async dir => {
+      const failed = applyPendingMigrations(url, dir, 60, { bootstrapEmpty: true });
+      await expect(failed).rejects.toThrow(/0036_manual\.sql/);
+      await expect(applyPendingMigrations(url, dir, 60, { bootstrapEmpty: true })).rejects.toThrow(/partly built/);
+      expect(connectionEnded).toBe(true);
+    });
   });
 });
 

@@ -49,6 +49,8 @@ export type AgentDirectoryEntryRatings = {
   activeRatingCount: number;
   revokedCount: number;
   responseCount: number;
+  /** True when the agent has more events than were read: the counts and the list then cover its oldest events only. */
+  truncated: boolean;
   events: AgentDirectoryEntryRatingsEvent[];
 };
 
@@ -99,10 +101,13 @@ export function formatRatingValue(valueRaw: string, valueDecimals: number): stri
  * the rating it names — the rating is marked `revoked` and stays in the list;
  * untrusted tag text goes through the shared public-text scrubber at read
  * time, matching how every other source-served string reaches the API.
+ * `truncated` is the caller's word that the rows are the first of more; it
+ * changes no count.
  */
 export function computeRatingsSummary(
   events: RatingsEventInput[],
-  measuredThroughBlock: number | null
+  measuredThroughBlock: number | null,
+  truncated = false
 ): AgentDirectoryEntryRatings {
   const revokedKeys = new Set<string>();
   for (const event of events) {
@@ -129,6 +134,7 @@ export function computeRatingsSummary(
     activeRatingCount: ratingCount - revokedMarked,
     revokedCount: events.filter(event => event.kind === "feedback_revoked").length,
     responseCount: events.filter(event => event.kind === "response_appended").length,
+    truncated,
     events: mapped,
   };
 }

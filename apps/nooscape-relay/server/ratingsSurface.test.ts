@@ -113,6 +113,15 @@ describe("computeRatingsSummary", () => {
     expect(summary.events.find(event => event.clientAddress === `0x${"2".repeat(40)}`)?.revoked).toBe(false);
   });
 
+  it("says whether the events it was given are all the agent has", () => {
+    const events = [ratingEvent({ feedbackIndex: 1 }), ratingEvent({ feedbackIndex: 2, blockNumber: 110 })];
+    expect(computeRatingsSummary(events, 110).truncated).toBe(false);
+    const cut = computeRatingsSummary(events, 110, true);
+    expect(cut.truncated).toBe(true);
+    // The flag changes nothing it counts: the counts are those of the events given.
+    expect(cut).toMatchObject({ totalEvents: 2, ratingCount: 2, activeRatingCount: 2, revokedCount: 0 });
+  });
+
   it("adds the counts up honestly", () => {
     const summary = computeRatingsSummary(
       [
@@ -189,6 +198,7 @@ describe("computeRatingsSummary", () => {
       activeRatingCount: 0,
       revokedCount: 0,
       responseCount: 0,
+      truncated: false,
       events: [],
     });
   });

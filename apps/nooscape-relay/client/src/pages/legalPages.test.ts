@@ -545,9 +545,10 @@ describe("what the privacy and terms pages say about paying for an API call, hel
     expect(protocol).toContain("payments from smart-contract wallets are not accepted yet");
     expect(protocol).toContain("the wallet is not deployed yet (an ERC-6492 signature)");
     expect(service).toContain("MAX_CONTRACT_CHECKS_AT_ONCE");
-    expect(service).toContain("openFor(cfg.network, payer)");
-    // Only Arc takes such a wallet, and only with its node set: the index says so per network.
-    expect(read(join(app, "server", "apiV1.ts"))).toContain('rail.network === pay.network && pay.rpc ? ["regular", "smart_contract"] : ["regular"]');
+    expect(service).toContain("openFor(network, payer)");
+    // Arc takes such a wallet with its node set, and Base only when the operator has switched it on and Base's node is set: the index says so per network.
+    expect(read(join(app, "server", "apiV1.ts"))).toContain('takesContractWallets(pay, rail) ? ["regular", "smart_contract"] : ["regular"]');
+    expect(protocol).toContain("return rail.network === BASE_MAINNET && cfg.baseSmartWallets && cfg.baseRpc !== null;");
   });
 
   it("says the node provider is asked about a smart-contract wallet and sees only public chain data, and the code sends nothing else", () => {

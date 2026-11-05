@@ -7,6 +7,7 @@ import {
   registrantLabel,
   registrantNarration,
   registrantNarrationFor,
+  registryRatingsTruncatedNote,
   registryWalletNarration,
   bnbWalletNarration,
   saidAuthorityExplanation,
@@ -164,5 +165,17 @@ describe("the wallet narration of the other registries the chain pass reads", ()
     expect(registryWalletNarration("BNB Chain", 4)).toBe(bnbWalletNarration(4));
     expect(registrantNarrationFor("erc8004_bsc", 0)).toBe("This wallet has registered only this identity on BNB Chain.");
     expect(registrantNarrationFor("erc8004_bsc", 1)).toBe("This wallet has also registered 1 other identity on BNB Chain, counted over the whole registry (some may not be listed here).");
+  });
+});
+
+describe("the registry ratings notes", () => {
+  it("says the list holds the oldest events, and that later ones, a later revocation included, are not shown", () => {
+    expect(registryRatingsTruncatedNote).toContain("more events");
+    expect(registryRatingsTruncatedNote).toContain("oldest");
+    expect(registryRatingsTruncatedNote).toContain("revocation");
+  });
+
+  it("holds no long dash", () => {
+    expect(registryRatingsTruncatedNote).not.toMatch(/[\u2013\u2014]/);
   });
 });

@@ -59,7 +59,7 @@ const entry = (overrides: Record<string, unknown> = {}) =>
     related: { sameWallet: 3, sameName: 0, sameHost: 1 },
     activity: { mintBlock: 123, secondaryTransferCount: 0, handoutCount: 0, uriUpdateCount: 1, events: [] },
     twin: null,
-    ratings: { measuredThroughBlock: 500, totalEvents: 4, ratingCount: 3, activeRatingCount: 2, revokedCount: 1, responseCount: 0, events: [] },
+    ratings: { measuredThroughBlock: 500, totalEvents: 4, ratingCount: 3, activeRatingCount: 2, revokedCount: 1, responseCount: 0, truncated: false, events: [] },
     ...overrides,
   }) as never;
 
@@ -283,8 +283,18 @@ describe("GET /api/v1/agents/{chain}/{id}", () => {
     expect(answer.license).toEqual(API_LICENSE);
     expect(answer.data).toMatchObject({ chain: "robinhood", agent_id: "7", registry: "erc8004", name: "Alice Agent", registrant: WALLET, locator_host: "alice.example", page_url: "https://nooscape.si/agents/11111111-1111-4111-8111-111111111111" });
     expect(answer.data.related).toEqual({ same_wallet: 3, same_name: 0, same_host: 1 });
-    expect(answer.data.ratings).toMatchObject({ rating_count: 3, revoked_count: 1, measured_through_block: 500 });
+    expect(answer.data.ratings).toMatchObject({ rating_count: 3, revoked_count: 1, measured_through_block: 500, truncated: false });
     expect(answer.data.claim).toBeNull();
+  });
+
+  it("says when the ratings it read are fewer events than the agent has", async () => {
+    await start({
+      ...deps(),
+      getEntry: async () => entry({ ratings: { measuredThroughBlock: 500, totalEvents: 200, ratingCount: 200, activeRatingCount: 200, revokedCount: 0, responseCount: 0, truncated: true, events: [] } }),
+    });
+    const answer = await body(await get("/api/v1/agents/robinhood/7"));
+    expect(problems(schemaOf("AgentResponse"), answer)).toEqual([]);
+    expect(answer.data.ratings).toMatchObject({ rating_count: 200, revoked_count: 0, truncated: true });
   });
 
   it("says every agent is acknowledged and never reviewed, has no tier, and gives no verdict", async () => {

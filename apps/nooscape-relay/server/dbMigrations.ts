@@ -14,6 +14,10 @@ import { createConnection } from "mysql2/promise";
  * Hostinger panel, and the spent bridges) is stamped as applied on the first
  * boot and never re-executed; only migrations with a version above the
  * baseline are applied by this runner.
+ *
+ * An empty database is the one exception, because it has no hand-applied history to stamp: the runner refuses it, and builds it from
+ * every file, the baseline and the manual migrations included, only when the operator asks for it for one start
+ * (docs/bootstrap-from-empty-2026-11-04.md).
  */
 
 /** Highest migration version applied by hand before this runner shipped. */
@@ -48,6 +52,18 @@ export const MANUAL_MIGRATIONS: readonly number[] = [36, 37, 38, 39, 40, 41, 42,
 const RECORDED_UNDER_ANOTHER_NAME: Readonly<Record<number, string>> = { 47: "0047_base_scheduled_flip" };
 
 const MIGRATIONS_TABLE = "nooscape_schema_migrations";
+
+/** Set to 1 for one start to let the runner build the schema in a database that holds no table at all. */
+export const BOOTSTRAP_ENV = "NOOSCAPE_BOOTSTRAP_EMPTY_DATABASE";
+
+export type MigrationOptions = {
+  /**
+   * Build the whole schema from every file when the database holds no table. Off unless the operator asks: a DATABASE_URL that is mistyped
+   * and points at an empty database must stop the start, not build a blank site that looks healthy. Has no effect on a database that has
+   * any table, or any recorded migration.
+   */
+  bootstrapEmpty?: boolean;
+};
 
 const withoutExtension = (name: string) => name.replace(/\.sql$/i, "");
 
@@ -128,9 +144,15 @@ export function migrationLockName(databaseUrl: string): string {
  * against a stale schema — a half-applied migration fails the boot loudly
  * instead of leaving the API silently failing closed. A version that is recorded under another file's name fails it too (the file would be
  * skipped as applied and never run), except the one reviewed case in RECORDED_UNDER_ANOTHER_NAME. The manual migrations
- * (MANUAL_MIGRATIONS) are left for an operator and are never applied here.
+ * (MANUAL_MIGRATIONS) are left for an operator and are never applied here, except in a build from nothing, which is the operator asking for
+ * every file (see MigrationOptions).
  */
-export async function applyPendingMigrations(databaseUrl: string, migrationsDir = defaultMigrationsDir(), lockWaitSeconds = MIGRATION_LOCK_WAIT_SECONDS): Promise<string[]> {
+export async function applyPendingMigrations(
+  databaseUrl: string,
+  migrationsDir = defaultMigrationsDir(),
+  lockWaitSeconds = MIGRATION_LOCK_WAIT_SECONDS,
+  options: MigrationOptions = { bootstrapEmpty: process.env[BOOTSTRAP_ENV] === "1" }
+): Promise<string[]> {
   const connection = await createConnection(databaseUrl);
   const lockName = migrationLockName(databaseUrl);
   let locked = false;
@@ -172,31 +194,64 @@ export async function applyPendingMigrations(databaseUrl: string, migrationsDir 
           "Run the file by hand and correct the log row, or rename the file, and start again."
       );
     }
+    // A log with nothing in it is either a database built by hand before this runner shipped, or one with no table at all. The first has a
+    // history to stamp. The second has none, so stamping it would only make the next file fail on a table that is not there.
+    let fresh = false;
     if (applied.size === 0) {
-      // First boot with this runner: stamp the hand-applied history so the
-      // bookkeeping table reflects the full schema story.
-      for (const file of files) {
-        if (file.version > BASELINE_VERSION) continue;
-        await connection.query(
-          `INSERT IGNORE INTO \`${MIGRATIONS_TABLE}\` (\`version\`, \`name\`) VALUES (?, ?)`,
-          [file.version, file.name]
-        );
+      const [counted] = (await connection.query("SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name <> ?", [MIGRATIONS_TABLE])) as [
+        Array<{ n: number | string }>,
+        unknown,
+      ];
+      if (Number(counted?.[0]?.n) === 0) {
+        if (!options.bootstrapEmpty) {
+          throw new Error(
+            `The database is empty, and the migration runner will not guess what to do with it. Restore a dump into it, or start once with ${BOOTSTRAP_ENV}=1 ` +
+              "to build the schema from the migration files (the baseline and the manual migrations included) and then unset it. If this is not the database you meant, check DATABASE_URL."
+          );
+        }
+        fresh = true;
+        console.log(`[Migrations] Empty database: building the schema from all ${files.length} migration files, the baseline and the manual ones included.`);
+      } else {
+        // First boot with this runner: stamp the hand-applied history so the
+        // bookkeeping table reflects the full schema story.
+        for (const file of files) {
+          if (file.version > BASELINE_VERSION) continue;
+          await connection.query(
+            `INSERT IGNORE INTO \`${MIGRATIONS_TABLE}\` (\`version\`, \`name\`) VALUES (?, ?)`,
+            [file.version, file.name]
+          );
+        }
+        console.log(`[Migrations] Stamped baseline: versions 0000-${BASELINE_VERSION} were applied by hand before this runner shipped.`);
       }
-      console.log(`[Migrations] Stamped baseline: versions 0000-${BASELINE_VERSION} were applied by hand before this runner shipped.`);
+    }
+    if (!fresh && options.bootstrapEmpty) {
+      console.log(`[Migrations] ${BOOTSTRAP_ENV} is set, but this database already has tables, so it changed nothing. Unset it.`);
     }
     const appliedNames: string[] = [];
     for (const file of files) {
       if (applied.has(file.version)) continue;
       // Baseline migrations were applied by hand before this runner shipped;
       // they are never replayed, whatever the bookkeeping table contains.
-      if (file.version <= BASELINE_VERSION) continue;
+      // An empty database is the one place where nothing was applied by hand.
+      if (file.version <= BASELINE_VERSION && !fresh) continue;
       // Manual migrations wait for an operator, whatever the bookkeeping table contains.
-      if (MANUAL_MIGRATIONS.includes(file.version)) continue;
-      const content = await readFile(file.file, "utf8");
-      for (const statement of splitMigrationStatements(content)) {
-        await connection.query(statement);
+      // A build from nothing is the operator asking for every file.
+      if (MANUAL_MIGRATIONS.includes(file.version) && !fresh) continue;
+      try {
+        const content = await readFile(file.file, "utf8");
+        for (const statement of splitMigrationStatements(content)) {
+          await connection.query(statement);
+        }
+        await connection.query(`INSERT INTO \`${MIGRATIONS_TABLE}\` (\`version\`, \`name\`) VALUES (?, ?)`, [file.version, file.name]);
+      } catch (error) {
+        if (!fresh) throw error;
+        // The log now holds the files that did run, so the next start would take the rest for a database built by hand. Say so.
+        throw new Error(
+          `Building the schema stopped at ${file.name}: ${error instanceof Error ? error.message : String(error)}. The database is partly built. ` +
+            `Drop it, create it again empty and start once more with ${BOOTSTRAP_ENV}=1.`,
+          { cause: error }
+        );
       }
-      await connection.query(`INSERT INTO \`${MIGRATIONS_TABLE}\` (\`version\`, \`name\`) VALUES (?, ?)`, [file.version, file.name]);
       appliedNames.push(file.name);
     }
     return appliedNames;

@@ -7,7 +7,8 @@ import { applyPendingMigrations, migrationLockName } from "./dbMigrations";
 /**
  * The migration lock against a real MySQL: two boots that start together on a migration that cannot be run twice apply it once and
  * neither fails, and a boot that cannot get the lock fails within its wait without applying anything. Skips when no database is
- * reachable.
+ * reachable. Each database has a table before the boots start, as the real one has: a database with none is refused
+ * (docs/bootstrap-from-empty-2026-11-04.md), and this test is about the lock.
  */
 const TEST_DB = "nooscape_migration_lock_test";
 const BASE_URL = process.env.GATE_TEST_DATABASE_URL ?? "mysql://root:nooscape@127.0.0.1:3307";
@@ -45,6 +46,7 @@ describe.skipIf(!dbReachable)("the migration lock against a real MySQL", { timeo
     const admin = await createConnection(`${BASE_URL}/mysql`);
     await admin.query(`DROP DATABASE IF EXISTS \`${TEST_DB}\``);
     await admin.query(`CREATE DATABASE \`${TEST_DB}\``);
+    await admin.query(`CREATE TABLE \`${TEST_DB}\`.\`history_marker\` (\`id\` int NOT NULL)`);
     await admin.end();
   });
 
@@ -86,6 +88,7 @@ describe.skipIf(!dbReachable)("the migration lock against a real MySQL", { timeo
     const admin = await createConnection(`${BASE_URL}/mysql`);
     await admin.query("DROP DATABASE IF EXISTS `nooscape_migration_lock_other`");
     await admin.query("CREATE DATABASE `nooscape_migration_lock_other`");
+    await admin.query("CREATE TABLE `nooscape_migration_lock_other`.`history_marker` (`id` int NOT NULL)");
     await admin.end();
     const holder = await createConnection(url);
     try {

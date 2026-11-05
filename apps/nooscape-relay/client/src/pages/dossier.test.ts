@@ -107,7 +107,7 @@ describe("the Dossier", () => {
   });
 
   it("keeps every fact the old page held: the owner's wallet and chain activity, the host, the twin, the fleet counts", () => {
-    for (const kept of ["registrantLabel(entry.protocol)", "Minted at block", "Changes of hands", "Profile-link edits", "Locator host", "Linked chain twin", "lookalikeLine(", "sameName", "sameHost", "registryRatingsExplanation", "chainActivityExplanation", "acknowledgedExplanation"]) {
+    for (const kept of ["registrantLabel(entry.protocol)", "Minted at block", "Changes of hands", "Profile-link edits", "Locator host", "Linked chain twin", "lookalikeLine(", "sameName", "sameHost", "registryRatingsExplanation", "registryRatingsTruncatedNote", "ratings.truncated", "chainActivityExplanation", "acknowledgedExplanation"]) {
       expect(page, kept).toContain(kept);
     }
   });

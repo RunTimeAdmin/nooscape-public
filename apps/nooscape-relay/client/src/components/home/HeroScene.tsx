@@ -15,6 +15,7 @@ import {
   heroFigures,
   latestSweepAt,
   LEGEND,
+  listedTotal,
   sampleCaption,
   sweepHeading,
   type ReadStatus,
@@ -68,11 +69,12 @@ function Swatch({ kind }: { kind: "steady" | "fleet" | "plain" }) {
   );
 }
 
-function Figures({ sample, status }: { sample: NoosphereSample | null; status: ReadStatus }) {
+function Figures({ sample, status, listed, statsStatus }: { sample: NoosphereSample | null; status: ReadStatus; listed: number | null; statsStatus: ReadStatus }) {
   if (status === "unavailable") {
     return <p className="mt-4 text-sm text-ns-ink-dim">The Owl's figures are unavailable right now. Nothing is shown in their place.</p>;
   }
-  if (!sample) {
+  // The first figure is the total over every chain, which the chain stats give, so the figures wait for them as well as for the sample.
+  if (!sample || statsStatus === "loading") {
     return (
       <div className="hero-stats" aria-hidden="true">
         {[0, 1, 2].map(index => (
@@ -86,7 +88,7 @@ function Figures({ sample, status }: { sample: NoosphereSample | null; status: R
   }
   return (
     <dl className="hero-stats">
-      {heroFigures(sample).map(figure => (
+      {heroFigures(sample, listed).map(figure => (
         <div key={figure.label} className="hero-figure">
           <dt>{figure.label}</dt>
           <dd>{figure.value.toLocaleString("en-US")}</dd>
@@ -177,7 +179,7 @@ export function HeroScene({ onAskTheOwl }: Props) {
 
           <div className="hero-figures" data-owl-avoid="">
             <p className="ns-label m-0"><Defined k="owlsLastSweep" text={sweepHeading(latestSweepAt(rows), statsStatus)} /></p>
-            <Figures sample={sample} status={sampleStatus} />
+            <Figures sample={sample} status={sampleStatus} listed={listedTotal(statsQuery.data)} statsStatus={statsStatus} />
             {freshLine && (
               <p className="m-0 mt-3 text-sm leading-5 text-ns-ink-dim">
                 <a href={ARRIVED_ANCHOR} onClick={event => jumpTo(event, ARRIVED_ANCHOR)} className="underline-offset-4 hover:text-ns-ink hover:underline focus-visible:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ns-radar">{freshLine}</a>
