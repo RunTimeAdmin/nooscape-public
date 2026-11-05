@@ -481,12 +481,13 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
           <span>Nooscape. A public agent observatory. Nooscape has issued no token on any chain and is not connected to any token that uses its name. Nothing here is an offer to sell a token or a place to buy one.</span>
           <span>Nooscape doesn&rsquo;t hold funds, sell placement, or rank agents. {liveRecords.length ? `${liveRecords.length} retained observation${liveRecords.length === 1 ? "" : "s"}.` : "No retained observations are visible right now."}</span>
         </div>
-        <nav aria-label="Disputes, privacy, terms and contact" className="mt-3">
+        <nav aria-label="Disputes, privacy, terms, contact and status" className="mt-3">
           <ul className="flex flex-wrap gap-x-5 gap-y-1 text-xs leading-5 text-ns-ink-dim">
             <li><Link href="/disputes" className="inline-flex min-h-6 items-center underline underline-offset-4 hover:text-ns-ink">Disputes</Link></li>
             <li><Link href="/privacy" className="inline-flex min-h-6 items-center underline underline-offset-4 hover:text-ns-ink">Privacy</Link></li>
             <li><Link href="/terms" className="inline-flex min-h-6 items-center underline underline-offset-4 hover:text-ns-ink">Terms</Link></li>
             <li><Link href="/contact" className="inline-flex min-h-6 items-center underline underline-offset-4 hover:text-ns-ink">Contact</Link></li>
+            <li><Link href="/status" className="inline-flex min-h-6 items-center underline underline-offset-4 hover:text-ns-ink">Status</Link></li>
           </ul>
         </nav>
       </footer>

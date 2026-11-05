@@ -181,6 +181,14 @@ export const ROUTE_HEADS: Record<string, Head> = {
     title: "Contact",
     description: "Where to write to Nooscape about a wrong record, a privacy question, a security report or support.",
   },
+  "/domain-control": {
+    title: "Domain control",
+    description: "How the operator of a reviewed record's domain asks for Tier 3: Nooscape issues a one-time token, the operator publishes it as a file, and Nooscape reads that file once.",
+  },
+  "/status": {
+    title: "Status",
+    description: "Whether Nooscape is answering and its scheduled sources are reading on time, how late a source may be, the check that runs from outside the host, and the incidents so far.",
+  },
   "/admin/sources": {
     title: "Source control",
     description: "Operator sign-in for the source control plane. This is not a public page.",

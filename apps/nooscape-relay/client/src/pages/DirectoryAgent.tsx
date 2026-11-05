@@ -352,6 +352,9 @@ export default function DirectoryAgent() {
                     <Part label="What these labels mean">
                       <p className={note}><strong className="font-medium text-ns-ink">{tierExplanations[record.evidenceTier]?.label ?? record.evidenceTier}.</strong> {tierExplanations[record.evidenceTier]?.sentence ?? "The tier scale is published as evidence-tier-v1."}</p>
                       <p className={note}><strong className="font-medium text-ns-ink">Publisher state: {record.publisherState}.</strong> {publisherStateExplanations[record.publisherState] ?? publisherStateExplanations.unverified}</p>
+                      {record.evidenceTier === "tier_2" && (
+                        <p className={note}>Run the domain this agent points to? <Link href="/domain-control" className="text-ns-radar underline underline-offset-4 hover:text-ns-ink">See how to ask for Tier 3</Link>.</p>
+                      )}
                     </Part>
                     {record.untrustedSummary && (
                       <Part label="Source-reported description, untrusted">
