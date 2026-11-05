@@ -61,13 +61,13 @@
 - **Coverage:** Arc Mainnet (5042) + Arc Testnet. Identity Registry `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`, Reputation Registry `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`, Validation Registry `0x8004Cc8439f36fd5F9F049D9fF86523Df6dAAB58` — all three are deployed on Arc (registers are CREATE2-deterministic; Validation bytecode verified via `eth_getCode`, 2026-10-08).
 - **Signal contributed:** Arc-specific agent data; demonstrates the x402-gated API pattern
 - **v1 status:** Not a chain ingest. Arc remains relevant only as the home of your Sigvara/Countersig/MCPShield stack — those signals are first-class regardless of chain.
-- **Notes:** Small chain but relevant given your Arc deployments (Sigvara, Levy, Archipelago all target Arc 5042).
+- **Notes:** Small chain but relevant given your Arc deployments (Sigvara, Levy and an x402 service all target Arc 5042).
 
 ### 1.6 Direct RPC indexing (ground truth)
 
 - Read `Registered` events directly from Identity Registry contracts on each chain via RPC. This is the only method that does not depend on any third party's indexing completeness or uptime.
 - **v1 priority chains:** Robinhood Chain (4663) first — Identity Registry at `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`. Solana side uses program-account reads instead of EVM events.
-- **Tooling:** viem/ethers event subscription or The Graph subgraphs where available (Archipelago already uses The Graph patterns).
+- **Tooling:** viem/ethers event subscription or The Graph subgraphs where available (the operator's x402 service already uses The Graph patterns).
 - **v1 status:** **P0 for Robinhood Chain.**
 
 ### 1.7 Robinhood Chain x402 facilitators (USDG settlement streams)
@@ -225,7 +225,7 @@ Multiple independent facilitators are live on Robinhood Chain (4663), settling U
 
 ### 5.6 Arc (P1)
 
-- **v1 status:** P1. Arc is Circle’s chain 5042. Archipelago supplies first-party x402 service and settlement evidence; any external catalog must be machine-readable, permitted for indexing, and independently attributable before it is enabled. See `ARC_INGEST_RESEARCH.md`.
+- **v1 status:** P1. Arc is Circle’s chain 5042. A first-party x402 service supplies service and settlement evidence; any external catalog must be machine-readable, permitted for indexing, and independently attributable before it is enabled. See `ARC_INGEST_RESEARCH.md`.
 - If an external Arc catalog satisfies the source review checklist, it becomes an additional P1 ingest. A public, independently useful identity and validation registry would be required before considering broader Arc indexing.
 
 ### 5.7 Agent Arena (comparison point — not a v1 ingest)

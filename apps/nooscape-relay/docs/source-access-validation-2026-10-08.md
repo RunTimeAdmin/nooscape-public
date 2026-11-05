@@ -81,7 +81,7 @@ Robinhood Chain mainnet registry addresses (published by QuickNode): Identity `0
 |---|---|
 | What it was | 0–1000 reputation for x402/A2A counterparties: score recomputed from real on-chain USDC settlement weighted by payer standing (not self-reported feedback). Shipped Ed25519-signed verification receipts verifiable offline, a `verify-before-pay` npm guard (payer side) + `require-rank` (provider side), and a platform-verifier `POST /verify/batch` mode (≤100 subjects; permissive/cautious/strict policies). Includes a preregistered "counterfeit verifiability" study (~2,600 payment decisions). |
 | Repo | `github.com/andysalvo/agentrank` — **archived**; description: *"Retired. … The hosted service no longer runs."* The founding paper, methodology, and index remain in-repo. The GitHub org `crestds` exists with 0 public repos. |
-| Live probe | `https://agentrank.info` → request timeout; `https://api.agentrank.info` → connection timeout (dial timeout to `167.71.254.98:443`) |
+| Live probe | `https://agentrank.info` → request timeout; `https://api.agentrank.info` → connection timeout (dial timeout on port 443) |
 | npm footprint | `verify-before-pay` `0.1.2` (2026-06-30, MIT) remains published, pointed at the dead default `apiBase` `https://api.agentrank.info` |
 | Listing signal | The A2A Registry listing still shows scheduled health checks **"passed"** every ~30 min up to probe time while both hosts are unreachable — a stale listing on a dead service |
 
@@ -112,4 +112,4 @@ Robinhood Chain mainnet registry addresses (published by QuickNode): Identity `0
 - Arc: [Connect to Arc](https://docs.arc.io/arc/references/connect-to-arc); live `rpc.mainnet.arc.io` probe; `www.arcagents.app/openapi.json`; live 402 challenge probe
 - x402: [x402stats.io](https://x402stats.io/api/stats); `x402scan.achivx.com` (`/v1/stats/ecosystem`, `.well-known/agent-card.json`)
 - AgentRank: [andysalvo/agentrank](https://github.com/andysalvo/agentrank) (archived 2026-08; retirement notice), [npm verify-before-pay](https://registry.npmjs.org/verify-before-pay), [a2aregistry.org listing](https://a2aregistry.org/agents/2cecf0e3-2da4-48c2-9f99-e8214e8c78dd/), GitHub API (`crestds` org, `andysalvo` repos); live `agentrank.info` / `api.agentrank.info` probes
-- Internal: `INGEST_POINTS.md` (§1.5, §1.6), `ARC_INGEST_RESEARCH.md`, `ARCHIPELAGO_X402.md`, [Metaplex registry validation](./metaplex-solana-registry-validation-2026-10-08.md)
+- Internal: `INGEST_POINTS.md` (§1.5, §1.6), `ARC_INGEST_RESEARCH.md`, [Metaplex registry validation](./metaplex-solana-registry-validation-2026-10-08.md)

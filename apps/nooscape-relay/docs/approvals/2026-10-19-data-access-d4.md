@@ -28,7 +28,7 @@
 ## What the spec leaves to later stages, and to the operator
 
 - D4b: smart-contract wallets (ERC-1271 and ERC-6492), after a real settlement has proved the rest. D5: watchlists and webhooks. D6: exports and the data license.
-- Circle's account and a testnet key (made, and working on testnet). Whether to restrict the live key to the host's outgoing address in the Circle console: it limits a stolen key, and it breaks every payment if a deploy changes that address. A card on file is not in Circle's docs; it appears only as a guess in a comment in the Archipelago server.
+- Circle's account and a testnet key (made, and working on testnet). Whether to restrict the live key to the host's outgoing address in the Circle console: it limits a stolen key, and it breaks every payment if a deploy changes that address. A card on file is not in Circle's docs; it appears only as a guess in a comment in the operator's own x402 server.
 - Running migration 0044, when he chooses (the order, the record to insert, the check and the rollback are in the doc).
 - Whether and how to refund a caller who was charged and not served: this version has none.
 

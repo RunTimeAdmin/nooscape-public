@@ -8,7 +8,7 @@ The current Nooscape ingestion architecture remains the base. This addendum chan
 
 ## Decisions to adopt now
 
-Use **Solana, Robinhood Chain, and Arc** as the intended v1 coverage boundary. Arc means Circle’s chain 5042: it contributes first-party Archipelago service and settlement evidence, while external Arc directories require a machine-readable, permitted source contract. Base, BNB, and Ethereum mainnet should remain out of the initial hot path. Their data can be reconciled later once Nooscape has demonstrated that its canonical identity graph and review process work.
+Use **Solana, Robinhood Chain, and Arc** as the intended v1 coverage boundary. Arc means Circle’s chain 5042: it contributes first-party x402 service and settlement evidence, while external Arc directories require a machine-readable, permitted source contract. Base, BNB, and Ethereum mainnet should remain out of the initial hot path. Their data can be reconciled later once Nooscape has demonstrated that its canonical identity graph and review process work.
 
 Model a canonical agent as a graph node with multiple identity records, not as a record copied from one registry. Cross-chain registrations, wallet addresses, domain proofs, A2A cards, MCP endpoints, and marketplace listings are evidence edges attached to that node. Exact cross-chain identifiers and verified endpoint or wallet overlap may merge records automatically. Name or description similarity can only create a **review candidate**. It must never merge two profiles on its own. This is the most important design rule in the repository and should be enforced in code. [5]
 
@@ -28,7 +28,7 @@ The first Solana milestone should ingest **Metaplex Agent Identity, SATI, and So
 
 Add **x402 settlement evidence** after identity ingestion is working. A payment may support an economic-activity observation only when Nooscape can associate the recipient or payer with an already evidenced agent identity, endpoint, or published payment address. A transfer alone is not proof that an agent completed useful work, and a first-party payment source is not independent corroboration. Store raw transaction, chain, facilitator, asset, amount, timestamp, mapping method, and confidence. Keep payment volume separate from quality and safety assessments.
 
-Treat an external **Arc directory or marketplace** as a P1 candidate, not an automatic live source. Do not ingest it until Nooscape has a machine-readable, permitted catalog contract and knows whether listings contain endpoint, network, facilitator, and payment-address information. Archipelago’s own Arc data is first-party and must remain visibly attributed. [6]
+Treat an external **Arc directory or marketplace** as a P1 candidate, not an automatic live source. Do not ingest it until Nooscape has a machine-readable, permitted catalog contract and knows whether listings contain endpoint, network, facilitator, and payment-address information. The operator’s own Arc data is first-party and must remain visibly attributed.
 
 Add **AGNTCY ADS** after the first A2A/ANP and chain adapters. Its content-addressed directory records are valuable because Nooscape can retain a source CID and normalize from a stable payload, but it should remain a separate evidence class from an on-chain identity or an observed live endpoint. [4]
 
@@ -66,7 +66,7 @@ The existing proposed tables need four additions from this design addendum.
 
 `trust_policy_versions` stores the precise tier criteria active at a given time. `agent_tier_evaluations` records each assignment, its inputs, threshold outcome, and evaluation time. This gives the public methodology page and evidence exports a reproducible basis.
 
-`source_claims` links first-party sources to their operator relationship. This prevents Archipelago or any future Nooscape-affiliated service from being treated as an independent corroborator. The relationship is public metadata, not a negative score.
+`source_claims` links first-party sources to their operator relationship. This prevents the operator's x402 service or any future Nooscape-affiliated service from being treated as an independent corroborator. The relationship is public metadata, not a negative score.
 
 ## Connector and worker plan
 
@@ -84,7 +84,7 @@ Build the persistence layer first. Add source registry, ingestion run, raw obser
 
 Then build one approved-domain A2A/ANP adapter and the Robinhood ERC-8004 direct-log adapter. The acceptance test is not raw agent count. It is that a single known agent can show every source observation, source hash or transaction reference, normalized identity, merge rationale, publisher state, tier evaluation, and last-observed timestamp in the existing map drawer.
 
-Next, add a Solana adapter after confirming the exact program contracts and account schemas. Add settlement attribution only after verified recipient or endpoint mapping exists. Finally, add Arc directory ingestion only after the catalog is machine-readable and formally allowed. Archipelago can be the first first-party source, with its operator relationship visibly labeled and its settlement records counted as one evidence class only.
+Next, add a Solana adapter after confirming the exact program contracts and account schemas. Add settlement attribution only after verified recipient or endpoint mapping exists. Finally, add Arc directory ingestion only after the catalog is machine-readable and formally allowed. The operator's x402 service can be the first first-party source, with its operator relationship visibly labeled and its settlement records counted as one evidence class only.
 
 ## Items that must be verified before they become implementation commitments
 
@@ -94,7 +94,7 @@ In particular, confirm the exact Robinhood Chain ERC-8004 registry deployments a
 
 ## Recommended next decision
 
-Approve a **two-source pilot**: one owned or partner A2A/ANP domain and one Robinhood ERC-8004 registry deployment. In parallel, document Archipelago’s Arc discovery and payment-attribution contract and confirm the exact Solana source contracts. That sequence delivers real, auditable records quickly while preventing the project from becoming dependent on unverified third-party indexers or raw payment heuristics.
+Approve a **two-source pilot**: one owned or partner A2A/ANP domain and one Robinhood ERC-8004 registry deployment. In parallel, document the service’s Arc discovery and payment-attribution contract and confirm the exact Solana source contracts. That sequence delivers real, auditable records quickly while preventing the project from becoming dependent on unverified third-party indexers or raw payment heuristics.
 
 ## References
 
@@ -103,4 +103,3 @@ Approve a **two-source pilot**: one owned or partner A2A/ANP domain and one Robi
 [3]: https://eips.ethereum.org/EIPS/eip-8004 "ERC-8004 Trustless Agents"
 [4]: https://docs.agntcy.org/dir/directory-gui/ "AGNTCY Agent Directory Service Architecture"
 [5]: ../../../AGENT_TRUST_TIER_DESIGN.md "Agent Directory Trust-Tiered Design"
-[6]: ../../../ARC_MARKETPLACE_LISTING.md "Arc Marketplace Listing"

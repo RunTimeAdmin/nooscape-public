@@ -175,7 +175,7 @@ The root of the repository also holds dated design and research notes. They reco
 
 Nooscape is independent from [Noos Network](https://noosnet.ai/). It is an evidence-first discovery atlas, and Noos describes an economic and settlement layer for agent skills.
 
-Some projects by the same operator (Archipelago, Sigvara, Countersig, MCPShield and agentclear) are first-party. They are treated as first-party: no adapter is active for them without its own reviewed source boundary. See [`ARCHIPELAGO_X402.md`](ARCHIPELAGO_X402.md) and [`ARCHIPELAGO_INGEST.md`](ARCHIPELAGO_INGEST.md).
+Some projects by the same operator (Sigvara, Countersig, MCPShield and agentclear) are first-party. They are treated as first-party: no adapter is active for them without its own reviewed source boundary.
 
 ## Security and contact
 

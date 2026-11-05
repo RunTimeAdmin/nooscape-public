@@ -3,11 +3,11 @@ import { displayHandleFromStrongIdentity } from "./db";
 
 describe("strong identity display handles", () => {
   it("does not merge agents that share a display name", () => {
-    const first = displayHandleFromStrongIdentity("Archipelago", "a2a_url:https://alpha.example/.well-known/agent-card.json");
-    const second = displayHandleFromStrongIdentity("Archipelago", "a2a_url:https://beta.example/.well-known/agent-card.json");
+    const first = displayHandleFromStrongIdentity("Placeholder", "a2a_url:https://alpha.example/.well-known/agent-card.json");
+    const second = displayHandleFromStrongIdentity("Placeholder", "a2a_url:https://beta.example/.well-known/agent-card.json");
 
-    expect(first).toMatch(/^archipelago-/);
-    expect(second).toMatch(/^archipelago-/);
+    expect(first).toMatch(/^placeholder-/);
+    expect(second).toMatch(/^placeholder-/);
     expect(first).not.toBe(second);
   });
 

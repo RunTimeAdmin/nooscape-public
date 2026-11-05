@@ -46,7 +46,7 @@ See [Metaplex registry validation](./metaplex-solana-registry-validation-2026-10
 | Robinhood direct ERC-8004 RPC | Deferred | Confirm permitted, stable production-host or provider access and begin only with a bounded recent-event range. |
 | QuickNode ERC-8004 Explorer | Deferred / payment gated | Explicit user payment authorization and a capped data-use review; never auto-settle. |
 | x402scan | Deferred / terms and payment gated | Written data-use permission/license and explicit payment authorization. |
-| Arc / Archipelago | Deferred | First-party manifest, event cursor, receipt boundary, and metadata-only test plan. |
+| Arc / first-party service | Deferred | First-party manifest, event cursor, receipt boundary, and metadata-only test plan. |
 | DAS/on-chain Metaplex cross-check | Deferred | Select and validate provider access/terms plus a separate proof-to-identity design. |
 
 ## Review rule for every future source
