@@ -511,7 +511,9 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
       };
       expect(await pass.runWebhookPass(deps)).toMatchObject({ created: 0, sent: 0 });
 
-      // A clone of registration 901's profile link appears: both registrations are grouped and both entries go.
+      // Registration 901 goes back to pending and a clone of its profile link appears with it, so the two reach classification together (a
+      // copy of a link that is already listed is held out alone): both registrations are grouped and both entries go.
+      await move(901, sha("bnb-uri-901"));
       await move(902, sha("bnb-uri-901"));
       expect(await publish()).toMatchObject({ removed: 2 });
       expect(await entryIdOf(901)).toBeUndefined();

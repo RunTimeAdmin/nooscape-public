@@ -282,6 +282,24 @@ export const agentDirectoryRegistryRows = mysqlTable("agent_directory_registry_r
 );
 
 /**
+ * Registrations the operator has pinned to the listing (docs/bsc-erc8004-2026-10-13.md, addendum 2026-11-05, step 2 of finding R4 of the outside audit
+ * of 2026-11-05). A row here keeps the registry row of the same source and key listed whatever the listing rules say about its link, host, wallet or name,
+ * and lists one the rules had held out at the next classification. The operator adds a row by hand (phpMyAdmin) with a note saying why, and removes it to
+ * hand the registration back to the rules. A separate small table, so that pinning never touches the registry rows table (570,000 rows and growing).
+ */
+export const agentDirectoryListingPins = mysqlTable(
+  "agent_directory_listing_pins",
+  {
+    sourceId: varchar("sourceId", { length: 36 }).notNull(),
+    externalKey: varchar("externalKey", { length: 512 }).notNull(),
+    /** Why the operator pinned it, in a sentence. */
+    note: varchar("note", { length: 300 }),
+    pinnedAt: timestamp("pinnedAt").defaultNow().notNull(),
+  },
+  table => [primaryKey({ columns: [table.sourceId, table.externalKey], name: "agent_directory_listing_pins_pk" })]
+);
+
+/**
  * The registrations of one host that a chain pass counted and did not store, because the host already holds its cap of stored rows
  * (`hostRowCap` in server/ingestion/erc8004Chains.ts, docs/flood-host-cap-2026-10-21.md). One platform registered 140,000 agents a day
  * on Base, a registry row and two ledger rows each, against a database limit of 6 GB. A host that far past the listing rule's bar is

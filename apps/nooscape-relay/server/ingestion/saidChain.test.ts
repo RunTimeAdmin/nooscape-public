@@ -212,6 +212,13 @@ describe("directory draft and signal note", () => {
     expect(draft.feedbackCount).toBeUndefined();
   });
 
+  it("stores a locator host without its trailing dots, so a dotted spelling is the same host as the plain one", () => {
+    const identity = decodeSaidIdentity(FIXTURES.v3_authority_moved!.expected.pda, bytes("v3_authority_moved"), NOW_MS);
+    for (const uri of ["https://Said.SO./card.json", "https://said.so../card.json", "https://said.so%2E/card.json"]) {
+      expect(buildSaidDirectoryDraft({ ...identity, uri }).locatorHost, uri).toBe("said.so");
+    }
+  });
+
   it("gives an ipfs:// metadata URI no locator host", () => {
     const identity = decodeSaidIdentity(FIXTURES.v3_ipfs!.expected.pda, bytes("v3_ipfs"), NOW_MS);
     expect(buildSaidDirectoryDraft(identity).locatorHost).toBeNull();

@@ -89,8 +89,8 @@ const REPUTATION_SEED_FINALITY_BLOCKS = ROBINHOOD_FORWARD_FINALITY_MARGIN_BLOCKS
 const MAX_REPUTATION_WINDOW_SPLITS = 24;
 
 const UINT64_MAX = (BigInt(1) << BigInt(64)) - BigInt(1);
-const INT128_SIGN_BIT = BigInt(1) << BigInt(127);
-const INT128_MODULUS = BigInt(1) << BigInt(128);
+const INT128_MAX = (BigInt(1) << BigInt(127)) - BigInt(1);
+const INT128_MIN = -(BigInt(1) << BigInt(127));
 
 /**
  * A log from the approved reputation proxy whose topic0 is neither a
@@ -181,9 +181,15 @@ function boundedUint64Number(word: bigint): number | null {
   return Number.isSafeInteger(value) ? value : null;
 }
 
-/** Exact decimal string of one int128 data word (two's complement). Never a float. */
-function int128Decimal(word: bigint): string {
-  return (word >= INT128_SIGN_BIT ? word - INT128_MODULUS : word).toString();
+/**
+ * Exact decimal string of one int128 data word. The ABI sends an int128 sign-extended to the full 32 bytes (-5 is ff...fb), so a word
+ * is read as a 256-bit two's complement number and is valid only if the result fits an int128. Null for a word that does not: no
+ * Solidity contract emits one, and reading only the low 128 bits turned every real negative into a 78-digit positive number (outside
+ * audit 2026-11-05, finding R15). Never a float.
+ */
+function int128Decimal(word: bigint): string | null {
+  const value = BigInt.asIntN(256, word);
+  return value >= INT128_MIN && value <= INT128_MAX ? value.toString() : null;
 }
 
 function capReputationString(value: string): string {
@@ -269,6 +275,7 @@ export function decodeNewFeedbackLog(
   const feedbackIndex = boundedUint64Number(BigInt(`0x${words[0]}`));
   if (feedbackIndex === null) return null;
   const valueRaw = int128Decimal(BigInt(`0x${words[1]}`));
+  if (valueRaw === null) return null;
   const decimalsValue = BigInt(`0x${words[2]}`);
   if (decimalsValue < BigInt(0) || decimalsValue > BigInt(255)) return null;
   const valueDecimals = Number(decimalsValue);

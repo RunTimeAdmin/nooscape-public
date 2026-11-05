@@ -68,15 +68,28 @@ export function paymentsState(index: { payments_unresolved_over_hour?: number | 
   return count === 0 ? { kind: "clear" } : { kind: "waiting", count };
 }
 
+/** What the API index says about the database's room: plenty, getting full, nearly full, or not readable (or not reported by this server). */
+export type DatabaseState = { kind: "ok" } | { kind: "low" } | { kind: "critical" } | { kind: "unknown" };
+
+export function databaseState(index: { database_room?: string | null } | undefined): DatabaseState {
+  const room = index?.database_room;
+  return room === "ok" || room === "low" || room === "critical" ? { kind: room } : { kind: "unknown" };
+}
+
 export type Overall = { level: "ok" | "attention" | "unknown"; headline: string };
 
-/** The line at the top. It claims only what was read: a part that could not be read is never counted as fine. */
-export function overall(sources: SourceSummary | null, payments: PaymentsState | null): Overall {
+/**
+ * The line at the top. It claims only what was read: a part that could not be read is never counted as fine. The database's room says something
+ * only when it is low or critical; a room that could not be read is shown on its own line and does not turn the headline.
+ */
+export function overall(sources: SourceSummary | null, payments: PaymentsState | null, database: DatabaseState | null = null): Overall {
   const paymentsKnown = payments !== null && payments.kind !== "unknown";
   if (sources === null && !paymentsKnown) return { level: "unknown", headline: "Status could not be read just now." };
   if (sources && sources.late.length > 0) return { level: "attention", headline: sources.late.length === 1 ? "One scheduled source is late." : `${sources.late.length} scheduled sources are late.` };
   if (sources && sources.failing.length > 0) return { level: "attention", headline: "A scheduled source has recorded failures." };
   if (payments?.kind === "waiting") return { level: "attention", headline: "Pay per call needs attention." };
+  if (database?.kind === "critical") return { level: "attention", headline: "The database is nearly full." };
+  if (database?.kind === "low") return { level: "attention", headline: "The database is getting full." };
   if (sources === null || !paymentsKnown) return { level: "unknown", headline: "Part of the status could not be read just now." };
   if (sources.judged === 0) return { level: "unknown", headline: "No scheduled source was found to check." };
   return { level: "ok", headline: "Everything checked is on schedule." };

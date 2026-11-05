@@ -928,6 +928,46 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     expect((await claims.readClaimHistory(entryId)).items.filter(item => item.kind === "edit").every(item => !item.withheld)).toBe(true);
   });
 
+  it("keeps the text of a claim on hold withheld when the daily check ends the claim, because the hold ended with the claim", async () => {
+    const entryId = await entry("src-bnb", "erc8004_bsc", 56, 91, BOB.address);
+    await claimAs(BOB, entryId);
+    await editAs(BOB, entryId, { name: "Bob Agent", links: ["https://b.example/"] });
+    const made = (await claimOf(entryId))!;
+    await claims.setClaimHeld(made.id, true, clock);
+    // The agent changes hands and the daily check notices. The history showed no text only while this claim was the one in force and
+    // on hold, so ending it used to publish every edit it was withholding (outside audit 2026-11-05, finding R10).
+    owners.set("56:91", ALICE.address);
+    clock = new Date(clock.getTime() + 24 * 3_600_000);
+    expect(await claims.recheckClaims(deps(), 1000)).toMatchObject({ revoked: 1 });
+    expect(await claimOf(entryId)).toBeUndefined();
+    const items = (await claims.readClaimHistory(entryId)).items;
+    const edits = items.filter(item => item.kind === "edit");
+    expect(edits).toHaveLength(2);
+    expect(edits.every(item => item.withheld && item.oldValue === null && item.newValue === null)).toBe(true);
+    // The withholding is written down the way a removal is: one row for each field, and the table's own text cleared.
+    const redacts = items.filter(item => item.kind === "redact");
+    expect(redacts.map(item => item.field).sort()).toEqual(["description", "links", "name", "website"]);
+    expect(redacts.every(item => item.reason === "nooscape")).toBe(true);
+    expect(await claimOf(entryId, "revoked")).toMatchObject({ name: null, website: null, description: null, links: null });
+    // The new owner's own text is a later row and is not withheld.
+    await claimAs(ALICE, entryId);
+    await editAs(ALICE, entryId, { name: "Alice Agent" });
+    expect((await claims.readClaimHistory(entryId)).items.find(item => item.kind === "edit" && item.wallet === ALICE.address)).toMatchObject({ withheld: false, newValue: "Alice Agent" });
+  });
+
+  it("leaves the text of a claim that was not on hold as it was when the daily check ends the claim", async () => {
+    const entryId = await entry("src-bnb", "erc8004_bsc", 56, 92, BOB.address);
+    await claimAs(BOB, entryId);
+    await editAs(BOB, entryId, { name: "Bob Agent" });
+    owners.set("56:92", ALICE.address);
+    clock = new Date(clock.getTime() + 24 * 3_600_000);
+    expect(await claims.recheckClaims(deps(), 1000)).toMatchObject({ revoked: 1 });
+    const items = (await claims.readClaimHistory(entryId)).items;
+    expect(items.filter(item => item.kind === "redact")).toHaveLength(0);
+    expect(items.find(item => item.kind === "edit")).toMatchObject({ withheld: false, newValue: "Bob Agent" });
+    expect(await claimOf(entryId, "revoked")).toMatchObject({ name: "Bob Agent" });
+  });
+
   it("returns the newest hundred rows of a long history and says there are more", async () => {
     const entryId = await entry("src-rh", "erc8004", 4663, 405, ALICE.address);
     await claimAs(ALICE, entryId);

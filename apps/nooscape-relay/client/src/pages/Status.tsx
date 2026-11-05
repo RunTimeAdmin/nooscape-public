@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { InfoPage, headingClass, linkClass, textClass } from "@/components/InfoPage";
 import { INCIDENTS } from "@/lib/incidents";
 import { trpc } from "@/lib/trpc";
-import { ageText, FRESHNESS_HOURS, overall, paymentsState, summarizeSources, type PaymentsState } from "@/lib/statusModel";
+import { ageText, databaseState, FRESHNESS_HOURS, overall, paymentsState, summarizeSources, type DatabaseState, type PaymentsState } from "@/lib/statusModel";
 
 /** The history of the check that runs from outside the host: one workflow run every six hours, kept in public. */
 const HEALTH_HISTORY = "https://github.com/RunTimeAdmin/nooscape-public/actions/workflows/health.yml";
@@ -12,10 +12,12 @@ const REFRESH_MS = 60_000;
 const LIMITS = Array.from(new Set(Object.values(FRESHNESS_HOURS))).sort((a, b) => a - b);
 const limitsText = `${LIMITS.slice(0, -1).join(", ")} or ${LIMITS[LIMITS.length - 1]} hours`;
 
-async function readApiIndex(): Promise<{ payments_unresolved_over_hour?: number | null }> {
+type ApiIndex = { payments_unresolved_over_hour?: number | null; database_room?: string | null };
+
+async function readApiIndex(): Promise<ApiIndex> {
   const response = await fetch("/api/v1", { headers: { accept: "application/json" } });
   if (!response.ok) throw new Error(`The API index answered ${response.status}`);
-  return (await response.json()) as { payments_unresolved_over_hour?: number | null };
+  return (await response.json()) as ApiIndex;
 }
 
 const bannerTone = { ok: "border-ns-radar/40 bg-ns-radar/10", attention: "border-ns-amber/50 bg-ns-amber/10", unknown: "border-white/15 bg-white/[.04]" } as const;
@@ -25,6 +27,12 @@ function paymentsText(state: PaymentsState | null) {
   if (state.kind === "off") return "Off.";
   if (state.kind === "clear") return "On. No payment has waited over an hour.";
   return `On. ${state.count} ${state.count === 1 ? "payment has" : "payments have"} waited over an hour.`;
+}
+
+function databaseText(state: DatabaseState | null) {
+  if (state === null || state.kind === "unknown") return "Not read just now.";
+  if (state.kind === "ok") return "Room to grow.";
+  return state.kind === "low" ? "Getting full." : "Nearly full.";
 }
 
 /**
@@ -39,8 +47,9 @@ export default function Status() {
 
   const summary = sourceQuery.data ? summarizeSources(sourceQuery.data.sources, Date.now()) : null;
   const payments: PaymentsState | null = indexQuery.data ? paymentsState(indexQuery.data) : indexQuery.isError ? { kind: "unknown" } : null;
+  const database: DatabaseState | null = indexQuery.data ? databaseState(indexQuery.data) : indexQuery.isError ? { kind: "unknown" } : null;
   const reading = (sourceQuery.isLoading || indexQuery.isLoading) && !summary && !indexQuery.data;
-  const state = reading ? { level: "unknown" as const, headline: "Reading the status." } : overall(summary, payments);
+  const state = reading ? { level: "unknown" as const, headline: "Reading the status." } : overall(summary, payments, database);
   const answered = Boolean(sourceQuery.data || indexQuery.data);
   const readAt = Math.max(sourceQuery.dataUpdatedAt, indexQuery.dataUpdatedAt);
 
@@ -66,6 +75,10 @@ export default function Status() {
           <div className="flex flex-wrap justify-between gap-x-6 py-2">
             <dt className="text-ns-ink-dim">Pay per call</dt>
             <dd className="text-ns-ink">{reading ? "Reading." : paymentsText(payments)}</dd>
+          </div>
+          <div className="flex flex-wrap justify-between gap-x-6 py-2">
+            <dt className="text-ns-ink-dim">Database room</dt>
+            <dd className="text-ns-ink">{reading ? "Reading." : databaseText(database)}</dd>
           </div>
         </dl>
         {summary && summary.late.length > 0 && (
@@ -113,7 +126,7 @@ export default function Status() {
         <h2 id="status-outside" className={headingClass}>The check from outside</h2>
         <p className={textClass}>
           Every six hours a workflow on GitHub, which runs outside Nooscape&apos;s hosting, runs the live checks against nooscape.si: the pages,
-          the security headers, the surfaces that stay removed, the reviewed census, the directory, each scheduled source and pay per call. A failed
+          the security headers, the surfaces that stay removed, the reviewed census, the directory, each scheduled source, pay per call and the room left in the database. A failed
           check opens an issue. The history of every run is public:{" "}
           <a href={HEALTH_HISTORY} rel="noopener noreferrer" className={linkClass}>the Live health runs</a>.
         </p>

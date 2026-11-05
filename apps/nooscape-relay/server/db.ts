@@ -46,7 +46,7 @@ import type { A2aNormalizedCandidate, CatalogNormalizedCandidate, DirectoryChain
 import { currentBnbSourceNote } from "./bscSourceNote";
 import { BSC_NOT_CHECKED, registrationReadOf, type BscRegistrationRead } from "./bscRegistrationRead";
 import { nameableRecord, overlayResolvedNames, ROBINHOOD_SOURCE_KEY, type ResolvedName } from "./robinhoodNamesCore";
-import { sanitizePrimaryCapability, sanitizePublicText } from "./publicText";
+import { publicDisplayName, sanitizePrimaryCapability, sanitizePublicText } from "./publicText";
 import type { ValidatedPublisherKeyProof } from "./publisherVerification";
 import { buildArrivals, ARRIVALS_NEWEST_PER_CHAIN, ARRIVALS_WINDOW_HOURS, type Arrivals } from "@shared/arrivals";
 import { balancedNewest } from "@shared/balancedNewest";
@@ -54,6 +54,7 @@ import { buildChainStats, buildExtraChainStats, CHAINS, extraChainsOn, extraProt
 import { buildNoosphereSample, MAX_FLEETS, MAX_LIGHTS, NOOSPHERE_PROTOCOLS, sampleModulus, type NoosphereSample } from "@shared/noosphere";
 import { OperatorRuleError } from "./operatorRuleError";
 import { cachedDirectoryRead, cachedSearchRead, invalidateDirectoryReads, invalidateDirectoryReadsSoftly } from "./readCache";
+import { hostIsUnder } from "./hostName";
 import type { AgentDirectoryEntryRatings } from "./ratingsSurface";
 import { computeRatingsSummary, parseReputationExternalKey, REPUTATION_KEY_PREFIX } from "./ratingsSurface";
 
@@ -1113,13 +1114,9 @@ function activeSourceCondition() {
  */
 export const SUPPRESSED_LOCATOR_DOMAINS: readonly string[] = ["agentrank.info"];
 
-/** True when the host is a suppressed domain or any subdomain of one. */
+/** True when the host is a suppressed domain or any subdomain of one, in any case and with any trailing dots (outside audit 2026-11-05, R16). */
 export function isSuppressedLocatorHost(host: string | null | undefined): boolean {
-  if (!host) return false;
-  const normalized = host.trim().toLowerCase();
-  return SUPPRESSED_LOCATOR_DOMAINS.some(
-    domain => normalized === domain || normalized.endsWith(`.${domain}`)
-  );
+  return SUPPRESSED_LOCATOR_DOMAINS.some(domain => hostIsUnder(host, domain));
 }
 
 /**
@@ -1176,14 +1173,15 @@ function directoryVisibilityCondition() {
 
 /**
  * Sanitizes directory entry fields for public presentation. Display names are
- * cleaned of control characters and invisible formatting; other locator-class
+ * cleaned of control characters and invisible formatting, and a name with nothing
+ * left shows the registries' placeholder (publicDisplayName); other locator-class
  * fields pass through unchanged (they're host/key strings, not prose).
  */
 export function sanitizeDirectoryEntry<T extends { displayName: string }>(entry: T): T {
   const note = (entry as { sourceSignalNote?: string | null }).sourceSignalNote;
   return {
     ...entry,
-    displayName: sanitizePublicText(entry.displayName, 255) ?? entry.displayName,
+    displayName: publicDisplayName(entry.displayName, (entry as { externalKey?: string | null }).externalKey),
     // A BNB note stored before 2026-10-17 says "Nooscape did not fetch it"; it is served as the current sentence.
     ...(typeof note === "string" ? { sourceSignalNote: currentBnbSourceNote(note) } : {}),
   };
@@ -1321,7 +1319,9 @@ async function runDirectorySearch(input: { query: string; limit: number; protoco
   // seen for what they are at a glance, without trusting any of them.
   const related = await agentDirectoryRelatedCounts(rows);
   return {
-    entries: rows.map(({ sourceId: _sourceId, ...entry }, index) => sanitizeDirectoryEntry({ ...entry, related: related[index] })),
+    entries: rows.map(({ sourceId: _sourceId, externalKey, ...entry }, index) =>
+      sanitizeDirectoryEntry({ ...entry, displayName: publicDisplayName(entry.displayName, externalKey), related: related[index] })
+    ),
     matchedTotal,
     matchedTotalCapped: matchedTotal >= SEARCH_COUNT_CAP,
   };
@@ -1343,6 +1343,8 @@ async function searchOnConnection(db: MySql2Database<Record<string, unknown>>, i
     lastSeenAt: agentDirectoryEntries.lastSeenAt,
     // Internal: scopes the registry look-alike counts; stripped before the response.
     sourceId: agentDirectoryEntries.sourceId,
+    // Internal: the id in the placeholder a name with nothing left shows; stripped before the response.
+    externalKey: agentDirectoryEntries.externalKey,
   };
   // Newest first, then by name; the id settles ties so the same query always returns the same page.
   const newestFirst = [desc(agentDirectoryEntries.lastSeenAt), asc(agentDirectoryEntries.displayName), asc(agentDirectoryEntries.id)] as const;
@@ -1652,6 +1654,7 @@ export async function getAgentDirectoryEntry(id: string) {
         const [twinRow] = await db
           .select({
             id: agentDirectoryEntries.id,
+            externalKey: agentDirectoryEntries.externalKey,
             displayName: agentDirectoryEntries.displayName,
             protocol: agentDirectoryEntries.protocol,
           })
@@ -1662,7 +1665,7 @@ export async function getAgentDirectoryEntry(id: string) {
         if (twinRow) {
           twin = {
             entryId: twinRow.id,
-            displayName: twinRow.displayName,
+            displayName: publicDisplayName(twinRow.displayName, twinRow.externalKey),
             protocol: twinRow.protocol,
             linkedProtocol: link.linkedProtocol,
             metadataKey: link.metadataKey,
@@ -1742,7 +1745,15 @@ export async function getAgentDirectoryEntry(id: string) {
       else noteSectionFailure("Entry registration read", error);
     }
   }
-  return sanitizeDirectoryEntry({ ...row, related, activity, twin, ratings, ...(row.protocol === "erc8004_bsc" ? { registrationRead } : {}) });
+  return sanitizeDirectoryEntry({
+    ...row,
+    displayName: publicDisplayName(row.displayName, selected.externalKey),
+    related,
+    activity,
+    twin,
+    ratings,
+    ...(row.protocol === "erc8004_bsc" ? { registrationRead } : {}),
+  });
 }
 
 /** Operator withdrawal notices carry reasons and never enter public surfaces. */
@@ -1976,6 +1987,7 @@ async function readDirectoryArrivalsUncached(): Promise<Arrivals> {
   const ranked = db
     .select({
       id: agentDirectoryEntries.id,
+      externalKey: agentDirectoryEntries.externalKey,
       displayName: agentDirectoryEntries.displayName,
       protocol: agentDirectoryEntries.protocol,
       firstSeenAt: agentDirectoryEntries.firstSeenAt,
@@ -1995,7 +2007,7 @@ async function readDirectoryArrivalsUncached(): Promise<Arrivals> {
       .filter(row => listedChainOf(row.protocol) === chain)
       .sort((left, right) => right.firstSeenAt.getTime() - left.firstSeenAt.getTime() || (left.id < right.id ? 1 : -1))
       .slice(0, ARRIVALS_NEWEST_PER_CHAIN)
-      .map(row => ({ chain, id: row.id, displayName: sanitizeDirectoryEntry({ displayName: row.displayName }).displayName, firstSeenAt: row.firstSeenAt })),
+      .map(row => ({ chain, id: row.id, displayName: publicDisplayName(row.displayName, row.externalKey), firstSeenAt: row.firstSeenAt })),
   );
   return buildArrivals({
     now,
@@ -2165,7 +2177,7 @@ export function listMapAcknowledgedSample(protocol: "erc8004_bsc" | "erc8004_arc
     const visible = and(eq(ingestionSources.protocol, protocol), directoryVisibilityCondition());
     const [rows, counted] = await Promise.all([
       db
-        .select({ id: agentDirectoryEntries.id, displayName: agentDirectoryEntries.displayName, locatorHost: agentDirectoryEntries.locatorHost })
+        .select({ id: agentDirectoryEntries.id, externalKey: agentDirectoryEntries.externalKey, displayName: agentDirectoryEntries.displayName, locatorHost: agentDirectoryEntries.locatorHost })
         .from(agentDirectoryEntries)
         .innerJoin(ingestionSources, eq(agentDirectoryEntries.sourceId, ingestionSources.id))
         .where(visible)
@@ -2178,7 +2190,7 @@ export function listMapAcknowledgedSample(protocol: "erc8004_bsc" | "erc8004_arc
         .where(visible),
     ]);
     return {
-      entries: rows.map(row => sanitizeDirectoryEntry({ id: row.id, displayName: row.displayName, locatorHost: row.locatorHost, protocol })),
+      entries: rows.map(row => sanitizeDirectoryEntry({ id: row.id, displayName: publicDisplayName(row.displayName, row.externalKey), locatorHost: row.locatorHost, protocol })),
       listed: Number(counted[0]?.listed ?? 0),
     };
   });
@@ -2211,11 +2223,11 @@ export async function listVisibleDirectoryEntries(ids: readonly string[]): Promi
   if (ids.length === 0) return new Map();
   const db = requireDb(await getDb());
   const rows = await db
-    .select({ id: agentDirectoryEntries.id, displayName: agentDirectoryEntries.displayName })
+    .select({ id: agentDirectoryEntries.id, externalKey: agentDirectoryEntries.externalKey, displayName: agentDirectoryEntries.displayName })
     .from(agentDirectoryEntries)
     .innerJoin(ingestionSources, eq(agentDirectoryEntries.sourceId, ingestionSources.id))
     .where(and(inArray(agentDirectoryEntries.id, [...ids]), directoryVisibilityCondition()));
-  return new Map(rows.map(row => [row.id, row.displayName] as [string, string]));
+  return new Map(rows.map(row => [row.id, publicDisplayName(row.displayName, row.externalKey)] as [string, string]));
 }
 
 /**
@@ -2578,7 +2590,7 @@ async function readAgentDirectoryActivityFeedUncached(limit = MAX_AGENT_DIRECTOR
     toAddress: row.toAddress,
     isHandout: isHandoutEvent(row.kind, Number(row.blockNumber), row.fromAddress, anchors.get(directoryActivityAnchorKey(row.sourceId, row.externalKey)), handoutWindow),
     entryId: row.entryId,
-    displayName: row.displayName,
+    displayName: publicDisplayName(row.displayName, row.externalKey),
   }));
 }
 
@@ -3802,8 +3814,11 @@ export async function isAgentPubliclyVisible(agentId: string): Promise<boolean> 
 
   if (!snapshot) return false;
 
+  // The snapshot above was found under the column's collation, where case and a trailing space do not matter, so the withdrawal is matched the
+  // same way (outside audit of 2026-11-05, lead N6).
+  const key = agentId.trimEnd().toLowerCase();
   const withdrawn = await listActiveWithdrawnAgentIds();
-  return !withdrawn.includes(agentId);
+  return !withdrawn.some(id => id.trimEnd().toLowerCase() === key);
 }
 
 /** Append-only withdrawal ledger in event order (oldest first). */

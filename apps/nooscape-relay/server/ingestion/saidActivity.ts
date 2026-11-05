@@ -1,6 +1,7 @@
 import type { SolanaChainActivityEvent } from "./types";
 import type { SaidIdentity } from "./saidChain";
 import { buildSaidDirectoryDraft, SAID_PROGRAM } from "./saidChain";
+import { admitUnderCap } from "./passOrder";
 import { getTransactionParams } from "./solanaRpc";
 
 /**
@@ -83,18 +84,20 @@ function profileUriHashOf(identity: SaidIdentity): string {
  * - an authority different from the prior registrant is a transfer;
  * - a metadata URI whose hash differs from the prior hash is a profile_update
  *   (a null prior hash adopts silently: the first live pass under this schema).
- * Candidates past the per-pass event cap defer wholesale.
+ * Candidates past the per-pass event cap defer wholesale. Which ones the cap
+ * serves is decided in the pass's own order (passOrder.ts), not in owner order,
+ * because a registrant chooses the key; the served ones are listed in owner order.
  */
 export function classifySaidDiff(input: {
   seed: boolean;
+  /** The slot the pass read: the cap's order depends on it. */
+  passSlot: number;
   identities: SaidIdentity[];
   prior: Map<string, SaidPriorEntry>;
 }): SaidClassification {
   if (input.seed) return { plain: input.identities, eventful: [], deferredByCap: 0 };
   const plain: SaidIdentity[] = [];
-  const eventful: SaidClassification["eventful"] = [];
-  let eventTotal = 0;
-  let deferredByCap = 0;
+  const candidates: SaidClassification["eventful"] = [];
   for (const identity of [...input.identities].sort((a, b) => (a.owner < b.owner ? -1 : a.owner > b.owner ? 1 : 0))) {
     const before = input.prior.get(identity.owner);
     const events: SaidDiffEvent[] = [];
@@ -112,14 +115,17 @@ export function classifySaidDiff(input: {
       plain.push(identity);
       continue;
     }
-    if (eventTotal + events.length > SAID_CHAIN_MAX_EVENTS_PER_PASS) {
-      deferredByCap += 1;
-      continue;
-    }
-    eventTotal += events.length;
-    eventful.push({ identity, events });
+    candidates.push({ identity, events });
   }
-  return { plain, eventful, deferredByCap };
+  const served = admitUnderCap(
+    candidates,
+    candidate => candidate.identity.owner,
+    candidate => candidate.events.length,
+    SAID_CHAIN_MAX_EVENTS_PER_PASS,
+    input.passSlot
+  );
+  const eventful = candidates.filter(candidate => served.has(candidate));
+  return { plain, eventful, deferredByCap: candidates.length - eventful.length };
 }
 
 /**

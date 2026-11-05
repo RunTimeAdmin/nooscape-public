@@ -15,6 +15,7 @@ import {
 } from "./robinhood";
 import type { Erc8004Chain } from "./erc8004Chains";
 import type { DirectoryChainActivityEvent, DirectoryEntryDraft } from "./types";
+import { canonicalHost } from "../hostName";
 
 /**
  * Pure decoding and planning for the ERC-8004 identity pass on one EVM chain (docs/bnb-chain-agents-plan-2026-10-13.md,
@@ -101,7 +102,7 @@ export function planWindows(chain: Erc8004Chain, nextBlock: number, finalizedBlo
 
 export type UriFacts = {
   uriKind: UriKind;
-  /** Lowercased host of an https URI, as recorded; never fetched. */
+  /** Host of an https URI, lower case and without trailing dots (canonicalHost), as recorded; never fetched. */
   locatorHost: string | null;
   /** SHA-256 hex of the full URI: the fold key for byte-identical registrations. */
   profileUriHash: string;
@@ -120,8 +121,7 @@ export function uriFacts(uri: string): UriFacts {
   let locatorHost: string | null = null;
   if (derived && derived.startsWith("https://")) {
     try {
-      const host = new URL(derived).hostname.toLowerCase();
-      locatorHost = host.length > 0 && host.length <= 255 ? host : null;
+      locatorHost = canonicalHost(new URL(derived).hostname);
     } catch {
       locatorHost = null;
     }

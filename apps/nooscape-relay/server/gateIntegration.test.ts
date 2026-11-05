@@ -333,4 +333,17 @@ describe.skipIf(!dbReachable)("public gate gaps against a real database", () => 
     expect(allDescriptions).not.toContain("SECRET-WITHDRAWAL-REASON");
     expect(allDescriptions).not.toContain("Unapproved-run observation event.");
   }, 120_000);
+
+  it("(e) keeps a withdrawn record withdrawn under another spelling of its id: another case, a trailing space (lead N6 of the outside audit)", async () => {
+    // The database finds a record by its id under the column's collation, where case (and on some collations a trailing space) does not matter. The
+    // list of withdrawn records was matched in code, exactly, so another spelling of a withdrawn record's id found the record and missed the withdrawal.
+    expect(await db.isAgentPubliclyVisible("agent-active")).toBe(true);
+    await writer.insert(schema.agentRecordWithdrawals).values({ agentId: "agent-active", action: "withdraw", reason: "withdrawn for the test", decidedByUserId: operatorUserId });
+    for (const spelling of ["agent-active", "AGENT-ACTIVE", "Agent-Active", "agent-active "]) {
+      expect(await db.isAgentPubliclyVisible(spelling), JSON.stringify(spelling)).toBe(false);
+    }
+    await writer.insert(schema.agentRecordWithdrawals).values({ agentId: "agent-active", action: "reinstate", reason: "reinstated for the test", decidedByUserId: operatorUserId });
+    expect(await db.isAgentPubliclyVisible("agent-active")).toBe(true);
+    expect(await db.isAgentPubliclyVisible("AGENT-ACTIVE")).toBe(true);
+  }, 120_000);
 });

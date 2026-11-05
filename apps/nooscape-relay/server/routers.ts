@@ -184,15 +184,25 @@ function verifyEvidencePacket(packet: z.infer<typeof evidencePacketSchema>) {
   };
 }
 
+/** The id of a reviewed record: a UUID in lower case, as the database made it. */
+const REVIEWED_RECORD_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+
 export const appRouter = router({
   system: systemRouter,
   atlas: router({
     evidence: publicProcedure.input(z.object({ agentId: z.string() })).query(async ({ input }) => {
-      const visible = await isAgentPubliclyVisible(input.agentId);
+      // The database finds a record under its column's collation, where case and a trailing space do not matter, and the list of withdrawn
+      // records was matched in code, so another spelling of a withdrawn record's id found the record and missed the withdrawal (outside
+      // audit of 2026-11-05, lead N6). The id is read in its one canonical form, and anything that is not an id gets the answer an unknown id gets.
+      const agentId = input.agentId.toLowerCase();
+      if (!REVIEWED_RECORD_ID.test(agentId)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found." });
+      }
+      const visible = await isAgentPubliclyVisible(agentId);
       if (!visible) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found." });
       }
-      return getEvidenceEnvelope(input.agentId);
+      return getEvidenceEnvelope(agentId);
     }),
     verifyEvidence: publicProcedure.input(z.object({ packet: evidencePacketSchema })).mutation(({ input }) => verifyEvidencePacket(input.packet)),
   }),

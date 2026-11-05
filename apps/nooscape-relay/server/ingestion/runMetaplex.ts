@@ -101,18 +101,26 @@ export async function runApprovedMetaplexRegistrySource(
       preserveLocatorHost: true,
       clearAssetClosed: true,
     });
-    // Hide-once closures: exactly one asset_closed ledger event per closure,
+    // Hide-once closures: one asset_closed ledger event per anchored closure,
     // then the row is marked (keeping its last name and owner) and every
-    // later pass skips it without an event. The events were already accepted
-    // under the per-pass cap, so the marker list is bounded by that cap.
-    // Writing the marker last keeps an interrupted pass re-detectable: an
-    // unmarked row re-emits its closure event, the ledger dedupes, and the
-    // marker retries.
+    // later pass skips it without an event. The adapter's marker list covers
+    // anchored and unanchored closures alike (an unanchored closure is still a
+    // real disappearance, only without a ledger row), and was accepted under
+    // the per-pass cap, so it is bounded by that cap. Writing the marker last
+    // keeps an interrupted pass re-detectable: an unmarked row re-emits its
+    // closure event, the ledger dedupes, and the marker retries.
     await markAgentDirectoryEntriesClosed({
       source,
       runId,
-      externalKeys: snapshot.events.filter(event => event.kind === "asset_closed").map(event => event.externalKey),
+      externalKeys: snapshot.closedExternalKeys,
     });
+    if (snapshot.unanchoredCount > 0 || snapshot.deferredCount > 0) {
+      // The run record has no field for these, so the server log carries them, as the SAID and 8004 passes' do. A rising unanchored
+      // count means the signature scans keep holding nothing to anchor a change with.
+      console.warn(
+        `[METAPLEX] pass ${snapshot.slot}: ${snapshot.unanchoredCount} change(s) recorded without a ledger anchor, ${snapshot.deferredCount} changed asset(s) deferred to the next pass by the per-pass event cap.`
+      );
+    }
     return {
       requestCount: snapshot.requestCount,
       discoveredCount: snapshot.enumeratedCount,

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ageText, FRESHNESS_HOURS, overall, paymentsState, summarizeSources, type SourceReading } from "./statusModel";
+import { ageText, databaseState, FRESHNESS_HOURS, overall, paymentsState, summarizeSources, type SourceReading } from "./statusModel";
 
 const app = fileURLToPath(new URL("../../..", import.meta.url));
 const HOUR = 3_600_000;
@@ -84,8 +84,42 @@ describe("paymentsState", () => {
   });
 });
 
+describe("the live check", () => {
+  it("reads the room the status page reads, from the same index, and fails on critical only", () => {
+    const script = readFileSync(join(app, "scripts", "verify-live.mjs"), "utf8");
+    expect(script).toContain("index.database_room");
+    expect(script).toContain('room === "critical") check("the database has room", false, "over 85 percent of its limit: every write stops at the limit");');
+    expect(script).toContain('"over 70 percent of its limit: read the biggest tables and plan the ceilings", "warn"');
+  });
+});
+
+describe("databaseState", () => {
+  it("reads the one word the index carries, and anything else, or nothing, as not read", () => {
+    expect(databaseState({ database_room: "ok" })).toEqual({ kind: "ok" });
+    expect(databaseState({ database_room: "low" })).toEqual({ kind: "low" });
+    expect(databaseState({ database_room: "critical" })).toEqual({ kind: "critical" });
+    for (const index of [undefined, {}, { database_room: null }, { database_room: "" }, { database_room: "full" }, { database_room: "OK" }]) {
+      expect(databaseState(index as never)).toEqual({ kind: "unknown" });
+    }
+  });
+});
+
 describe("overall", () => {
   const fine = summarizeSources([source(), source({ protocol: "catalog" })], NOW);
+
+  it("says the database is getting full or nearly full, after a late source, a failing one and a waiting payment, and only then", () => {
+    expect(overall(fine, { kind: "clear" }, { kind: "low" })).toEqual({ level: "attention", headline: "The database is getting full." });
+    expect(overall(fine, { kind: "clear" }, { kind: "critical" })).toEqual({ level: "attention", headline: "The database is nearly full." });
+    expect(overall(fine, { kind: "waiting", count: 1 }, { kind: "critical" }).headline).toBe("Pay per call needs attention.");
+    const late = summarizeSources([source({ lastSuccessfulAt: ago(9) })], NOW);
+    expect(overall(late, { kind: "clear" }, { kind: "critical" }).headline).toBe("One scheduled source is late.");
+  });
+
+  it("does not let a room that is fine, or could not be read, change the headline", () => {
+    expect(overall(fine, { kind: "clear" }, { kind: "ok" })).toEqual({ level: "ok", headline: "Everything checked is on schedule." });
+    expect(overall(fine, { kind: "clear" }, { kind: "unknown" })).toEqual({ level: "ok", headline: "Everything checked is on schedule." });
+    expect(overall(fine, { kind: "clear" }, null).level).toBe("ok");
+  });
 
   it("says everything is on schedule only when every part was read and fine", () => {
     expect(overall(fine, { kind: "clear" })).toEqual({ level: "ok", headline: "Everything checked is on schedule." });

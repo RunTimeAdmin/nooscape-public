@@ -13,12 +13,14 @@ import {
   parseProcStatus,
   parseTrail,
   readCgroupMemory,
+  readShutdown,
   startLifecycleLog,
   summarizeTrail,
   trimTrail,
   type Io,
   type TrailEvent,
 } from "./lifecycleLog";
+import { createShutdown } from "./gracefulShutdown";
 
 /**
  * server/lifecycleLog.ts (docs/lifecycle-logging-2026-11-01.md): what is written when the process is stopped, crashes, exits or is
@@ -40,6 +42,11 @@ describe("the trail file", () => {
     const text = [good, "not json", '{"ev":"mystery","inst":"a1","at":"2026-11-01T12:00:00.000Z"}', '{"ev":"beat","inst":"a1","at":"not a date"}', JSON.stringify(beat("a1", 60)), '{"ev":"beat","inst":"a1","at":"2026-11'].join("\n");
     expect(parseTrail(text).map(event => event.ev)).toEqual(["start", "beat"]);
     expect(parseTrail("")).toEqual([]);
+  });
+
+  it("keeps the event that says how a stop went", () => {
+    const stop = { ev: "shutdown", inst: "a1", at: at(2), tookMs: 40, ceilingHit: false, failed: [] };
+    expect(parseTrail(`${JSON.stringify(start("a1", 0))}\n${JSON.stringify(stop)}\n`).map(event => event.ev)).toEqual(["start", "shutdown"]);
   });
 
   it("is cut to its last part from a whole line when it has grown past the limit, and left alone when it has not", () => {
@@ -97,6 +104,21 @@ describe("how the earlier processes ended", () => {
     expect(summarizeTrail([start("a1", 0), beat("a1", 60)], "c3", now, 3)[0]!.oomKillsRose).toBeNull();
   });
 
+  it("shows how a stop went when the process wrote it after its signal, and counts the wait in the time it ran and not in the gap", () => {
+    const stop = { ev: "shutdown", inst: "a1", at: at(102), tookMs: 1550, ceilingHit: false, failed: [] } as TrailEvent;
+    const events = [start("a1", 0), beat("a1", 60), { ev: "signal", inst: "a1", at: at(100), signal: "SIGTERM" } as TrailEvent, stop, start("b2", 130)];
+    const [first] = summarizeTrail(events, "c3", now, null);
+    expect(first).toMatchObject({ ended: "signal", detail: "SIGTERM", lastEventAt: at(102), ranSeconds: 102, silentSeconds: 28, shutdown: { tookMs: 1550, ceilingHit: false, failed: [] } });
+  });
+
+  it("shows a stop that hit the ceiling with the tasks that did not finish, and none for a process that wrote no stop", () => {
+    const hit = { ev: "shutdown", inst: "a1", at: at(115), tookMs: 15_001, ceilingHit: true, failed: ["http"] } as TrailEvent;
+    const events = [start("a1", 0), { ev: "signal", inst: "a1", at: at(100), signal: "SIGTERM" } as TrailEvent, hit, start("b2", 130), { ev: "signal", inst: "b2", at: at(140), signal: "SIGTERM" } as TrailEvent];
+    const result = summarizeTrail(events, "c3", now, null);
+    expect(result[0]!.shutdown).toEqual({ tookMs: 15_001, ceilingHit: true, failed: ["http"] });
+    expect(result[1]).toMatchObject({ ended: "signal", shutdown: null });
+  });
+
   it("is empty for an empty trail", () => {
     expect(summarizeTrail([], "self", now, null)).toEqual([]);
   });
@@ -126,6 +148,40 @@ describe("how the earlier processes ended", () => {
       ["a1", "unknown", 40],
       ["b2", "unknown", 300],
     ]);
+  });
+});
+
+describe("how a stop is read", () => {
+  it("takes the length, the ceiling and the names of the tasks that failed from the answer of the real shutdown, and nothing else", async () => {
+    const stop = createShutdown({ log: () => undefined });
+    stop.onShutdown("http", () => undefined);
+    stop.onShutdown("api meter", () => {
+      throw new Error("connect failed to mysql://admin:hunter2@db.example/app");
+    });
+    const answer = await stop.run();
+    const read = readShutdown(answer);
+    expect(read).toEqual({ tookMs: answer.tookMs, ceilingHit: false, failed: ["api meter"] });
+    expect(JSON.stringify(read)).not.toContain("hunter2");
+  });
+
+  it("reads a task that was still running at the ceiling as one that failed", async () => {
+    const stop = createShutdown({ ceilingMs: 30, log: () => undefined });
+    stop.onShutdown("http", () => new Promise(() => undefined));
+    stop.onShutdown("api meter", () => undefined);
+    expect(readShutdown(await stop.run())).toMatchObject({ ceilingHit: true, failed: ["http"] });
+  });
+
+  it("is null for anything that is not a shutdown answer, so a wait that answers nothing writes nothing", () => {
+    const notAnswers = [undefined, null, 5, "done", {}, { tookMs: 5 }, { tookMs: "5", ceilingHit: false, tasks: [] }, { tookMs: Number.NaN, ceilingHit: false, tasks: [] }, { tookMs: 5, ceilingHit: false, tasks: "none" }];
+    for (const value of notAnswers) expect(readShutdown(value), JSON.stringify(value)).toBeNull();
+  });
+
+  it("keeps the names short and few, and rounds the time", () => {
+    const tasks = Array.from({ length: 14 }, (_, index) => ({ name: `task-${index}-${"x".repeat(80)}`, ok: false, ms: 1 }));
+    const read = readShutdown({ tookMs: 12.6, ceilingHit: false, tasks })!;
+    expect(read.tookMs).toBe(13);
+    expect(read.failed).toHaveLength(10);
+    expect(read.failed.every(name => name.length <= 40)).toBe(true);
   });
 });
 
@@ -336,6 +392,18 @@ describe("the lifecycle log, against a world of its own", () => {
     expect(lines[2]).toMatchObject({ kind: "start", trail: { found: true, events: 5 } });
   });
 
+  it("says how an earlier process's stop went on its previous line, and null for one that wrote none", () => {
+    const w = world();
+    const file = path.join("/tmp", "nooscape-lifecycle.jsonl");
+    const stop = { ev: "shutdown", inst: "a1", at: at(-198), tookMs: 1550, ceilingHit: false, failed: ["api meter"] } as TrailEvent;
+    const events = [start("a1", -300), { ev: "signal", inst: "a1", at: at(-200), signal: "SIGTERM" } as TrailEvent, stop, start("b2", -150), { ev: "signal", inst: "b2", at: at(-100), signal: "SIGTERM" } as TrailEvent];
+    w.files.set(file, `${events.map(event => JSON.stringify(event)).join("\n")}\n`);
+    createLifecycleLog(w.io).start();
+    const [first, second] = w.logs();
+    expect(first).toMatchObject({ previous: "a1", ended: "signal", detail: "SIGTERM", lastEventAt: at(-198), shutdown: { tookMs: 1550, ceilingHit: false, failed: ["api meter"] } });
+    expect(second).toMatchObject({ previous: "b2", ended: "signal", shutdown: null });
+  });
+
   it("says another process of the app that is running is running, and counts it in the start line, and does not call it lost", () => {
     const w = world();
     const file = path.join("/tmp", "nooscape-lifecycle.jsonl");
@@ -433,6 +501,21 @@ describe("the lifecycle log, against a world of its own", () => {
     expect(w.trail()[2]!.message).toContain("//[redacted]@db.example");
   });
 
+  it("records how a stop went after its signal, and writes nothing for an answer that is not one, or when the trail cannot be written", () => {
+    const w = world();
+    const log = createLifecycleLog(w.io);
+    log.signal("SIGTERM");
+    log.shutdown({ tookMs: 1550, ceilingHit: false, tasks: [{ name: "http", ok: true, ms: 1500 }, { name: "api meter", ok: false, ms: 30, error: "boom" }] });
+    log.shutdown("not an answer");
+    log.shutdown(undefined);
+    expect(w.trail().map(event => event.ev)).toEqual(["signal", "shutdown"]);
+    expect(w.trail()[1]).toMatchObject({ tookMs: 1550, ceilingHit: false, failed: ["api meter"] });
+    // The runtime log is not told again: the stop's own line says it, in the log of the deployment the process ran in.
+    expect(w.logs().filter(line => line.kind === "shutdown")).toHaveLength(0);
+    w.state.appendFails = true;
+    expect(() => log.shutdown({ tookMs: 1, ceilingHit: false, tasks: [] })).not.toThrow();
+  });
+
   it("says once that the trail cannot be written, and goes on writing to the runtime log", () => {
     const w = world();
     w.state.appendFails = true;
@@ -522,7 +605,7 @@ describe.skipIf(process.platform === "win32")("a real process", () => {
       path.join(dir, "child.mjs"),
       `import { startLifecycleLog } from "./lifecycle.mjs";
 const drainMs = Number(process.env.DRAIN_MS || 0);
-startLifecycleLog({ dir: process.env.TRAIL_DIR, beatMs: 100, ...(drainMs ? { beforeEnd: async () => { await new Promise(resolve => setTimeout(resolve, drainMs)); console.log("DRAINED"); }, beforeEndMs: Number(process.env.GUARD_MS || 20000) } : {}) });
+startLifecycleLog({ dir: process.env.TRAIL_DIR, beatMs: 100, ...(drainMs ? { beforeEnd: async () => { await new Promise(resolve => setTimeout(resolve, drainMs)); console.log("DRAINED"); return { tookMs: drainMs, ceilingHit: false, tasks: [{ name: "drain", ok: true, ms: drainMs }] }; }, beforeEndMs: Number(process.env.GUARD_MS || 20000) } : {}) });
 const mode = process.env.MODE;
 if (mode === "serve") { setInterval(() => {}, 1000); console.log("READY"); }
 if (mode === "crash") { setInterval(() => {}, 1000); console.log("READY"); setTimeout(() => { throw new Error("boom at mysql://admin:hunter2@db.example/app"); }, 350); }
@@ -603,6 +686,28 @@ if (mode === "exit") { setInterval(() => {}, 1000); console.log("READY"); setTim
       expect(stopped.code, signal).toBeNull();
       expect(lifecycle(stopped, "signal"), signal).toEqual([expect.objectContaining({ signal })]);
     }
+  });
+
+  it("writes how the wait went after the signal, and the next process says it on the previous line", async () => {
+    const trailDir = fresh();
+    const stopped = await run("serve", trailDir, child => child.kill("SIGTERM"), { DRAIN_MS: "300" });
+    expect(stopped.signal).toBe("SIGTERM");
+    const next = await run("serve", trailDir, child => child.kill("SIGINT"));
+    expect(lifecycle(next, "previous")).toEqual([expect.objectContaining({ ended: "signal", detail: "SIGTERM", shutdown: { tookMs: 300, ceilingHit: false, failed: [] } })]);
+  });
+
+  it("writes no answer for a wait given up before it ended, for a second signal, or for a signal that was never a stop", async () => {
+    const trailDir = fresh();
+    await run("serve", trailDir, child => child.kill("SIGTERM"), { DRAIN_MS: "30000", GUARD_MS: "400" });
+    await run("serve", trailDir, child => {
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGTERM"), 150);
+    }, { DRAIN_MS: "30000" });
+    await run("serve", trailDir, child => child.kill("SIGHUP"), { DRAIN_MS: "30000" });
+    const next = await run("serve", trailDir, child => child.kill("SIGINT"));
+    const previous = lifecycle(next, "previous");
+    expect(previous.map(line => line.ended)).toEqual(["signal", "signal", "signal"]);
+    expect(previous.map(line => line.shutdown)).toEqual([null, null, null]);
   });
 
   it("ends at once on a second signal, and gives up on a wait that does not end", async () => {

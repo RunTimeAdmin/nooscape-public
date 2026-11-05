@@ -91,6 +91,7 @@ What this changes for the first guess: a stop is read against the stopped proces
 | `previous` ended `unknown`, with a small peak and no rise | Its pid is gone and it left no end record: it was killed with the app nowhere near a limit it can see. That is the host's doing: give the host the `startedAt` and `lastEventAt` and ask what it did at that time. |
 | `previous` ended `crash` | The app's own error. The message is in the line, and the trace is in the runtime log just before. |
 | `previous` ended `exit` | The process ended itself with that code. |
+| `previous` ended `signal`, with a `shutdown` field | The app waited for what it had to finish before it ended ([the record](./graceful-shutdown-2026-11-04.md)): `tookMs` is how long, `ceilingHit` true means the 15 second ceiling ended the wait, and `failed` names the tasks that did not finish well. `shutdown` null on a stop by SIGTERM means no answer was written. |
 | `health` lines whose `rssMb` or `hwmMb` climb from one tick to the next | Memory is held and not given back, which would make a memory kill likely. |
 | `health` with `note: "event loop stalled"` | Something held the process up for 2 seconds or more. A host that checks the app is alive may treat that as dead. |
 | `health` with `ppid` changing to 1 | The process that started the app is gone and the app was left behind. Seen once, between 00:02 and 00:05 UTC on 2026-11-02, after a stall of the whole host; the app kept running. |

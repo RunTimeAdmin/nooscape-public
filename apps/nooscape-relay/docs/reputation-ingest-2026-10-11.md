@@ -242,3 +242,9 @@ Fixed three ways:
 
 The scheduled-flip decision for this source (todo item 54) is unchanged: it still wants a clean attended
 **Fill ratings** run first, which the operator can now start without the console also offering the wrong button.
+
+## Addendum 2026-11-05: a negative rating is read as a negative number
+
+From the outside audit of 2026-11-05 (finding R15). The decoder read the `value` word of a NewFeedback log as if it were a 128-bit two's complement number with zeros above it. The ABI sends an int128 sign-extended to the full 32 bytes, so a rating of -5 arrives as `ff...fb` and was decoded as 2^256 - 2^128 - 5, a 78-digit positive number. The test fixture wrote a negative the same wrong way (zeros above 128 bits), so the test passed. The decoder now reads the word as a 256-bit two's complement number and accepts it only if the result fits an int128; a word that does not (no Solidity contract emits one) is counted as rejected like any other malformed log. The BNB rater ledger reuses the decoder, so it is covered. The fixture now sign-extends, and the tests cover -5, -1, 0, the largest and smallest int128, the word for -5 written out, and four words that must be refused.
+
+Rows already stored are not corrected, because the ledger is insert-only (`INSERT IGNORE`): a wrongly read value is a number too long for its column, which was clipped (Robinhood, `decimal(39,0)`) or cut (BNB, `varchar(40)`). Whether any such row exists is not visible from the code. A count by query is in the operator's SQL pack for this finding; if it is above zero, those rows are deleted and their windows read again.

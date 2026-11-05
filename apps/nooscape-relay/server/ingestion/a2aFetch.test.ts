@@ -114,6 +114,8 @@ describe("fetching an approved A2A card", () => {
     const lookup = seen[0]!.lookup as unknown as (name: string, options: unknown, callback: (...args: unknown[]) => void) => void;
     const answered = vi.fn();
     lookup(HOST, { all: true }, answered);
+    // The pinned lookup answers on a later tick, as dns.lookup does (lead N10 of the outside audit).
+    await new Promise<void>(resolve => setImmediate(resolve));
     expect(answered).toHaveBeenCalledWith(null, [{ address: PUBLIC.address, family: 4 }]);
   });
 

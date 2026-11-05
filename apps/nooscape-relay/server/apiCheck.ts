@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AGENT_ID_MAX_CHARS, CHAIN_KEYS, type ApiChain } from "./apiChains";
 import { CHAIN_BLOCKS_PER_DAY } from "./db";
+import { canonicalHost } from "./hostName";
 
 /**
  * The pre-flight check (docs/data-access-2026-10-19.md, stage D3): for an agent, a wallet or an endpoint URL, the evidence level, a few
@@ -57,8 +58,8 @@ export function hostOfUrl(raw: string): string | null {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
   if (url.username || url.password) return null;
-  const host = url.hostname.toLowerCase().replace(/\.$/, "");
-  return host.length > 0 ? host : null;
+  // Every trailing dot goes, as it does where a host is stored (hostName.ts): a host registered as "a.example." is "a.example".
+  return canonicalHost(url.hostname);
 }
 
 // ---------------------------------------------------------------- the flags

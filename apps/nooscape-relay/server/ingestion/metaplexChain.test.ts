@@ -71,10 +71,13 @@ const approvedSource = {
 function stubRpc(routes: Record<string, (params: unknown[]) => unknown>) {
   const fetchMock = vi.fn(async (_url: unknown, init: { body: string }) => {
     const body = JSON.parse(init.body);
+    const value = routes[body.method](body.params);
+    // A route answers with an RPC error by returning { rpcError }.
+    const envelope = value !== null && typeof value === "object" && "rpcError" in value ? { error: (value as { rpcError: unknown }).rpcError } : { result: value };
     return {
       ok: true,
       headers: { get: (name: string) => (name.toLowerCase() === "content-type" ? "application/json" : null) },
-      text: async () => JSON.stringify({ jsonrpc: "2.0", id: body.id, result: routes[body.method](body.params) }),
+      text: async () => JSON.stringify({ jsonrpc: "2.0", id: body.id, ...envelope }),
     };
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -225,16 +228,20 @@ describe("Metaplex Solana chain adapter", () => {
       expect(signature).toBe(SIGNATURE);
     });
 
-    it("fails the pass loudly when no successful transaction exists", () => {
-      expect(() => parseNewestSuccessfulSignature([{ signature: "4".repeat(88), err: { x: 1 } }], ASSET_1)).toThrow(
-        MetaplexChainValidationError
-      );
+    it("answers null when no successful transaction exists, because anyone can put failed ones on an asset's address", () => {
+      expect(parseNewestSuccessfulSignature([{ signature: "4".repeat(88), err: { x: 1 } }], ASSET_1)).toBeNull();
+      expect(parseNewestSuccessfulSignature([], ASSET_1)).toBeNull();
+    });
+
+    it("still fails the pass on an answer that is not a list, which is the provider's fault and not a verdict on the change", () => {
+      expect(() => parseNewestSuccessfulSignature({ not: "a list" }, ASSET_1)).toThrow(MetaplexChainValidationError);
     });
   });
 
   describe("classifyMetaplexChainDiff", () => {
     it("seeds a plain inventory with zero events", () => {
       const diff = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: true,
         states: [chainState(ASSET_1, OWNER_A, "Alpha"), chainState(ASSET_2, OWNER_B, "Beta"), chainState("9".repeat(44), null, null, true)],
         prior: new Map(),
@@ -247,6 +254,7 @@ describe("Metaplex Solana chain adapter", () => {
 
     it("registers unknown live assets and skips never-acknowledged closed ones", () => {
       const diff = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: false,
         states: [chainState(ASSET_1, OWNER_A, "Alpha"), chainState(ASSET_2, null, null, true)],
         prior: new Map(),
@@ -259,12 +267,14 @@ describe("Metaplex Solana chain adapter", () => {
     it("detects transfers but adopts an unknown prior owner silently", () => {
       const changed = chainState(ASSET_1, OWNER_A, "Alpha");
       const fromKnown = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: false,
         states: [changed],
         prior: new Map([[ASSET_1, { displayName: "Alpha", registrant: OWNER_C, closed: false } as MetaplexChainPriorEntry]]),
       });
       expect(fromKnown.diffEvents).toEqual([{ kind: "transfer", asset: ASSET_1, fromOwner: OWNER_C, toOwner: OWNER_A }]);
       const fromUnknown = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: false,
         states: [changed],
         prior: new Map([[ASSET_1, { displayName: "Alpha", registrant: null, closed: false } as MetaplexChainPriorEntry]]),
@@ -275,12 +285,14 @@ describe("Metaplex Solana chain adapter", () => {
 
     it("detects profile updates and asset closes", () => {
       const renamed = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: false,
         states: [chainState(ASSET_1, OWNER_A, "New name")],
         prior: new Map([[ASSET_1, { displayName: "Old name", registrant: OWNER_A, closed: false } as MetaplexChainPriorEntry]]),
       });
       expect(renamed.diffEvents).toEqual([{ kind: "profile_update", asset: ASSET_1, fromOwner: null, toOwner: OWNER_A }]);
       const closed = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: false,
         states: [chainState(ASSET_1, null, null, true)],
         prior: new Map([[ASSET_1, { displayName: "Alpha", registrant: OWNER_C, closed: false } as MetaplexChainPriorEntry]]),
@@ -298,7 +310,7 @@ describe("Metaplex Solana chain adapter", () => {
       }
       states.push(chainState(ASSET_1, OWNER_A, "Unchanged"));
       prior.set(ASSET_1, { displayName: "Unchanged", registrant: OWNER_A, closed: false });
-      const diff = classifyMetaplexChainDiff({ seed: false, states, prior });
+      const diff = classifyMetaplexChainDiff({ passSlot: 1, seed: false, states, prior });
       expect(diff.diffEvents).toHaveLength(METAPLEX_CHAIN_MAX_EVENTS_PER_PASS);
       expect(diff.deferredCount).toBe(1);
       // The deferred asset is neither evented nor upserted, so its stale prior
@@ -307,7 +319,7 @@ describe("Metaplex Solana chain adapter", () => {
       expect(diff.upserts).toHaveLength(METAPLEX_CHAIN_MAX_EVENTS_PER_PASS + 1);
     });
 
-    it("defers a two-event asset that would cross the cap", () => {
+    it("serves a two-event asset whole or not at all under the cap", () => {
       const states: MetaplexAssetState[] = [];
       const prior = new Map<string, MetaplexChainPriorEntry>();
       for (let index = 0; index < METAPLEX_CHAIN_MAX_EVENTS_PER_PASS - 1; index += 1) {
@@ -315,18 +327,41 @@ describe("Metaplex Solana chain adapter", () => {
         states.push(chainState(asset, OWNER_A, `Agent ${index}`));
         prior.set(asset, { displayName: `Agent ${index}`, registrant: OWNER_C, closed: false });
       }
-      // Transferred AND renamed: two events on one asset. The diff walks
-      // assets in lexicographic order, so this asset sorts after every
-      // filler ('z' is the last base58 digit): with MAX-1 events already
-      // accepted, accepting both would cross the cap, so the whole asset
-      // defers — its stale prior state re-diffs on the next pass.
+      // Transferred AND renamed: two events on one asset. With the 24 fillers that is 26 events against a cap of 25, so exactly one
+      // asset defers in any pass, whichever order the pass serves them in: this one (both events or neither, and its stale prior state
+      // re-diffs on the next pass) or one filler.
       const lateAsset = encodeBase58(ownerBytes(57));
       states.push(chainState(lateAsset, OWNER_B, "New name"));
       prior.set(lateAsset, { displayName: "Old name", registrant: OWNER_C, closed: false });
-      const diff = classifyMetaplexChainDiff({ seed: false, states, prior });
-      expect(diff.diffEvents).toHaveLength(METAPLEX_CHAIN_MAX_EVENTS_PER_PASS - 1);
-      expect(diff.deferredCount).toBe(1);
-      expect(diff.upserts.some(state => state.asset === lateAsset)).toBe(false);
+      for (let passSlot = 1; passSlot <= 30; passSlot += 1) {
+        const diff = classifyMetaplexChainDiff({ passSlot, seed: false, states, prior });
+        expect(diff.deferredCount).toBe(1);
+        expect(diff.diffEvents.length).toBeLessThanOrEqual(METAPLEX_CHAIN_MAX_EVENTS_PER_PASS);
+        const lateEvents = diff.diffEvents.filter(event => event.asset === lateAsset).length;
+        expect([0, 2]).toContain(lateEvents);
+        expect(diff.upserts.some(state => state.asset === lateAsset)).toBe(lateEvents === 2);
+      }
+    });
+
+    it("serves a late-sorting change in most passes when 25 early-sorting assets change in every pass", () => {
+      // A registrant chooses the key, so 25 assets whose keys sort first, each changed once a pass, would fill the cap in key order in
+      // every pass and keep the 5 honest changes deferred for as long as they paid the fees (outside audit R11).
+      const attackers = Array.from({ length: METAPLEX_CHAIN_MAX_EVENTS_PER_PASS }, (_value, index) => encodeBase58(ownerBytes(58 + index)));
+      const honest = Array.from({ length: 5 }, (_value, index) => encodeBase58(ownerBytes(10 + index)));
+      expect(honest.every(asset => attackers.every(other => other < asset))).toBe(true);
+      const states = [...attackers, ...honest].map(asset => chainState(asset, OWNER_A, "New name"));
+      const prior = new Map(states.map(state => [state.asset, { displayName: "Old name", registrant: OWNER_A, closed: false }] as const));
+      const served = new Map<string, number>(honest.map(asset => [asset, 0]));
+      for (let passSlot = 1; passSlot <= 60; passSlot += 1) {
+        const diff = classifyMetaplexChainDiff({ passSlot, seed: false, states, prior });
+        expect(diff.diffEvents).toHaveLength(METAPLEX_CHAIN_MAX_EVENTS_PER_PASS);
+        expect(diff.deferredCount).toBe(5);
+        const assets = diff.diffEvents.map(event => event.asset);
+        expect(assets).toEqual([...assets].sort());
+        for (const asset of honest) if (assets.includes(asset)) served.set(asset, served.get(asset)! + 1);
+      }
+      // Each is served in about 50 of 60 passes (25 of 30 places); in key order it was served in none.
+      for (const asset of honest) expect(served.get(asset)!).toBeGreaterThan(35);
     });
 
     it("acknowledges a closure exactly once across two passes and keeps the cap free for real changes", () => {
@@ -334,6 +369,7 @@ describe("Metaplex Solana chain adapter", () => {
       // one asset_closed event, and no upsert — the row keeps its last
       // acknowledged name and owner; only the closure marker is written.
       const passOne = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: false,
         states: [chainState(ASSET_1, null, null, true)],
         prior: new Map([[ASSET_1, { displayName: "Alpha", registrant: OWNER_C, closed: false } as MetaplexChainPriorEntry]]),
@@ -348,6 +384,7 @@ describe("Metaplex Solana chain adapter", () => {
       // acknowledged closures can never starve live changes (the failure mode
       // this guards against: 25 re-emitted closures deferring every event).
       const passTwo = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: false,
         states: [chainState(ASSET_1, null, null, true), chainState(ASSET_2, OWNER_B, "Beta")],
         prior: new Map([
@@ -363,6 +400,7 @@ describe("Metaplex Solana chain adapter", () => {
 
     it("treats an asset registered again after an acknowledged closure as a fresh registration", () => {
       const diff = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: false,
         states: [chainState(ASSET_1, OWNER_B, "Reborn")],
         prior: new Map([[ASSET_1, { displayName: "Alpha", registrant: OWNER_C, closed: true } as MetaplexChainPriorEntry]]),
@@ -381,6 +419,7 @@ describe("Metaplex Solana chain adapter", () => {
       // profile_update — and a real transfer can never be masked by the API
       // nulling the registrant, because the API path can no longer update rows.
       const diff = classifyMetaplexChainDiff({
+        passSlot: 1,
         seed: false,
         states: [chainState(ASSET_1, OWNER_A, "Chain name")],
         prior: new Map([[ASSET_1, { displayName: "API name", registrant: null, closed: false } as MetaplexChainPriorEntry]]),
@@ -475,6 +514,74 @@ describe("Metaplex Solana chain adapter", () => {
       expect(snapshot.closedSkippedCount).toBe(1);
       expect(snapshot.drafts).toHaveLength(1);
       expect(snapshot.requestCount).toBe(4);
+      expect(snapshot.unanchoredCount).toBe(0);
+      expect(snapshot.closedExternalKeys).toEqual([]);
+    });
+
+    it("adopts a change whose newest signatures all failed, without a ledger row, and counts it (a pass used to fail on every run for good)", async () => {
+      // Five cheap failed transactions that name the asset, newer than the real transfer, are all a stranger needs to make the pass throw.
+      stubRpc({
+        getSlot: () => 4242,
+        getProgramAccounts: () => [
+          { pubkey: "1".repeat(32), account: { data: [b64(identityV2Data(ZERO32)), "base64"] } },
+          { pubkey: "2".repeat(32), account: { data: [b64(identityV2Data(ownerBytes(7))), "base64"] } },
+        ],
+        getMultipleAccounts: () => ({
+          value: [{ data: [b64(coreAssetData(OWNER_A_BYTES, "Alpha")), "base64"] }, null],
+        }),
+        getSignaturesForAddress: () => Array.from({ length: 5 }, (_unused, index) => ({ signature: `${index + 1}`.repeat(88), err: { InstructionError: [0, 1] } })),
+      });
+      const prior = new Map([[ASSET_1, { displayName: "Alpha", registrant: OWNER_C, closed: false } as MetaplexChainPriorEntry]]);
+      const snapshot = await fetchMetaplexChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" });
+      expect(snapshot.events).toEqual([]);
+      expect(snapshot.unanchoredCount).toBe(1);
+      // The directory row takes the new owner: the draft stays among the upserts.
+      expect(snapshot.drafts.map(draft => [draft.externalKey, draft.registrant])).toEqual([[ASSET_1, OWNER_A]]);
+      expect(snapshot.closedExternalKeys).toEqual([]);
+    });
+
+    it("still marks a closure closed when its signatures all failed, and the marker list covers anchored and unanchored closures alike", async () => {
+      stubRpc({
+        getSlot: () => 4242,
+        getProgramAccounts: () => [{ pubkey: "1".repeat(32), account: { data: [b64(identityV2Data(ZERO32)), "base64"] } }],
+        // The asset was burned: no account behind it any more.
+        getMultipleAccounts: () => ({ value: [null] }),
+        getSignaturesForAddress: () => [{ signature: "4".repeat(88), err: { InstructionError: [0, 1] } }],
+      });
+      const prior = new Map([[ASSET_1, { displayName: "Alpha", registrant: OWNER_C, closed: false } as MetaplexChainPriorEntry]]);
+      const snapshot = await fetchMetaplexChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" });
+      expect(snapshot.events).toEqual([]);
+      expect(snapshot.unanchoredCount).toBe(1);
+      expect(snapshot.closedExternalKeys).toEqual([ASSET_1]);
+      // A closure never upserts: the row keeps its last acknowledged name and owner.
+      expect(snapshot.drafts).toEqual([]);
+    });
+
+    it("lists an anchored closure in the marker list too, beside its ledger event", async () => {
+      stubRpc({
+        getSlot: () => 4242,
+        getProgramAccounts: () => [{ pubkey: "1".repeat(32), account: { data: [b64(identityV2Data(ZERO32)), "base64"] } }],
+        getMultipleAccounts: () => ({ value: [null] }),
+        getSignaturesForAddress: () => [{ signature: SIGNATURE, err: null }],
+      });
+      const prior = new Map([[ASSET_1, { displayName: "Alpha", registrant: OWNER_C, closed: false } as MetaplexChainPriorEntry]]);
+      const snapshot = await fetchMetaplexChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" });
+      expect(snapshot.events).toEqual([
+        { kind: "asset_closed", externalKey: ASSET_1, transactionSignature: SIGNATURE, slot: 4242, fromOwner: OWNER_C, toOwner: null },
+      ]);
+      expect(snapshot.closedExternalKeys).toEqual([ASSET_1]);
+      expect(snapshot.unanchoredCount).toBe(0);
+    });
+
+    it("still fails the pass when the signature scan itself errors at the RPC layer", async () => {
+      stubRpc({
+        getSlot: () => 4242,
+        getProgramAccounts: () => [{ pubkey: "1".repeat(32), account: { data: [b64(identityV2Data(ZERO32)), "base64"] } }],
+        getMultipleAccounts: () => ({ value: [{ data: [b64(coreAssetData(OWNER_A_BYTES, "Alpha")), "base64"] }] }),
+        getSignaturesForAddress: () => ({ rpcError: { code: -32005, message: "Node is behind by 5 slots" } }),
+      });
+      const prior = new Map([[ASSET_1, { displayName: "Alpha", registrant: OWNER_C, closed: false } as MetaplexChainPriorEntry]]);
+      await expect(fetchMetaplexChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" })).rejects.toThrow(/Node is behind by 5 slots/);
     });
   });
 });

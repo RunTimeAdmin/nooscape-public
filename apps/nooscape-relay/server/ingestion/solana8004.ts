@@ -2,6 +2,8 @@ import type { IngestionSource } from "../../drizzle/schema";
 import type { DirectoryEntryDraft, SolanaChainActivityEvent } from "./types";
 import { createHash } from "node:crypto";
 import { encodeBase58 } from "./metaplexChain";
+import { canonicalHost } from "../hostName";
+import { admitUnderCap } from "./passOrder";
 import { callSolanaRpc, getTransactionParams, parseSolanaRpcResult, parseTransactionResult, sleepSolana, SOLANA_RPC_PACING_MS } from "./solanaRpc";
 import {
   classifyRegistrationUri,
@@ -98,22 +100,24 @@ export const SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS = 25;
  * call per address, shared by every event kind on that address.
  */
 const SOLANA_8004_SIGNATURE_SCAN_LIMIT = 25;
-/** The program's instructions that register an agent. A registration made with one this list lacks has no anchor, and the pass fails on it. */
+/** The program's instructions that register an agent. A registration made with one this list lacks has no anchor, and is adopted without a ledger row. */
 const SOLANA_8004_REGISTER_INSTRUCTIONS = ["RegisterWithOptions", "Register"];
 /**
- * Transactions fetched per event while hunting the matching instruction,
- * newest-first (the fetch budget is shared across the pass, so one address's
- * walk feeds every later event on the same signatures). A change is always
- * newer than the prior pass, so a healthy provider finds the match well
- * inside this bound; deeper walks would only burn request budget walking
- * past rating storms. When the budget runs out mid-walk, the whole account
- * defers to the next pass instead of failing it — a feedback storm on one
- * agent or a crowded event window must not wedge every later pass (review
- * 2026-10-12). A walk that judges every recent transaction and still finds
- * no match still fails the pass loudly for live changes — never a guessed
- * anchor.
+ * Transactions one event's walk may read while hunting the matching instruction, newest-first (a transaction already read for
+ * another event costs nothing). A change is always newer than the prior pass, so a healthy provider finds the match well inside
+ * this bound; deeper walks would only burn request budget walking past rating storms. A walk that reaches the bound, or that
+ * judges every recent transaction, and finds no match ADOPTS the change without a ledger row and counts it, as the SAID pass does
+ * (saidActivity.ts): anyone can put transactions on an agent's account, so an unanchorable change must neither fail the pass nor
+ * spend the budget the accounts after it need (outside audit 2026-11-05, finding R2). The ledger only ever holds honestly anchored
+ * events; the directory row carries the change either way.
  */
-export const SOLANA_8004_ATTRIBUTION_TX_FETCH_CAP = 10;
+export const SOLANA_8004_EVENT_TX_FETCH_CAP = 8;
+/**
+ * Transactions the whole pass may read. An event the budget did not reach is DEFERRED (no upsert, no event), so its row stays stale
+ * and the next pass re-detects it. With the per-event bound above, every pass resolves at least this many divided by that many
+ * events, and a resolved event is not pending again, so deferral cannot repeat forever behind one account.
+ */
+export const SOLANA_8004_ATTRIBUTION_TX_FETCH_CAP = 40;
 /**
  * Truncation floor: a diff pass fails loudly when the enumeration returns
  * fewer live agents than 98% of the prior live count. Closure detection is
@@ -233,6 +237,8 @@ type Solana8004ChainSnapshot = {
   closedAcknowledgedCount: number;
   /** Closures with no anchorable transaction: marked closed, not ledgered. */
   unanchoredClosureCount: number;
+  /** Live changes (registrations, transfers, profile updates) with no anchorable transaction: adopted into the directory row, not ledgered. */
+  unanchoredCount: number;
   /** Closures whose PDA was unknown (pre-0026 rows): closed on enumeration evidence alone, not a direct read. */
   unconfirmedClosureCount: number;
   /** Step-3: resolution rows to upsert this pass — budgeted fetches plus the on-chain "name" metadata. */
@@ -420,7 +426,7 @@ export function decodeSolana8004AgentAccount(account: string, data: Uint8Array):
   let locatorHost: string | null = null;
   if (uri.text.startsWith("https://")) {
     try {
-      locatorHost = new URL(uri.text).hostname.toLowerCase();
+      locatorHost = canonicalHost(new URL(uri.text).hostname);
     } catch {
       locatorHost = null;
     }
@@ -829,9 +835,14 @@ export function matchSolana8004EventTransaction(input: {
  *   last-known PDA for the fetch-time confirmation read.
  * Candidates whose events exceed the per-pass cap are deferred wholesale
  * (neither events nor upserts), so their stale prior state re-diffs next pass.
+ * Which candidates the cap serves is decided in the pass's own order (passOrder.ts),
+ * not in key order, because a registrant chooses the key; the lists it returns
+ * stay in key order.
  */
 export function classifySolana8004Diff(input: {
   seed: boolean;
+  /** The slot the pass read: the cap's order depends on it. */
+  passSlot: number;
   accounts: Solana8004AgentAccount[];
   prior: Map<string, Solana8004PriorEntry>;
 }): {
@@ -933,13 +944,20 @@ export function classifySolana8004Diff(input: {
   const upserts: Solana8004AgentAccount[] = [];
   const diffEvents: Solana8004DiffEvent[] = [];
   let deferredCount = 0;
+  const served = admitUnderCap(
+    candidates,
+    candidate => candidate.asset,
+    candidate => candidate.events.length,
+    SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS,
+    input.passSlot
+  );
   for (const candidate of candidates) {
     if (candidate.events.length === 0) {
       // Unchanged: refresh the ack (lastSeenAt/lastRunId) without an event.
       upserts.push(candidate.account!);
       continue;
     }
-    if (diffEvents.length + candidate.events.length > SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS) {
+    if (!served.has(candidate)) {
       deferredCount += 1;
       continue;
     }
@@ -1046,6 +1064,7 @@ export async function fetchSolana8004ChainState(input: {
 
   const { upserts, diffEvents, deferredCount, closedAcknowledgedCount } = classifySolana8004Diff({
     seed: input.seed,
+    passSlot: slotResult,
     accounts,
     prior: input.prior,
   });
@@ -1088,12 +1107,19 @@ export async function fetchSolana8004ChainState(input: {
       signatureScans.set(address, scanned);
     }
     let anchor: string | null = null;
-    let examined = 0;
+    // Set only when the PASS budget stopped the walk, never this event's own bound: that is a budget verdict, not an evidence verdict.
+    let passBudgetStopped = false;
+    let eventFetches = 0;
     for (const signature of scanned) {
-      if (anchor !== null || transactionFetches >= SOLANA_8004_ATTRIBUTION_TX_FETCH_CAP) break;
-      examined += 1;
+      if (anchor !== null) break;
       let logs = transactionLogs.get(signature);
       if (logs === undefined) {
+        if (eventFetches >= SOLANA_8004_EVENT_TX_FETCH_CAP) break;
+        if (transactionFetches >= SOLANA_8004_ATTRIBUTION_TX_FETCH_CAP) {
+          passBudgetStopped = true;
+          break;
+        }
+        eventFetches += 1;
         transactionFetches += 1;
         const transaction = parseTransactionResult(
           await pacedCall(() =>
@@ -1118,17 +1144,10 @@ export async function fetchSolana8004ChainState(input: {
         anchor = signature;
       }
     }
-    // The walk stopped early with no match only when the shared fetch budget
-    // ran out; that is a budget verdict, not a evidence verdict, so the event
-    // defers instead of failing the pass. A walk that examined every scanned
-    // transaction and still found no match is the loud case.
-    const budgetLimited = anchor === null && examined < scanned.length;
-    if (anchor === null && event.kind !== "asset_closed" && !budgetLimited) {
-      throw new Solana8004ValidationError(
-        `No transaction matching the observed ${event.kind} was found to attribute the change on ${address}.`
-      );
-    }
-    const outcome = { anchor, budgetLimited };
+    // No match is one of two verdicts, and neither fails the pass. If the pass budget stopped the walk, the event defers to the next
+    // pass. Otherwise the walk ended on its own terms (the scan was judged in full, or the event's bound was reached) and the caller
+    // adopts the change without a ledger row.
+    const outcome = { anchor, budgetLimited: anchor === null && passBudgetStopped };
     anchors.set(cacheKey, outcome);
     return outcome;
   };
@@ -1136,6 +1155,7 @@ export async function fetchSolana8004ChainState(input: {
   const events: SolanaChainActivityEvent[] = [];
   const closedExternalKeys: string[] = [];
   let unanchoredClosureCount = 0;
+  let unanchoredCount = 0;
   let unconfirmedClosureCount = 0;
   const confirmations = new Map<string, true>();
   // Events whose walk ran out of attribution budget defer their whole
@@ -1199,12 +1219,16 @@ export async function fetchSolana8004ChainState(input: {
       continue;
     }
     if (outcome.anchor === null) {
-      // A full walk that examined every scanned transaction and found no
-      // match. A live change already threw inside anchorFor; a closure has
-      // no honest anchor (the program's closure vocabulary has no live
-      // exemplar), so the row is acknowledged closed without a ledger event.
-      acknowledgeClosure(event);
-      unanchoredClosureCount += 1;
+      if (event.kind === "asset_closed") {
+        // A closure has no honest anchor when the walk finds none (the program's closure vocabulary has no live exemplar), so the row
+        // is acknowledged closed without a ledger event.
+        acknowledgeClosure(event);
+        unanchoredClosureCount += 1;
+      } else {
+        // A live change no walk could anchor is adopted: its draft stays among the upserts, so the directory row carries it, and the
+        // ledger gets nothing. Counted, so a rising figure (after a program upgrade the instruction vocabulary may have changed) shows.
+        unanchoredCount += 1;
+      }
       continue;
     }
     if (event.kind === "asset_closed") acknowledgeClosure(event);
@@ -1312,6 +1336,7 @@ export async function fetchSolana8004ChainState(input: {
     deferredAttributionCount,
     closedAcknowledgedCount,
     unanchoredClosureCount,
+    unanchoredCount,
     unconfirmedClosureCount,
     resolutions: resolutionDrafts,
     chainLinks,

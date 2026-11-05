@@ -3,6 +3,7 @@ import { storagePut } from "../storage";
 import { assertPublicHostname } from "./a2a";
 import type { IngestionSource } from "../../drizzle/schema";
 import type { DirectoryChainActivityEvent, DirectoryEntryDraft, Erc8004RegistryCandidate, RawObservationInput } from "./types";
+import { canonicalHost } from "../hostName";
 
 export const ROBINHOOD_RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 export const ROBINHOOD_CHAIN_ID_HEX = "0x1237";
@@ -438,7 +439,7 @@ function directoryDraftFromCandidate(candidate: Erc8004RegistryCandidate, note: 
   let locatorHost: string | null = null;
   if (candidate.agentUri && candidate.agentUri.startsWith("https://")) {
     try {
-      locatorHost = new URL(candidate.agentUri).hostname.toLowerCase();
+      locatorHost = canonicalHost(new URL(candidate.agentUri).hostname);
     } catch {
       locatorHost = null;
     }

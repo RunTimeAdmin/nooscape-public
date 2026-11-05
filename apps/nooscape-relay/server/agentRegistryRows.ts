@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { RegistryProfile } from "@shared/chains";
 import { agentDirectoryEntries, agentDirectoryRegistryOverflow, agentDirectoryRegistryRows, ingestionSources, type IngestionSource } from "../drizzle/schema";
 import { getDb, isSuppressedLocatorHost, requireDb, suppressedLocatorHostSql } from "./db";
+import { isMissingTable } from "./driverErrors";
 import type { DirectoryEntryDraft } from "./ingestion/types";
 import { sanitizePublicText } from "./publicText";
 import { cachedDirectoryRead, invalidateDirectoryReadsSoftly } from "./readCache";
@@ -29,7 +30,10 @@ export const REGISTRY_LISTING = {
   NO_LINK: 0,
   /** Passes every rule; published into the directory. */
   LISTED: 1,
-  /** Shares its profile link, host, or wallet with many other registrations. */
+  /**
+   * Shares its profile link, host, or wallet with many other registrations. For a profile link this means it came after a registration
+   * that holds it (or arrived with others at once); the registration that was already listed stays listed.
+   */
   GROUPED: 2,
   /** Written, not yet classified. */
   PENDING: 3,
@@ -70,6 +74,8 @@ const EMPTY_URI_SHA256 = createHash("sha256").update("").digest("hex");
 
 const ROWS = sql.raw("agent_directory_registry_rows");
 const ENTRIES = sql.raw("agent_directory_entries");
+const PINS = sql.raw("agent_directory_listing_pins");
+const CLAIMS = sql.raw("agent_claims");
 
 const CHUNK = 2_000;
 
@@ -345,6 +351,24 @@ async function hasPendingRegistryRows(sourceId: string): Promise<boolean> {
  * first (it never counts as grouped), then each shared-key rule groups the rows
  * that fall in a big group, and whatever is still pending is listed. Running it
  * again with nothing new changes nothing.
+ *
+ * The exact profile link is the one key that anyone can copy at will: the URI is
+ * a string the caller of the registry types, never fetched and tied to nobody. A
+ * copy of a listed registration's link used to hold out both, so one transaction
+ * delisted the original (outside audit 2026-11-05, finding R4). The link rule
+ * therefore weighs only a row that is not yet listed: the copy is held out and
+ * the listed registration stays. Registrations that reach their first
+ * classification together on one link are all held out, as before. The host and
+ * wallet rules still weigh every row: a wallet's count cannot be raised by a
+ * stranger, and a host that many registrations point at is a platform host.
+ *
+ * Two things can still reverse a verdict of the rules (the same finding, steps 2
+ * and 3). A host is the one key a stranger can fill (a platform, or someone who
+ * registers fifty agents on a host to push the rest out), so a registration whose
+ * owner has claimed it, a claim in force, is never held out for its host. And an
+ * operator pin (agent_directory_listing_pins) spares a registration from every
+ * rule and lists one the rules had held out. A registration with no usable link
+ * stays out whatever a pin says: the rules did not judge it.
  */
 export async function classifyAgentRegistryListing(sourceId: string, rules: RegistryListingRules = BSC_LISTING_RULES): Promise<void> {
   const db = requireDb(await getDb());
@@ -352,7 +376,14 @@ export async function classifyAgentRegistryListing(sourceId: string, rules: Regi
     UPDATE ${ROWS} SET listing = ${REGISTRY_LISTING.NUMERIC_NAME}
     WHERE sourceId = ${sourceId} AND listing = ${REGISTRY_LISTING.PENDING} AND displayName REGEXP '^[0-9]+$'
   `);
-  const groupBy = (column: "profileUriHash" | "locatorHost" | "registrant", threshold: number) => sql`
+  // The count is always over every row of the source; `weighed` is which of them the rule may hold out. A pinned row is spared by every rule, and
+  // `sparedByClaim` also spares a row whose entry has a claim in force. Both lists are small, so the tests of a row's exemption are key lookups.
+  const notPinned = sql`NOT EXISTS (SELECT 1 FROM ${PINS} AS p WHERE p.sourceId = r.sourceId AND p.externalKey = r.externalKey)`;
+  const notClaimed = sql`NOT EXISTS (
+      SELECT 1 FROM ${ENTRIES} AS e JOIN ${CLAIMS} AS c ON c.inForceEntryId = e.id
+      WHERE e.sourceId = r.sourceId AND e.externalKey = r.externalKey
+    )`;
+  const groupBy = (column: "profileUriHash" | "locatorHost" | "registrant", threshold: number, weighed: readonly number[], sparedByClaim = false) => sql`
     UPDATE ${ROWS} AS r
     JOIN (
       SELECT ${sql.raw(column)} AS k FROM ${ROWS}
@@ -360,14 +391,28 @@ export async function classifyAgentRegistryListing(sourceId: string, rules: Regi
       GROUP BY ${sql.raw(column)} HAVING COUNT(*) >= ${threshold}
     ) AS big ON big.k = r.${sql.raw(column)}
     SET r.listing = ${REGISTRY_LISTING.GROUPED}
-    WHERE r.sourceId = ${sourceId} AND r.listing IN (${REGISTRY_LISTING.LISTED}, ${REGISTRY_LISTING.PENDING})
+    WHERE r.sourceId = ${sourceId} AND r.listing IN (${sql.join(weighed.map(state => sql`${state}`), sql`, `)})
+      AND ${notPinned}${sparedByClaim ? sql` AND ${notClaimed}` : sql``}
   `;
-  await db.execute(groupBy("profileUriHash", rules.sharedProfileLinkFrom));
-  await db.execute(groupBy("locatorHost", rules.sharedHostFrom));
-  await db.execute(groupBy("registrant", rules.sharedWalletFrom));
+  await db.execute(groupBy("profileUriHash", rules.sharedProfileLinkFrom, [REGISTRY_LISTING.PENDING]));
+  // The claims table is made by a manual migration (0042), so a database that has not had it has no claim to spare a row for.
+  try {
+    await db.execute(groupBy("locatorHost", rules.sharedHostFrom, [REGISTRY_LISTING.LISTED, REGISTRY_LISTING.PENDING], true));
+  } catch (error) {
+    if (!isMissingTable(error)) throw error;
+    await db.execute(groupBy("locatorHost", rules.sharedHostFrom, [REGISTRY_LISTING.LISTED, REGISTRY_LISTING.PENDING]));
+  }
+  await db.execute(groupBy("registrant", rules.sharedWalletFrom, [REGISTRY_LISTING.LISTED, REGISTRY_LISTING.PENDING]));
   await db.execute(sql`
     UPDATE ${ROWS} SET listing = ${REGISTRY_LISTING.LISTED}
     WHERE sourceId = ${sourceId} AND listing = ${REGISTRY_LISTING.PENDING}
+  `);
+  // A pin lists a registration the rules held out (a number-only name, or a shared link, host or wallet).
+  await db.execute(sql`
+    UPDATE ${ROWS} AS r
+    JOIN ${PINS} AS p ON p.sourceId = r.sourceId AND p.externalKey = r.externalKey
+    SET r.listing = ${REGISTRY_LISTING.LISTED}
+    WHERE r.sourceId = ${sourceId} AND r.listing IN (${REGISTRY_LISTING.GROUPED}, ${REGISTRY_LISTING.NUMERIC_NAME})
   `);
 }
 

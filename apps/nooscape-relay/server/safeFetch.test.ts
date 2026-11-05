@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import type { ClientRequest, IncomingMessage } from "node:http";
-import type { RequestOptions } from "node:https";
+import { request as httpsRequest, type RequestOptions } from "node:https";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHECKER_USER_AGENT, SAFE_FETCH_MAX_BODY_BYTES, SAFE_FETCH_MAX_BODY_CEILING, safeFetch, type ResolvedAddress, type SafeFetchDeps, type SafeFetchOptions } from "./safeFetch";
 
@@ -12,6 +12,9 @@ import { CHECKER_USER_AGENT, SAFE_FETCH_MAX_BODY_BYTES, SAFE_FETCH_MAX_BODY_CEIL
  * checks on every hop) and what it makes of the answers. safeFetch.network.test.ts proves the same against a real TLS
  * server.
  */
+
+/** One turn of the event loop, after the callbacks the code under test queued with setImmediate. */
+const nextTick = () => new Promise<void>(resolve => setImmediate(resolve));
 
 const PUBLIC_A: ResolvedAddress = { address: "93.184.216.34", family: 4 };
 const PUBLIC_B: ResolvedAddress = { address: "2606:2800:220:1:248:1893:25c8:1946", family: 6 };
@@ -244,14 +247,45 @@ describe("the connection", () => {
     const lookup = options.lookup as unknown as (name: string, options: unknown, callback: (...args: unknown[]) => void) => void;
     const all = vi.fn();
     lookup("a.example.com", { all: true }, all);
+    await nextTick();
     expect(all).toHaveBeenCalledWith(null, [{ address: PUBLIC_A.address, family: 4 }, { address: PUBLIC_B.address, family: 6 }]);
     const one = vi.fn();
     lookup("a.example.com", {}, one);
+    await nextTick();
     expect(one).toHaveBeenCalledWith(null, PUBLIC_A.address, 4);
     // Whatever the socket asks for, it is told the same: a second lookup is never consulted.
     const other = vi.fn();
     lookup("somewhere-else.example.org", { all: true }, other);
+    await nextTick();
     expect(other).toHaveBeenCalledWith(null, [{ address: PUBLIC_A.address, family: 4 }, { address: PUBLIC_B.address, family: 6 }]);
+  });
+
+  it("answers the lookup on a later tick, not inside the call, so a connect that fails at once cannot end the process (lead N10 of the outside audit)", async () => {
+    const { resolve } = dns({ "a.example.com": [PUBLIC_A] });
+    const { request, seen } = scripted([{}]);
+    await safeFetch("https://a.example.com/", {}, { resolve, request });
+    const lookup = seen[0]!.lookup as unknown as (name: string, options: unknown, callback: (...args: unknown[]) => void) => void;
+    for (const asked of [{ all: true }, {}]) {
+      const answered = vi.fn();
+      lookup("a.example.com", asked, answered);
+      expect(answered).not.toHaveBeenCalled();
+      await nextTick();
+      expect(answered).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("gives a connect that fails on the same tick as an ordinary failed connection, and the process goes on (lead N10)", async () => {
+    // Node connects inside the call that starts the request, as the lookup answers. When the answer came at once, a socket that failed in that call
+    // was destroyed before the request had an error listener: the call threw, the failure reached no one and ended the process (reproduced on Node
+    // 22.23.4 with an address this machine had no route to). A local address that this machine does not have makes the bind, and so the connect,
+    // fail at once on any system.
+    const { resolve } = dns({ "a.example.com": [PUBLIC_A] });
+    const request: SafeFetchDeps["request"] = (options, onResponse) => httpsRequest({ ...options, localAddress: "203.0.113.5" }, onResponse);
+    const result = await safeFetch("https://a.example.com/", {}, { resolve, request });
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ reason: "connection_failed" });
+    await nextTick();
+    await nextTick();
   });
 
   it("is not steered by a host that answers differently the second time (DNS rebinding)", async () => {
@@ -267,6 +301,7 @@ describe("the connection", () => {
     const lookup = seen[0]!.lookup as unknown as (name: string, options: unknown, callback: (...args: unknown[]) => void) => void;
     const answered = vi.fn();
     lookup("rebind.example.com", { all: true }, answered);
+    await nextTick();
     expect(answered).toHaveBeenCalledWith(null, [{ address: PUBLIC_A.address, family: 4 }]);
   });
 

@@ -128,12 +128,31 @@ describe("visibility gate: atlas.evidence endpoint", () => {
     }
   });
 
-  it("answers an id from the old demo atlas with not-found, through the same gate", async () => {
-    mockIsAgentPubliclyVisible.mockResolvedValue(false);
+  it("answers an id from the old demo atlas with not-found, without a read: it is not the id of a reviewed record", async () => {
+    mockIsAgentPubliclyVisible.mockResolvedValue(true);
     const caller = await createMockedCaller(mockIsAgentPubliclyVisible);
 
     await expect(caller.atlas.evidence({ agentId: "noos-prime" })).rejects.toMatchObject({ code: "NOT_FOUND", message: "Agent not found." });
-    expect(mockIsAgentPubliclyVisible).toHaveBeenCalledWith("noos-prime");
+    expect(mockIsAgentPubliclyVisible).not.toHaveBeenCalled();
+  });
+
+  it("reads an id in its one canonical form: another case reaches the gate as the lower-case id the withdrawal is recorded under (lead N6)", async () => {
+    mockIsAgentPubliclyVisible.mockResolvedValue(false);
+    const caller = await createMockedCaller(mockIsAgentPubliclyVisible);
+
+    await expect(caller.atlas.evidence({ agentId: "C1D2E3F4-A5B6-1234-C789-012DEF345678" })).rejects.toMatchObject({ code: "NOT_FOUND", message: "Agent not found." });
+    await expect(caller.atlas.evidence({ agentId: "c1D2e3F4-a5B6-1234-C789-012dEf345678" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(mockIsAgentPubliclyVisible.mock.calls).toEqual([["c1d2e3f4-a5b6-1234-c789-012def345678"], ["c1d2e3f4-a5b6-1234-c789-012def345678"]]);
+  });
+
+  it("does not take a spelling that is not an id to the gate: a trailing space, a prefix, a suffix", async () => {
+    mockIsAgentPubliclyVisible.mockResolvedValue(true);
+    const caller = await createMockedCaller(mockIsAgentPubliclyVisible);
+
+    for (const spelling of ["c1d2e3f4-a5b6-1234-c789-012def345678 ", " c1d2e3f4-a5b6-1234-c789-012def345678", "xc1d2e3f4-a5b6-1234-c789-012def345678", "c1d2e3f4-a5b6-1234-c789-012def3456780", ""]) {
+      await expect(caller.atlas.evidence({ agentId: spelling }), JSON.stringify(spelling)).rejects.toMatchObject({ code: "NOT_FOUND", message: "Agent not found." });
+    }
+    expect(mockIsAgentPubliclyVisible).not.toHaveBeenCalled();
   });
 
   it("returns an envelope for a visible persisted agent", async () => {

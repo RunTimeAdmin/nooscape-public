@@ -214,7 +214,7 @@ the 8004 review found. Three limits keep a spammed account from stalling the pas
 | --- | --- |
 | 8 transaction reads per identity | the change is adopted into the directory without a ledger row and counted as unanchored |
 | 40 transaction reads per pass | the remaining identities defer: no directory upsert and no event, so the next pass detects them again |
-| 25 events per pass | the rest wait for the next pass |
+| 25 events per pass | the rest wait for the next pass (which ones are served is decided in a per-pass order, not in owner order: `solana-metaplex-chain-2026-10-11.md`, section 12) |
 
 **Ordering.** The ledger is written before the directory upsert, so a failure between the two re-detects the
 change on the next pass instead of losing the event. Unanchored and deferred counts go to the server log, and

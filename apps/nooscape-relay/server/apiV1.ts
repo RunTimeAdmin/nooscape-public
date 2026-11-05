@@ -24,6 +24,7 @@ import {
 } from "./apiKeys";
 import { checkFlags, checkRequestSchemaFor, CHECK_RESULT_LIMIT, CHECK_STATEMENT, hostOfUrl, type CheckFlagsInput } from "./apiCheck";
 import { findVisibleDirectoryEntriesByKey, getAgentDirectoryEntry, listVisibleDirectoryKeys, MAX_AGENT_ENTRY_ACTIVITY_EVENTS, readAgentCheckFacts, searchAgentDirectory } from "./db";
+import { readDatabaseRoom, type DatabaseRoom } from "./databaseRoom";
 import { isCircuitOpenError } from "./dbBreaker";
 import { clientKeyFrom, consumeRateLimit, peekRateLimit, retryAfterSeconds } from "./rateLimit";
 import { railsOf, takesContractWallets, usdOf, type Rail, type Reply, type X402Config, type X402Endpoint } from "./x402";
@@ -114,12 +115,15 @@ export type ApiV1Deps = {
   payments?: PaymentService | null;
   /** Watchlists and the webhook (stage D5): null or absent when they are off. */
   webhooks?: WebhookService | null;
+  /** How much room the database has (finding R3 of the outside audit of 2026-11-05): absent when the index is not to carry it, null when it cannot be read. */
+  databaseRoom?: () => Promise<DatabaseRoom | null>;
 };
 
 const callerFor = (req: Request) => appRouter.createCaller({ req, res: {}, user: null } as unknown as TrpcContext);
 
 export const defaultApiV1Deps: ApiV1Deps = {
   now: () => new Date(),
+  databaseRoom: readDatabaseRoom,
   findEntries: findVisibleDirectoryEntriesByKey,
   getEntry: getAgentDirectoryEntry,
   search: searchAgentDirectory,
@@ -411,7 +415,13 @@ function payPerCall(pay: X402Config) {
   };
 }
 
-export function indexAnswer(now: Date, pay: X402Config | null = null, unresolvedOverHour: number | null | undefined = undefined, chains: readonly ApiChain[] = servedChains()) {
+export function indexAnswer(
+  now: Date,
+  pay: X402Config | null = null,
+  unresolvedOverHour: number | null | undefined = undefined,
+  chains: readonly ApiChain[] = servedChains(),
+  databaseRoom: DatabaseRoom | null | undefined = undefined
+) {
   return {
     api_version: "v1",
     as_of: now.toISOString(),
@@ -422,6 +432,8 @@ export function indexAnswer(now: Date, pay: X402Config | null = null, unresolved
     ...(pay ? { pay_per_call: payPerCall(pay) } : {}),
     // Present while pay per call is on or paused: how many payments have not settled for over an hour. The live health check reads it.
     ...(unresolvedOverHour === undefined ? {} : { payments_unresolved_over_hour: unresolvedOverHour }),
+    // One word, never a number: whether the database has room before the host stops its writes, or null when that cannot be read. The live check reads it.
+    ...(databaseRoom === undefined ? {} : { database_room: databaseRoom }),
     keys: {
       get_a_key: `${PAGE_ORIGIN}/developers/keys`,
       header: "Authorization: Bearer <key>",
@@ -797,7 +809,8 @@ export function apiV1Router(deps: ApiV1Deps = defaultApiV1Deps): Router {
     guarded(res, async () => {
       res.set("Cache-Control", "public, max-age=300");
       const state = deps.payments ? await deps.payments.state() : "off";
-      res.json(indexAnswer(deps.now(), state === "on" ? deps.payments!.config : null, state === "off" ? undefined : await deps.payments!.staleCount()));
+      const room = deps.databaseRoom ? await deps.databaseRoom() : undefined;
+      res.json(indexAnswer(deps.now(), state === "on" ? deps.payments!.config : null, state === "off" ? undefined : await deps.payments!.staleCount(), servedChains(), room));
     })
   );
 

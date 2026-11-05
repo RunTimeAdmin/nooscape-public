@@ -269,12 +269,65 @@ describe("a window the node refuses as too large", () => {
     expect(state.refreshAgentRegistryListing.mock.calls.at(-1)![1]).toEqual({ classify: true, publish: true });
   });
 
-  it("is held to the log bound half by half, so a window over the bound goes through when each half is under it", async () => {
-    // 600 registrations, 313 in the first half of the window and 287 in the second; the chain's bound is 500 events.
+  it("is read in halves when the node answers it whole but it holds more events than the log bound, and goes through when each half is under it", async () => {
+    // 600 registrations, 313 in the first half of the window and 287 in the second; the chain's bound is 500 events. The node refuses
+    // nothing: an answer the transport accepts and the decoder would refuse used to fail the run at this window for good (audit R5).
     const dense = Array.from({ length: 600 }, (_, index) => registrationAt(DEMO_CHAIN, index + 1, START + 5 + index * 16));
-    await expect(run(DEMO_CHAIN, source(), fakeRpc({ finalized: START + W - 1, logs: dense }).rpc)).rejects.toThrow("Demo Chain identity log response exceeds the approved bound of 500 events.");
-    expect(state.insertAgentRegistryRows).not.toHaveBeenCalled();
+    const whole = fakeRpc({ finalized: START + W - 1, logs: dense });
+    const result = await run(DEMO_CHAIN, source(), whole.rpc);
+    expect(result).toMatchObject({ acceptedCount: 600, rejectedCount: 0, nextCursor: `demo:${START + W}` });
+    expect(state.insertAgentRegistryRows.mock.calls.map(([input]) => input.drafts.length)).toEqual([313, 287]);
+    expect(whole.logCalls().map(call => [Number.parseInt(call.fromBlock, 16), Number.parseInt(call.toBlock, 16)])).toEqual([
+      [START, START + W - 1],
+      [START, START + W / 2 - 1],
+      [START + W / 2, START + W - 1],
+    ]);
+    expect(console.warn).toHaveBeenCalledWith(`[DEMO] blocks ${START} to ${START + W - 1} held more than 500 events and are read in halves.`);
+    expect(splitWarnings()).toHaveLength(0);
+    expect(state.refreshAgentRegistryListing.mock.calls.at(-1)![1]).toEqual({ classify: true, publish: true });
+  });
 
+  it("does not split a window that holds exactly the bound", async () => {
+    const exact = Array.from({ length: 500 }, (_, index) => registrationAt(DEMO_CHAIN, index + 1, START + 5 + index * 16));
+    const { rpc, logCalls } = fakeRpc({ finalized: START + W - 1, logs: exact });
+    const result = await run(DEMO_CHAIN, source(), rpc);
+    expect(result).toMatchObject({ acceptedCount: 500, nextCursor: `demo:${START + W}` });
+    expect(logCalls()).toHaveLength(1);
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("are read in halves"));
+  });
+
+  it("reads the windows planned after an over-full one, in the chain's order, once its halves are applied", async () => {
+    const dense = Array.from({ length: 600 }, (_, index) => registrationAt(DEMO_CHAIN, index + 1, START + 5 + index * 16));
+    const after = registrationAt(DEMO_CHAIN, 601, START + W + 20);
+    const { rpc } = fakeRpc({ finalized: START + 2 * W - 1, logs: [...dense, after] });
+    const result = await run(DEMO_CHAIN, source(), rpc);
+    expect(result).toMatchObject({ acceptedCount: 601, nextCursor: `demo:${START + 2 * W}` });
+    expect(state.insertAgentRegistryRows.mock.calls.map(([input]) => input.drafts.length)).toEqual([313, 287, 1]);
+  });
+
+  it("fails the run, with the cursor where it was, when a window at the narrowest split still holds more events than the bound", async () => {
+    // 600 registrations in one block: no split can get them under 500.
+    const crowded = Array.from({ length: 600 }, (_, index) => registrationAt(DEMO_CHAIN, index + 1, START + 3));
+    const { rpc, logCalls } = fakeRpc({ finalized: START + W - 1, logs: crowded });
+    await expect(run(DEMO_CHAIN, source(), rpc)).rejects.toThrow("Demo Chain identity log response exceeds the approved bound of 500 events.");
+    expect(state.finishIngestionRun).toHaveBeenLastCalledWith(expect.objectContaining({ status: "failed", nextCursor: `demo:${START}` }));
+    expect(state.insertAgentRegistryRows).not.toHaveBeenCalled();
+    // It halved to the floor and stopped there: a handful of levels, not an endless descent.
+    expect(logCalls().length).toBeLessThan(40);
+  });
+
+  it("keeps the windows before it and stops there when a later window still holds more events than the bound at the narrowest split", async () => {
+    const logs = [registrationAt(DEMO_CHAIN, 1, START + 10), ...Array.from({ length: 600 }, (_, index) => registrationAt(DEMO_CHAIN, index + 2, START + W + 3))];
+    const { rpc } = fakeRpc({ finalized: START + 2 * W - 1, logs });
+    const result = await run(DEMO_CHAIN, source(), rpc);
+    expect(result).toMatchObject({ acceptedCount: 1, nextCursor: `demo:${START + W}` });
+    expect(state.order).toEqual(["entries:1"]);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(`[DEMO] pass stopped early at block ${START + W} after 1 window(s): Demo Chain identity log response exceeds the approved bound of 500 events.`));
+    expect(state.refreshAgentRegistryListing.mock.calls.at(-1)![1]).toEqual({ classify: true, publish: false });
+  });
+
+  it("is held to the log bound half by half when the node also refuses the wide window", async () => {
+    const dense = Array.from({ length: 600 }, (_, index) => registrationAt(DEMO_CHAIN, index + 1, START + 5 + index * 16));
     const halved = fakeRpc({ finalized: START + W - 1, logs: dense, failAt: (from, to) => (to - from + 1 > 5_000 ? tooLarge() : null) });
     const result = await run(DEMO_CHAIN, source(), halved.rpc);
     expect(result).toMatchObject({ acceptedCount: 600, nextCursor: `demo:${START + W}` });

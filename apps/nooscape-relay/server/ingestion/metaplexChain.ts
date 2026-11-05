@@ -24,6 +24,7 @@
  */
 import type { IngestionSource } from "../../drizzle/schema";
 import type { DirectoryEntryDraft, SolanaChainActivityEvent } from "./types";
+import { admitUnderCap } from "./passOrder";
 import { callSolanaRpc, parseSolanaRpcResult, sleepSolana, SOLANA_RPC_PACING_MS } from "./solanaRpc";
 
 const METAPLEX_IDENTITY_PROGRAM = "1DREGFgysWYxLnRnKQnwrxnJQeSMk2HmGaC6whw2B2p";
@@ -98,6 +99,10 @@ type MetaplexChainSnapshot = {
   drafts: DirectoryEntryDraft[];
   /** Diff events, attributed and ready for the ledger; empty on the seed pass. */
   events: SolanaChainActivityEvent[];
+  /** Assets this pass acknowledges closing, anchored and unanchored alike: the runner's hide-once marker list. */
+  closedExternalKeys: string[];
+  /** Changes adopted into the directory with no ledger row, because no successful transaction was found to anchor them. */
+  unanchoredCount: number;
   /** Changed assets left for the next pass by the per-pass event cap. */
   deferredCount: number;
   /** Closed assets never acknowledged (no prior row), so there was nothing to withdraw. */
@@ -236,17 +241,22 @@ export function parseGetMultipleAccountsResponse(result: unknown, requested: str
 
 /**
  * The newest successful transaction for one asset — the diff event's evidence
- * anchor. Failed transactions cannot have moved state, so they are skipped;
- * an asset with no successful signature at all fails the pass loudly (nothing
- * has been persisted yet, so the next pass re-detects the same change).
+ * anchor. Failed transactions cannot have moved state, so they are skipped.
+ * Null when the scan holds no successful transaction at all: getSignaturesForAddress
+ * lists every transaction that names the address, and anyone can submit failed
+ * ones that do, so five of them newer than the real change would otherwise fail
+ * the pass at every run for good (outside audit 2026-11-05, finding R1). The
+ * caller adopts such a change without a ledger row and counts it, as the SAID
+ * pass does (saidActivity.ts). An answer that is not a list is the provider's
+ * fault, not a verdict on the change, and still fails the pass.
  */
-export function parseNewestSuccessfulSignature(result: unknown, asset: string): string {
+export function parseNewestSuccessfulSignature(result: unknown, asset: string): string | null {
   if (!Array.isArray(result)) throw new MetaplexChainValidationError(`Signature scan for ${asset} did not return a list.`);
   for (const entry of result as Array<{ signature?: unknown; err?: unknown } | null>) {
     if (!entry || typeof entry.signature !== "string" || entry.signature.length < 32) continue;
     if (entry.err === null || entry.err === undefined) return entry.signature;
   }
-  throw new MetaplexChainValidationError(`No successful transaction found to attribute the observed change on ${asset}.`);
+  return null;
 }
 
 /**
@@ -265,10 +275,15 @@ export function parseNewestSuccessfulSignature(result: unknown, asset: string): 
  *   adopted silently together with the name — "never chain-acknowledged" is
  *   neither a transfer nor a profile change.
  * Assets whose events exceed the per-pass cap are deferred wholesale (neither
- * events nor upserts), so their stale prior state re-diffs next pass.
+ * events nor upserts), so their stale prior state re-diffs next pass. Which
+ * assets the cap serves is decided in the pass's own order (passOrder.ts), not
+ * in key order, because a registrant chooses the key; the lists it returns stay
+ * in key order.
  */
 export function classifyMetaplexChainDiff(input: {
   seed: boolean;
+  /** The slot the pass read: the cap's order depends on it. */
+  passSlot: number;
   states: MetaplexAssetState[];
   prior: Map<string, MetaplexChainPriorEntry>;
 }): {
@@ -352,13 +367,20 @@ export function classifyMetaplexChainDiff(input: {
   const upserts: MetaplexAssetState[] = [];
   const diffEvents: MetaplexChainDiffEvent[] = [];
   let deferredCount = 0;
+  const served = admitUnderCap(
+    candidates,
+    candidate => candidate.asset,
+    candidate => candidate.events.length,
+    METAPLEX_CHAIN_MAX_EVENTS_PER_PASS,
+    input.passSlot
+  );
   for (const candidate of candidates) {
     if (candidate.events.length === 0) {
       // Unchanged: refresh the ack (lastSeenAt/lastRunId) without an event.
       upserts.push(candidate.state);
       continue;
     }
-    if (diffEvents.length + candidate.events.length > METAPLEX_CHAIN_MAX_EVENTS_PER_PASS) {
+    if (!served.has(candidate)) {
       deferredCount += 1;
       continue;
     }
@@ -461,13 +483,14 @@ export async function fetchMetaplexChainState(input: {
 
   const { upserts, diffEvents, deferredCount, closedSkippedCount, closedAcknowledgedCount } = classifyMetaplexChainDiff({
     seed: input.seed,
+    passSlot: slotResult,
     states,
     prior: input.prior,
   });
 
   // Attribution after classification, before any persistence: one signature
   // scan per event-bearing asset, in the same deterministic order as the diff.
-  const signatures = new Map<string, string>();
+  const signatures = new Map<string, string | null>();
   for (const event of diffEvents) {
     if (signatures.has(event.asset)) continue;
     const scan = parseSolanaRpcResult(
@@ -484,14 +507,27 @@ export async function fetchMetaplexChainState(input: {
     signatures.set(event.asset, parseNewestSuccessfulSignature(scan, event.asset));
   }
 
-  const events: SolanaChainActivityEvent[] = diffEvents.map(event => ({
-    kind: event.kind,
-    externalKey: event.asset,
-    transactionSignature: signatures.get(event.asset)!,
-    slot: slotResult,
-    fromOwner: event.fromOwner,
-    toOwner: event.toOwner,
-  }));
+  // A change with no signature to anchor it is adopted without a ledger row: its draft stays among the upserts, and a closure is still
+  // acknowledged closed (it is a real disappearance), so the marker list is kept apart from the events.
+  const events: SolanaChainActivityEvent[] = [];
+  const closedExternalKeys: string[] = [];
+  let unanchoredCount = 0;
+  for (const event of diffEvents) {
+    if (event.kind === "asset_closed") closedExternalKeys.push(event.asset);
+    const signature = signatures.get(event.asset) ?? null;
+    if (signature === null) {
+      unanchoredCount += 1;
+      continue;
+    }
+    events.push({
+      kind: event.kind,
+      externalKey: event.asset,
+      transactionSignature: signature,
+      slot: slotResult,
+      fromOwner: event.fromOwner,
+      toOwner: event.toOwner,
+    });
+  }
 
   const drafts: DirectoryEntryDraft[] = upserts.map(state => ({
     externalKey: state.asset,
@@ -511,6 +547,8 @@ export async function fetchMetaplexChainState(input: {
     closedCount: states.length - liveCount,
     drafts,
     events,
+    closedExternalKeys,
+    unanchoredCount,
     deferredCount,
     closedSkippedCount,
     closedAcknowledgedCount,

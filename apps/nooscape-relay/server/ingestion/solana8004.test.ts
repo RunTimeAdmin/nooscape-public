@@ -24,6 +24,7 @@ import {
   SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS,
   SOLANA_8004_CHAIN_SIGNAL_NOTE,
   SOLANA_8004_CHAIN_SOURCE_KEY,
+  SOLANA_8004_EVENT_TX_FETCH_CAP,
   SOLANA_8004_FETCH_BUDGET_PER_PASS,
   SOLANA_8004_PROGRAM,
   successfulSignatureList,
@@ -36,6 +37,7 @@ import type {
   Solana8004PriorResolution,
 } from "./solana8004";
 import { RESOLUTION_FAILED_MAX_ATTEMPTS, RESOLUTION_NO_NAME_MAX_ATTEMPTS } from "./registrationFetch";
+import { SOLANA_RPC_PACING_MS } from "./solanaRpc";
 import { encodeBase58 } from "./metaplexChain";
 
 // The pacing-verification tests sleep against the real ~1.2s RPC cadence
@@ -219,6 +221,47 @@ const fillerEntries = (assets: string[]) =>
     pubkey: "F".repeat(44),
     account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: ownerBytes(index + 10), uri: FILLER_URI })), "base64"] },
   }));
+
+/**
+ * Runs a pass whose RPC pacing is fake time: each sleep between calls elapses as soon as the pass asks for it. A pass that reads dozens
+ * of transactions would otherwise sleep for a minute of real time (1.2 s a call), past the file's timeout.
+ */
+async function runWithFakePacing<T>(work: () => Promise<T>): Promise<T> {
+  vi.useFakeTimers();
+  try {
+    let settled = false;
+    const promise = work().finally(() => {
+      settled = true;
+    });
+    promise.catch(() => undefined);
+    while (!settled) await vi.advanceTimersByTimeAsync(SOLANA_RPC_PACING_MS);
+    return await promise;
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
+/** What getTransaction answers for a transaction that transferred an agent, and for one that rated it. */
+const transferTx = () => ({
+  meta: {
+    logMessages: [
+      `Program ${SOLANA_8004_PROGRAM} invoke [1]`,
+      "Program log: Instruction: TransferAgent",
+      `Program log: Agent transferred: ${OWNER_C} -> ${OWNER_A}`,
+      `Program ${SOLANA_8004_PROGRAM} success`,
+    ],
+  },
+});
+const ratingTx = (asset: string) => ({
+  meta: {
+    logMessages: [
+      `Program ${SOLANA_8004_PROGRAM} invoke [1]`,
+      "Program log: Instruction: GiveFeedback",
+      `Program log: Feedback #3 created: asset=${asset}, client=${OWNER_A}, score=Some(70), atom_enabled=true, tier=0`,
+      `Program ${SOLANA_8004_PROGRAM} success`,
+    ],
+  },
+});
 
 /** Byte-exact MetadataEntryPda fixture: 332 bytes, asset [8..40), flag [40], bump [41], borsh key/value Strings. */
 const METADATA_DISCRIMINATOR = [0x30, 0x91, 0x0c, 0xf9, 0xb0, 0x8d, 0xc5, 0xbb];
@@ -675,6 +718,7 @@ describe("8004 Solana chain adapter", () => {
   describe("classifySolana8004Diff", () => {
     it("seeds a plain inventory with zero events", () => {
       const diff = classifySolana8004Diff({
+        passSlot: 1,
         seed: true,
         accounts: [liveAccount(ASSET_1, OWNER_A), liveAccount(ASSET_2, OWNER_B)],
         prior: new Map(),
@@ -686,12 +730,13 @@ describe("8004 Solana chain adapter", () => {
     });
 
     it("registers unknown assets and assets live again after an acknowledged closure", () => {
-      const fresh = classifySolana8004Diff({ seed: false, accounts: [liveAccount(ASSET_1, OWNER_A)], prior: new Map() });
+      const fresh = classifySolana8004Diff({ passSlot: 1, seed: false, accounts: [liveAccount(ASSET_1, OWNER_A)], prior: new Map() });
       expect(fresh.diffEvents).toEqual([
         { kind: "register", account: ACCOUNT_PDA, asset: ASSET_1, fromOwner: null, toOwner: OWNER_A },
       ]);
       expect(fresh.upserts).toHaveLength(1);
       const reborn = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_B, "Reborn")],
         prior: new Map([[ASSET_1, priorEntry({ displayName: "Old", registrant: OWNER_C, closed: true })]]),
@@ -706,6 +751,7 @@ describe("8004 Solana chain adapter", () => {
 
     it("adopts a never-chain-acknowledged row silently", () => {
       const diff = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_A, "Chain name", "chain.example.org")],
         prior: new Map([[ASSET_1, priorEntry({ displayName: "API name", registrant: null, locatorHost: "api.example.org" })]]),
@@ -716,6 +762,7 @@ describe("8004 Solana chain adapter", () => {
 
     it("detects transfers and emits transfer plus profile_update for one changed account", () => {
       const transferOnly = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_A)],
         prior: new Map([[ASSET_1, priorEntry({ registrant: OWNER_C })]]),
@@ -724,6 +771,7 @@ describe("8004 Solana chain adapter", () => {
         { kind: "transfer", account: ACCOUNT_PDA, asset: ASSET_1, fromOwner: OWNER_C, toOwner: OWNER_A },
       ]);
       const transferAndRename = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_A, "New name")],
         prior: new Map([[ASSET_1, priorEntry({ registrant: OWNER_C })]]),
@@ -736,6 +784,7 @@ describe("8004 Solana chain adapter", () => {
 
     it("detects a profile update from a locator-host change with an unchanged name", () => {
       const hostChange = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_A, "Alpha", "new.example.org")],
         prior: new Map([[ASSET_1, priorEntry({ locatorHost: "old.example.org" })]]),
@@ -746,6 +795,7 @@ describe("8004 Solana chain adapter", () => {
       // A null prior display name is not chain state: the name difference
       // alone never manufactures a profile_update.
       const nullName = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_A, "Whatever")],
         prior: new Map([[ASSET_1, priorEntry({ displayName: null })]]),
@@ -758,6 +808,7 @@ describe("8004 Solana chain adapter", () => {
       // invisible to the name-and-host comparison, visible to the full-link
       // hash (755 of the 1,504 live URIs are ipfs:// links).
       const hashChange = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_A, "Alpha", null, ACCOUNT_PDA, "ipfs://bafyexample-newcid")],
         prior: new Map([[ASSET_1, priorEntry({ registrant: OWNER_A, profileUriHash: hashRegistrationUri("ipfs://bafyexample-oldcid") })]]),
@@ -771,6 +822,7 @@ describe("8004 Solana chain adapter", () => {
       // A null prior hash — the row predates migration 0026 — adopts the
       // chain state silently, the same posture as a null prior registrant.
       const adopts = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_A, "Alpha", null, ACCOUNT_PDA, "ipfs://bafyexample-newcid")],
         prior: new Map([[ASSET_1, priorEntry({ registrant: OWNER_A })]]),
@@ -781,6 +833,7 @@ describe("8004 Solana chain adapter", () => {
 
     it("carries the prior row's last-known PDA on a closure for the confirm read", () => {
       const closure = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [],
         prior: new Map([[ASSET_1, priorEntry({ registrant: OWNER_C, accountPubkey: "D".repeat(44) })]]),
@@ -796,6 +849,7 @@ describe("8004 Solana chain adapter", () => {
 
     it("treats a vanished asset as a closure exactly once and never upserts it", () => {
       const passOne = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_2, OWNER_A)],
         prior: new Map([
@@ -814,6 +868,7 @@ describe("8004 Solana chain adapter", () => {
       // Pass two: the marker is set, so the vanished asset is skipped without
       // an event — hide-once holds and the cap stays free for real changes.
       const passTwo = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_2, OWNER_B)],
         prior: new Map([
@@ -827,7 +882,7 @@ describe("8004 Solana chain adapter", () => {
       expect(passTwo.closedAcknowledgedCount).toBe(1);
     });
 
-    it("defers a multi-event asset that would cross the per-pass cap and keeps refreshing unchanged rows", () => {
+    it("serves an asset's events whole or not at all under the per-pass cap, and keeps refreshing unchanged rows", () => {
       const accounts: Solana8004AgentAccount[] = [];
       const prior = new Map<string, Solana8004PriorEntry>();
       for (let index = 0; index < SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS - 1; index += 1) {
@@ -835,20 +890,43 @@ describe("8004 Solana chain adapter", () => {
         accounts.push(liveAccount(asset, OWNER_A, `Agent ${index}`));
         prior.set(asset, priorEntry({ displayName: `Agent ${index}`, registrant: OWNER_C }));
       }
-      // Transferred AND renamed — two events on one account. The diff walks
-      // accounts in lexicographic asset order, and 'z' is the last base58
-      // digit, so this account sorts after every filler: accepting both
-      // events would cross the cap and the whole account defers.
+      // Transferred AND renamed: two events on one account. With the 24 fillers that is 26 events against a cap of 25, so exactly one
+      // account defers in any pass, whichever order the pass serves them in: this one (both events or neither) or one filler.
       const lateAsset = encodeBase58(ownerBytes(57));
       accounts.push(liveAccount(lateAsset, OWNER_B, "New name"));
       prior.set(lateAsset, priorEntry({ displayName: "Old name", registrant: OWNER_C }));
       accounts.push(liveAccount(ASSET_1, OWNER_A, "Unchanged"));
       prior.set(ASSET_1, priorEntry({ displayName: "Unchanged", registrant: OWNER_A }));
-      const diff = classifySolana8004Diff({ seed: false, accounts, prior });
-      expect(diff.diffEvents).toHaveLength(SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS - 1);
-      expect(diff.deferredCount).toBe(1);
-      expect(diff.upserts.some(account => account.asset === lateAsset)).toBe(false);
-      expect(diff.upserts.some(account => account.asset === ASSET_1)).toBe(true);
+      for (let passSlot = 1; passSlot <= 30; passSlot += 1) {
+        const diff = classifySolana8004Diff({ passSlot, seed: false, accounts, prior });
+        expect(diff.deferredCount).toBe(1);
+        expect(diff.diffEvents.length).toBeLessThanOrEqual(SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS);
+        const lateEvents = diff.diffEvents.filter(event => event.asset === lateAsset).length;
+        expect([0, 2]).toContain(lateEvents);
+        expect(diff.upserts.some(account => account.asset === lateAsset)).toBe(lateEvents === 2);
+        expect(diff.upserts.some(account => account.asset === ASSET_1)).toBe(true);
+      }
+    });
+
+    it("serves a late-sorting change in most passes when 25 early-sorting accounts change in every pass", () => {
+      // A registrant chooses the key, so 25 accounts whose keys sort first, each changed once a pass, would fill the cap in key order
+      // in every pass and keep the 5 honest changes deferred for as long as they paid the fees (outside audit R11).
+      const attackers = Array.from({ length: SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS }, (_value, index) => encodeBase58(ownerBytes(58 + index)));
+      const honest = Array.from({ length: 5 }, (_value, index) => encodeBase58(ownerBytes(10 + index)));
+      expect(honest.every(asset => attackers.every(other => other < asset))).toBe(true);
+      const accounts = [...attackers, ...honest].map(asset => liveAccount(asset, OWNER_A, "New name"));
+      const prior = new Map(accounts.map(account => [account.asset, priorEntry({ displayName: "Old name", registrant: OWNER_A })] as const));
+      const served = new Map<string, number>(honest.map(asset => [asset, 0]));
+      for (let passSlot = 1; passSlot <= 60; passSlot += 1) {
+        const diff = classifySolana8004Diff({ passSlot, seed: false, accounts, prior });
+        expect(diff.diffEvents).toHaveLength(SOLANA_8004_CHAIN_MAX_EVENTS_PER_PASS);
+        expect(diff.deferredCount).toBe(5);
+        const assets = diff.diffEvents.map(event => event.asset);
+        expect(assets).toEqual([...assets].sort());
+        for (const asset of honest) if (assets.includes(asset)) served.set(asset, served.get(asset)! + 1);
+      }
+      // Each is served in about 50 of 60 passes (25 of 30 places); in key order it was served in none.
+      for (const asset of honest) expect(served.get(asset)!).toBeGreaterThan(35);
     });
   });
 
@@ -1013,6 +1091,7 @@ describe("8004 Solana chain adapter", () => {
       // manufacture an un-anchorable profile_update.
       const placeholder = placeholderSolana8004Name(ASSET_1);
       const enrichedPrior = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_A, placeholder)],
         prior: new Map([[ASSET_1, priorEntry({ displayName: "Fetched Name", registrant: OWNER_A })]]),
@@ -1020,6 +1099,7 @@ describe("8004 Solana chain adapter", () => {
       expect(enrichedPrior.diffEvents).toEqual([]);
       // The reverse direction is a real chain-side rename: it fires.
       const realRename = classifySolana8004Diff({
+        passSlot: 1,
         seed: false,
         accounts: [liveAccount(ASSET_1, OWNER_A, "Real New Name")],
         prior: new Map([[ASSET_1, priorEntry({ displayName: placeholder, registrant: OWNER_A })]]),
@@ -1316,7 +1396,10 @@ describe("8004 Solana chain adapter", () => {
       expect(snapshot.events).toEqual([{ kind: "register", externalKey: ASSET_2, transactionSignature: SIGNATURE, slot: 4242, fromOwner: null, toOwner: OWNER_A }]);
     });
 
-    it("fails the pass when a live change has no successful transaction to anchor it", async () => {
+    it("adopts a live change that has no successful transaction to anchor it, without a ledger row, and counts it", async () => {
+      // Anyone can put failed transactions on an agent's account: the newest 25 here all failed, so the scan holds nothing to walk. The
+      // pass used to throw on this at every run for good (outside audit 2026-11-05, R2).
+      const failed = Array.from({ length: 25 }, (_unused, index) => ({ signature: `4${index}`.padEnd(88, "4"), err: { InstructionError: [0, 1] } }));
       stubRpc({
         getSlot: () => 4242,
         getProgramAccounts: () => [
@@ -1325,17 +1408,19 @@ describe("8004 Solana chain adapter", () => {
             account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: ownerBytes(7) })), "base64"] },
           },
         ],
-        getSignaturesForAddress: () => [{ signature: "4".repeat(88), err: { InstructionError: [0, 1] } }],
+        getSignaturesForAddress: () => failed,
       });
       const prior = new Map([[ASSET_2, priorEntry({ registrant: OWNER_C })]]);
-      await expect(
-        fetchSolana8004ChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" })
-      ).rejects.toThrow(/No transaction matching the observed transfer/);
+      const snapshot = await fetchSolana8004ChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" });
+      expect(snapshot.events).toEqual([]);
+      expect(snapshot.unanchoredCount).toBe(1);
+      expect(snapshot.deferredAttributionCount).toBe(0);
+      // The directory row carries the change: the draft is among the upserts, with the owner the chain shows now.
+      expect(snapshot.drafts.map(draft => [draft.externalKey, draft.registrant])).toEqual([[ASSET_2, OWNER_A]]);
     });
 
-    it("fails the pass when no walked transaction matches the observed change", async () => {
-      // Every transaction on the account is a rating — the observed transfer
-      // must fail loudly rather than anchor to a rating or guess.
+    it("adopts a live change that no walked transaction matches, rather than anchoring it to a rating or guessing", async () => {
+      // Every transaction on the account is a rating: the observed transfer has no honest anchor, so the ledger gets no row.
       stubRpc({
         getSlot: () => 4242,
         getProgramAccounts: () => [
@@ -1345,44 +1430,27 @@ describe("8004 Solana chain adapter", () => {
           },
         ],
         getSignaturesForAddress: () => [{ signature: SIGNATURE, err: null }],
-        getTransaction: () => ({
-          meta: {
-            logMessages: [
-              `Program ${SOLANA_8004_PROGRAM} invoke [1]`,
-              "Program log: Instruction: GiveFeedback",
-              `Program log: Feedback #3 created: asset=${ASSET_2}, client=${OWNER_A}, score=Some(70), atom_enabled=true, tier=0`,
-              `Program ${SOLANA_8004_PROGRAM} success`,
-            ],
-          },
-        }),
+        getTransaction: () => ratingTx(ASSET_2),
       });
       const prior = new Map([[ASSET_2, priorEntry({ registrant: OWNER_C })]]);
-      await expect(
-        fetchSolana8004ChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" })
-      ).rejects.toThrow(/No transaction matching the observed transfer/);
+      const snapshot = await fetchSolana8004ChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" });
+      expect(snapshot.events).toEqual([]);
+      expect(snapshot.unanchoredCount).toBe(1);
+      expect(snapshot.drafts.map(draft => [draft.externalKey, draft.registrant])).toEqual([[ASSET_2, OWNER_A]]);
     });
 
-    it("defers a live change whose walk exhausted the shared fetch budget instead of failing the pass", async () => {
-      // A stormy account (twelve ratings newer than its transfer) shares the
-      // per-pass fetch budget with a healthy account: the pass must keep the
-      // healthy anchor, defer the stormy one, and leave its row stale so the
-      // next pass re-detects the diff — one busy account must not wedge the
-      // source. A walk that examined every scanned transaction and still
-      // found no match keeps failing loudly (the tests above); running out
-      // of budget is a different verdict.
+    it("adopts a live change whose walk reached the per-event bound without a match, and the account after it still anchors in the same pass", async () => {
+      // A stormy account (more ratings than one walk may read) shares the pass with a healthy one. The stormy change is adopted without
+      // a ledger row, once, and costs the healthy account nothing: one busy account must neither wedge the pass nor starve the rest.
       const healthyPda = "B".repeat(44);
       const healthySignature = "7".repeat(88);
-      // Distinct rating signatures that never collide with the anchored
-      // fixture signatures ("5"/"7" repeated): a colliding stub route would
-      // hand the stormy walk the transfer transaction itself.
-      const ratingSignatures = Array.from({ length: 12 }, (_, i) => `c${i + 1}`.repeat(44));
+      // Distinct rating signatures that never collide with the anchored fixture signatures ("5"/"7" repeated): a colliding stub route
+      // would hand the stormy walk the transfer transaction itself.
+      const ratingSignatures = Array.from({ length: SOLANA_8004_EVENT_TX_FETCH_CAP + 4 }, (_unused, index) => `c${index + 1}`.repeat(44));
       stubRpc({
         getSlot: () => 4242,
         getProgramAccounts: () => [
-          // Asset order decides attribution order (diff events sort by
-          // asset): the healthy account sorts first, so its walk spends one
-          // fetch and anchors before the stormy account drains what is left
-          // of the shared budget.
+          // Asset order decides attribution order (diff events sort by asset): the healthy account sorts first.
           {
             pubkey: healthyPda,
             account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: ownerBytes(7) })), "base64"] },
@@ -1393,129 +1461,121 @@ describe("8004 Solana chain adapter", () => {
           },
         ],
         getSignaturesForAddress: params => {
-          const address = params[0] as string;
-          if (address === ACCOUNT_PDA) {
-            // Newest-first: twelve ratings landed after the transfer — more
-            // than the walk may fetch in one pass.
-            return ratingSignatures.map(signature => ({ signature, err: null }));
-          }
+          // Newest-first: more ratings landed after the transfer than one walk may read.
+          if (params[0] === ACCOUNT_PDA) return ratingSignatures.map(signature => ({ signature, err: null }));
           return [{ signature: healthySignature, err: null }];
         },
-        getTransaction: params => {
-          if (params[0] === healthySignature) {
-            return {
-              meta: {
-                logMessages: [
-                  `Program ${SOLANA_8004_PROGRAM} invoke [1]`,
-                  "Program log: Instruction: TransferAgent",
-                  `Program log: Agent transferred: ${OWNER_C} -> ${OWNER_A}`,
-                  `Program ${SOLANA_8004_PROGRAM} success`,
-                ],
-              },
-            };
-          }
-          // Every stormy-signature fetch is a rating: examined, never a
-          // match, until the budget stops the walk with signatures left
-          // unexamined.
-          return {
-            meta: {
-              logMessages: [
-                `Program ${SOLANA_8004_PROGRAM} invoke [1]`,
-                "Program log: Instruction: GiveFeedback",
-                `Program log: Feedback #3 created: asset=${ASSET_3}, client=${OWNER_A}, score=Some(70), atom_enabled=true, tier=0`,
-                `Program ${SOLANA_8004_PROGRAM} success`,
-              ],
-            },
-          };
-        },
+        getTransaction: params => (params[0] === healthySignature ? transferTx() : ratingTx(ASSET_3)),
       });
       const prior = new Map([
         [ASSET_2, priorEntry({ registrant: OWNER_C })],
         [ASSET_3, priorEntry({ registrant: OWNER_C })],
       ]);
       const snapshot = await fetchSolana8004ChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" });
-      // The pass resolves: the healthy transfer is anchored, the stormy one
-      // is deferred — nothing is guessed.
       expect(snapshot.events).toEqual([
         { kind: "transfer", externalKey: ASSET_2, transactionSignature: healthySignature, slot: 4242, fromOwner: OWNER_C, toOwner: OWNER_A },
       ]);
-      expect(snapshot.deferredAttributionCount).toBe(1);
-      // The deferred account's draft is dropped: its directory row keeps the
-      // prior registrant and the next pass re-detects the same transfer.
-      expect(snapshot.drafts.map(draft => draft.externalKey)).toEqual([ASSET_2]);
-      // getSlot + gPA + two scans + ten fetches — one healthy
-      // match plus nine examined ratings before the budget stopped the
-      // stormy walk with its last three signatures unexamined.
-      expect(snapshot.requestCount).toBe(14);
+      expect(snapshot.unanchoredCount).toBe(1);
+      expect(snapshot.deferredAttributionCount).toBe(0);
+      // The stormy account's draft stays among the upserts: its directory row shows the owner the chain shows, with no ledger row.
+      expect(snapshot.drafts.map(draft => [draft.externalKey, draft.registrant])).toEqual([
+        [ASSET_2, OWNER_A],
+        [ASSET_3, OWNER_A],
+      ]);
+      // getSlot + gPA + two scans + one healthy fetch + the stormy walk, which stops at the per-event bound.
+      expect(snapshot.requestCount).toBe(2 + 2 + 1 + SOLANA_8004_EVENT_TX_FETCH_CAP);
     });
 
-    it("defers a closure whose walk starts with the shared fetch budget already spent", async () => {
-      // The deferral contract the runner documents: budget-starved closures
-      // stay unmarked, because the hide-once marker is permanent — a closure
-      // acknowledged on a budget verdict would hide the row with no ledger
-      // anchor and never be re-detected. Live accounts sort before closures
-      // in the diff, so a stormy transfer drains the shared budget first and
-      // the closure's walk starts with nothing left to spend: its scan finds
-      // a candidate anchor, but the fetch loop breaks at the cap before
-      // examining a single signature.
+    it("defers the events the pass budget did not reach, and the next pass anchors them because the accounts that spent it were adopted", async () => {
+      // Enough stormy accounts to spend the whole pass budget, each adopted at its own bound, then a healthy account that sorts after
+      // them. Before the per-event bound one such account spent the budget on every pass, and everything after it waited for good.
+      const stormyCount = Math.ceil(SOLANA_8004_ATTRIBUTION_TX_FETCH_CAP / SOLANA_8004_EVENT_TX_FETCH_CAP);
+      const stormy = Array.from({ length: stormyCount }, (_unused, index) => ({
+        pda: "CDEFGHJKLMNP"[index]!.repeat(44),
+        asset: ownerBytes(20 + index),
+        key: encodeBase58(ownerBytes(20 + index)),
+        signatures: Array.from({ length: SOLANA_8004_EVENT_TX_FETCH_CAP + 2 }, (_unused2, step) => `${"cdefghjkmnp"[index]}${step + 1}`.repeat(44)),
+      }));
+      // ownerBytes(57) encodes as one character, 'z', which sorts after the stormy accounts' 'M' to 'R' (two-character encodings, from
+      // ownerBytes(58) up, start with a digit and would sort before them).
+      const healthyPda = "Z".repeat(44);
+      const healthyKey = encodeBase58(ownerBytes(57));
+      const healthySignature = "7".repeat(88);
+      stubRpc({
+        getSlot: () => 4242,
+        getProgramAccounts: () => [
+          ...stormy.map(each => ({ pubkey: each.pda, account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: each.asset })), "base64"] } })),
+          { pubkey: healthyPda, account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: ownerBytes(57) })), "base64"] } },
+        ],
+        getSignaturesForAddress: params => {
+          const found = stormy.find(each => each.pda === params[0]);
+          return found ? found.signatures.map(signature => ({ signature, err: null })) : [{ signature: healthySignature, err: null }];
+        },
+        getTransaction: params => (params[0] === healthySignature ? transferTx() : ratingTx(ASSET_3)),
+      });
+      const prior = new Map<string, Solana8004PriorEntry>([...stormy.map(each => [each.key, priorEntry({ registrant: OWNER_C })] as const), [healthyKey, priorEntry({ registrant: OWNER_C })]]);
+      const first = await runWithFakePacing(() => fetchSolana8004ChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" }));
+      // Each stormy change was adopted at its own bound and the budget is spent: the healthy account is deferred, not failed.
+      expect(first.events).toEqual([]);
+      expect(first.unanchoredCount).toBe(stormyCount);
+      expect(first.deferredAttributionCount).toBe(1);
+      expect(first.drafts.map(draft => draft.externalKey)).toEqual(stormy.map(each => each.key));
+      // getSlot + gPA + a scan for every account + the whole pass budget.
+      expect(first.requestCount).toBe(2 + stormyCount + 1 + SOLANA_8004_ATTRIBUTION_TX_FETCH_CAP);
+
+      // The next pass: the stormy rows already show the chain's owner, so only the healthy account is pending, and it anchors.
+      const settled = new Map(prior);
+      for (const each of stormy) settled.set(each.key, priorEntry({ registrant: OWNER_A }));
+      const second = await runWithFakePacing(() => fetchSolana8004ChainState({ source: approvedSource, seed: false, prior: settled, rpcUrl: "https://rpc.test" }));
+      expect(second.events).toEqual([
+        { kind: "transfer", externalKey: healthyKey, transactionSignature: healthySignature, slot: 4242, fromOwner: OWNER_C, toOwner: OWNER_A },
+      ]);
+      expect(second.unanchoredCount).toBe(0);
+      expect(second.deferredAttributionCount).toBe(0);
+    });
+
+    it("defers a closure whose walk starts with the pass budget already spent", async () => {
+      // The deferral contract the runner documents: budget-starved closures stay unmarked, because the hide-once marker is permanent: a
+      // closure acknowledged on a budget verdict would hide the row with no ledger anchor and never be re-detected. Live accounts sort
+      // before closures in the diff, so stormy transfers spend the pass budget first (each adopted at its own bound) and the closure's
+      // walk starts with nothing left to spend: its scan finds a candidate anchor, but the walk stops before reading a single one.
+      const stormyCount = Math.ceil(SOLANA_8004_ATTRIBUTION_TX_FETCH_CAP / SOLANA_8004_EVENT_TX_FETCH_CAP);
+      const stormyAssets = Array.from({ length: stormyCount }, (_unused, index) => ownerBytes(101 + index));
+      const stormyPdas = stormyAssets.map((_asset, index) => "CDEFGHJKLMNP"[index]!.repeat(44));
       const assets = fillerAssets(49);
-      // Distinct rating signatures (the "d" prefix never collides with the
-      // closure fixture's SIGNATURE or with each other).
-      const ratingSignatures = Array.from({ length: 12 }, (_, i) => `d${i + 1}`.repeat(44));
       stubRpc({
         getSlot: () => 4242,
         getProgramAccounts: () => [
           ...fillerEntries(assets),
-          {
-            pubkey: ACCOUNT_PDA,
-            account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: ownerBytes(7) })), "base64"] },
-          },
+          ...stormyAssets.map((asset, index) => ({ pubkey: stormyPdas[index]!, account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset })), "base64"] } })),
         ],
         getSignaturesForAddress: params => {
-          const address = params[0] as string;
-          if (address === ACCOUNT_PDA) {
-            // Twelve ratings after the transfer — more than the walk may
-            // fetch in one pass, so the stormy transfer defers and the
-            // budget is spent when the closure's walk begins.
-            return ratingSignatures.map(signature => ({ signature, err: null }));
-          }
-          // The closure address has a candidate anchor waiting; the walk
-          // just never gets to fetch it.
+          const index = stormyPdas.indexOf(params[0] as string);
+          // A stormy account has more ratings after its transfer than one walk may read; the closure address has a candidate anchor
+          // waiting that the walk never gets to fetch.
+          if (index >= 0) return Array.from({ length: SOLANA_8004_EVENT_TX_FETCH_CAP + 2 }, (_unused, step) => ({ signature: `${"cdefghjkmnp"[index]}${step + 1}`.repeat(44), err: null }));
           return [{ signature: SIGNATURE, err: null }];
         },
-        getTransaction: () => ({
-          meta: {
-            logMessages: [
-              `Program ${SOLANA_8004_PROGRAM} invoke [1]`,
-              "Program log: Instruction: GiveFeedback",
-              `Program log: Feedback #3 created: asset=${ASSET_2}, client=${OWNER_A}, score=Some(70), atom_enabled=true, tier=0`,
-              `Program ${SOLANA_8004_PROGRAM} success`,
-            ],
-          },
-        }),
+        getTransaction: () => ratingTx(ASSET_2),
       });
       const prior = fillerPrior(assets);
-      prior.set(ASSET_2, priorEntry({ registrant: OWNER_C }));
+      for (const asset of stormyAssets) prior.set(encodeBase58(asset), priorEntry({ registrant: OWNER_C }));
       prior.set(ASSET_3, priorEntry({ registrant: OWNER_C }));
-      const snapshot = await fetchSolana8004ChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" });
-      // The stormy transfer and the closure both deferred: nothing anchored,
-      // nothing acknowledged, nothing ledgered — and the next pass
-      // re-detects both.
+      const snapshot = await runWithFakePacing(() => fetchSolana8004ChainState({ source: approvedSource, seed: false, prior, rpcUrl: "https://rpc.test" }));
+      // The stormy transfers were adopted unanchored and the closure deferred: nothing anchored, nothing ledgered, nothing acknowledged
+      // as closed: the next pass re-detects the closure.
       expect(snapshot.events).toEqual([]);
-      expect(snapshot.deferredAttributionCount).toBe(2);
-      // The regression pin: the budget-starved closure must NOT be marked
-      // closed. Hide-once would make the budget verdict permanent and the
-      // row would vanish from public reads with no closure event anywhere.
+      expect(snapshot.unanchoredCount).toBe(stormyCount);
+      expect(snapshot.deferredAttributionCount).toBe(1);
+      // The regression pin: the budget-starved closure must NOT be marked closed. Hide-once would make the budget verdict permanent and
+      // the row would vanish from public reads with no closure event anywhere.
       expect(snapshot.closedExternalKeys).toEqual([]);
       expect(snapshot.unanchoredClosureCount).toBe(0);
       expect(snapshot.unconfirmedClosureCount).toBe(0);
-      // The stormy account's draft is dropped with the deferral; the
-      // unchanged fillers' refresh through.
-      expect(snapshot.drafts).toHaveLength(49);
-      expect(snapshot.drafts.some(draft => draft.externalKey === ASSET_2)).toBe(false);
-      // getSlot + gPA + two scans (stormy PDA, closure
-      // asset) + ten stormy fetches — the closure walk fetched nothing.
-      expect(snapshot.requestCount).toBe(14);
+      // The adopted stormy accounts' drafts stay with the unchanged fillers' refresh.
+      expect(snapshot.drafts).toHaveLength(49 + stormyCount);
+      // getSlot + gPA + a scan for every stormy account and for the closure + the whole pass budget; the closure walk fetched nothing.
+      expect(snapshot.requestCount).toBe(2 + stormyCount + 1 + SOLANA_8004_ATTRIBUTION_TX_FETCH_CAP);
     });
 
     it("anchors closures to a registry line naming the asset and leaves unmatched closures unanchored", async () => {
