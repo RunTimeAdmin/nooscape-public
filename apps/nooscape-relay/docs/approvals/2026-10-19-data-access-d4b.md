@@ -17,7 +17,7 @@ See "Choices the spec left open" in the D4b section: off until `X402_RPC` is set
 
 ## What D4b leaves
 
-Wallets that are not deployed yet (ERC-6492), a receipt reader and a budget for gas lost to failed settlements (the Archipelago server has both), a fallback node, and a live trial with a Safe and an ERC-4337 account (the test used a minimal owner-signed contract wallet on Arc testnet).
+Wallets that are not deployed yet (ERC-6492), a receipt reader and a budget for gas lost to failed settlements (the operator's own x402 server has both), a fallback node, and a live trial with a Safe and an ERC-4337 account (the test used a minimal owner-signed contract wallet on Arc testnet).
 
 ## Outcome
 

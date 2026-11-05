@@ -21,7 +21,7 @@
 |---|---|---|
 | **Solana** | Primary | ~76% of all x402 transactions; Metaplex + SATI + Solana Agent Registry; batch USDC settlement shipped Oct 2026; sub-second blocks. The agent economy is transacting here. |
 | **Robinhood Chain** (Arbitrum Orbit L2, chain ID 4663) | Primary | Agent-native from day one: Virtuals ACP integration, ERC-8004 Identity Registry live, ~8,600 registered agent IDs, $77M agent volume in week one. Multiple independent x402 facilitators settling USDG (Hoodx402, Aeron, Solvador, Payless, rhx402). QuickNode's ERC-8004 explorer already indexes it. |
-| **Arc** (Circle, 5042) | P1 | Archipelago is a first-party x402 service. Ingest only attributable service metadata and settlement observations; any external marketplace or directory must have a verified, machine-readable catalog before it is enabled. See `ARC_INGEST_RESEARCH.md`. |
+| **Arc** (Circle, 5042) | P1 | The operator runs a first-party x402 service. Ingest only attributable service metadata and settlement observations; any external marketplace or directory must have a verified, machine-readable catalog before it is enabled. See `ARC_INGEST_RESEARCH.md`. |
 
 **Base is explicitly deferred** to a later phase, despite being the third-largest ERC-8004 chain (~86K identities) and hosting Virtuals ACP. Rationale: v1 scope discipline — three chains is enough to prove the dedup + trust-tier pipeline. Base's ACP commerce agents and 8004 registrations are the natural Phase 2 expansion once the core graph works.
 
@@ -62,7 +62,7 @@ With only three chains, the dedup graph is smaller but the cross-chain link prob
 
 ## 3. Arc status (corrected Oct 7, 2026)
 
-**Resolved:** Archipelago is an x402 service on Arc, Circle’s chain 5042. This supports Arc as a P1 first-party evidence source, not as an independently verified marketplace or broad agent-registry source.
+**Resolved:** The operator runs an x402 service on Arc, Circle’s chain 5042. This supports Arc as a P1 first-party evidence source, not as an independently verified marketplace or broad agent-registry source.
 
 **Still open:**
 1. Whether Arc offers a public agent identity registry that is useful beyond service-level metadata.

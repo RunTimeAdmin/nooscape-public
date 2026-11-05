@@ -30,7 +30,7 @@ describe("the database target", () => {
   });
 
   it("reads an IPv6 host without its brackets", () => {
-    expect(parseDatabaseTarget("mysql://u:pw@[2a02:4780:b:1234::187]:3306/db")).toMatchObject({ host: "2a02:4780:b:1234::187", port: 3306 });
+    expect(parseDatabaseTarget("mysql://u:pw@[2001:db8:b:1234::187]:3306/db")).toMatchObject({ host: "2001:db8:b:1234::187", port: 3306 });
   });
 
   it("is null for text that is not a URL", () => {
