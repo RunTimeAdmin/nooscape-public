@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["client/src/**/*", "shared/**/*", "server/**/*", "verifier/**/*"],
+  "include": ["client/src/**/*", "shared/**/*", "server/**/*", "verifier/**/*", "examples/**/*"],
   "exclude": ["node_modules", "build", "dist", "verifier/dist"],
   "compilerOptions": {
     "target": "ES2022",

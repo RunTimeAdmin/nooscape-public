@@ -626,7 +626,12 @@ const checkFlags = {
       description: "A fleet means identities registered by one wallet, and nothing more.",
       required: ["present", "listed_by_same_wallet", "same_host_others", "same_name_others", "basis"],
       additionalProperties: false,
-      properties: { ...flagBase, listed_by_same_wallet: nullable("integer", { description: "Listings Nooscape shows that this wallet registered, this agent included." }), same_host_others: nullable("integer"), same_name_others: nullable("integer") },
+      properties: {
+        ...flagBase,
+        listed_by_same_wallet: nullable("integer", { description: "What this wallet registered, this agent included: the listings Nooscape shows or, on a chain whose whole registry Nooscape reads, every registration it holds, listed or not. The basis says which." }),
+        same_host_others: nullable("integer", { description: "The other listings that share this agent's host, whoever registered them (on a chain whose whole registry Nooscape reads, the other registrations, listed or not). It does not show common ownership." }),
+        same_name_others: nullable("integer", { description: "The other listings that share this agent's name, whoever registered them. It does not show common ownership." }),
+      },
     },
   },
 };

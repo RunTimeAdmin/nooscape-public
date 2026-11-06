@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { AGENT_ID_MAX_CHARS, CHAIN_KEYS, type ApiChain } from "./apiChains";
+import { AGENT_ID_MAX_CHARS, API_CHAINS, CHAIN_KEYS, type ApiChain } from "./apiChains";
 import { CHAIN_BLOCKS_PER_DAY } from "./db";
 import { canonicalHost } from "./hostName";
+import { erc8004ChainOfProtocol } from "./ingestion/erc8004Chains";
 
 /**
  * The pre-flight check (docs/data-access-2026-10-19.md, stage D3): for an agent, a wallet or an endpoint URL, the evidence level, a few
@@ -82,6 +83,23 @@ export type CheckFlagsInput = {
   };
   facts: { activityThroughBlock: number | null; solana: { transfers: number; latestRecordedAt: Date | string | null } | null };
 };
+
+/**
+ * What the fleet flag's counts rest on. On a registry chain the wallet and host counts run over every registration Nooscape holds for
+ * that registry, listed or not (registryRelatedCounts in server/db.ts, worded the same way on the agent page); the name count, and every
+ * count on another chain, run over the listings Nooscape shows. The host and name counts include what other wallets registered, and
+ * anyone can register an agent that names a host or a name, so they show no common ownership.
+ */
+function fleetBasis(chain: ApiChain): string {
+  const registryChain = API_CHAINS[chain].protocols.some(protocol => erc8004ChainOfProtocol(protocol) !== null);
+  const wallet = registryChain
+    ? "The count includes this agent, and runs over every registration Nooscape holds for this registry, listed or not."
+    : "The count includes this agent, and counts the listings Nooscape shows.";
+  const others = registryChain
+    ? "same_host_others counts the other registrations that share this agent's host, listed or not, and same_name_others the other listings that share its name, whoever registered them."
+    : "same_host_others and same_name_others count the other listings that share this agent's host or name, whoever registered them.";
+  return `A fleet means identities registered by one wallet, and nothing more. ${wallet} ${others} They do not show common ownership: anyone can register an agent that names a host or a name.`;
+}
 
 /** The four flags the plan names: new, ownership changed, revoked feedback share, fleet size. */
 export function checkFlags({ chain, now, entry, facts }: CheckFlagsInput) {
@@ -180,7 +198,7 @@ export function checkFlags({ chain, now, entry, facts }: CheckFlagsInput) {
         listed_by_same_wallet: related.sameWallet + 1,
         same_host_others: related.sameHost,
         same_name_others: related.sameName,
-        basis: "A fleet means identities registered by one wallet, and nothing more. The count includes this agent, and counts the listings Nooscape shows.",
+        basis: fleetBasis(chain),
       }
     : { present: null, listed_by_same_wallet: null, same_host_others: null, same_name_others: null, basis: "The look-alike counts are not available for this agent." };
 
