@@ -252,6 +252,8 @@ describe.skipIf(!dbReachable)("the host cap, against a real database", { timeout
       expect(await registry.readRegistryCounts("erc8004_base")).toEqual({ recorded: 11 + 8, listed: 3 });
       const read = (await registry.readRegistryGroups("erc8004_base", 4, 8))!;
       expect(read.recorded).toBe(19);
+      // 8 of the 19 were counted and not stored, so no wallet is recorded for them
+      expect(read.counted).toBe(8);
       expect(read.groups.filter(group => group.kind === "platform_host")).toEqual([{ kind: "platform_host", key: FLOOD, count: 16, host: FLOOD, name: null }]);
       expect(read.totals.platform_host).toBe(1);
     });

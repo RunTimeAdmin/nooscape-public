@@ -263,7 +263,7 @@ export default function LandingHero({ records, status, acknowledged = null, flee
             )}
             {arcNote && (
               <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">
-                One report, dated 20 October 2026: the <Link href="/field/arc-registry-2026-10-20" className="underline underline-offset-4 hover:text-ns-ink">Arc registry census</Link>.
+                One report, dated 6 November 2026: the <Link href="/field/arc-registry-2026-11-06" className="underline underline-offset-4 hover:text-ns-ink">Arc registry census</Link>.
               </p>
             )}
             {baseNote && (

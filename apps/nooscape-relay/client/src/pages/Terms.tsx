@@ -93,6 +93,9 @@ export default function Terms() {
         <p className={textClass}>
           The records republish what public sources published, and those sources keep their own terms. We may change, limit or stop the API or any page at any time.
         </p>
+        <p className={textClass}>
+          The facts Nooscape produces (the records it keeps, its flags, dates and counts, and the signed evidence) are licensed under <a href="https://creativecommons.org/licenses/by/4.0/" className={linkClass} rel="noopener noreferrer">CC BY 4.0</a>. You may copy, share and adapt them, commercially too, if you credit Nooscape with the attribution line the API gives (<code>license.attribution</code>) and say what you changed. The license does not cover text that registrants published (names, descriptions, addresses), which stays theirs and is shown as published, or the Nooscape name and logo. It is about what you may do with data you have. These Terms, including the rate limits, are about how you may get it from this service.
+        </p>
         <ul className={listClass}>
           <li>An API key (see <Link href="/developers/keys" className={linkClass}>API keys</Link>) is for the person it was made for. Keep it private, do not share it or sell access to it, and do not make keys to get around a limit.</li>
           <li>You are responsible for what is done with your key. We may end a key, change what a tier allows or refuse to make a key, at any time and without notice. Paid tiers are agreed with us by email.</li>

@@ -46,7 +46,7 @@ export function sitemapXml(urls: readonly string[]): string {
  * The list is read as the server runs, so the sitemap and the page agree.
  */
 const SITEMAP_FLAGGED_ROUTES: Partial<Record<Feature, readonly string[]>> = {
-  chain_arc: ["/chains/arc", "/field/arc-registry-2026-10-20"],
+  chain_arc: ["/chains/arc", "/field/arc-registry-2026-10-20", "/field/arc-registry-2026-11-06"],
   chain_base: ["/chains/base", "/field/base-registry-2026-10-21"],
   chain_ethereum: ["/chains/ethereum", "/field/ethereum-registry-2026-10-28"],
   chain_monad: ["/chains/monad", "/field/monad-registry-2026-11-01"],

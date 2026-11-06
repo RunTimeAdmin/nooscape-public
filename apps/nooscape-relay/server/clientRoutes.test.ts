@@ -33,6 +33,10 @@ describe("isClientRoutePath", () => {
     expect(isClientRoutePath("/field/arc-registry-2026-10-20", undefined)).toBe(false);
     expect(isClientRoutePath("/field/arc-registry-2026-10-20", "chain_arc")).toBe(true);
     expect(isClientRoutePath("/field/arc-registry-2026-10-20/", "chain_arc")).toBe(false);
+    // and so does the second census of Arc.
+    expect(isClientRoutePath("/field/arc-registry-2026-11-06", undefined)).toBe(false);
+    expect(isClientRoutePath("/field/arc-registry-2026-11-06", "chain_arc")).toBe(true);
+    expect(isClientRoutePath("/field/arc-registry-2026-11-06/", "chain_arc")).toBe(false);
     expect(isClientRoutePath("/chains/arc/", "chain_arc")).toBe(false);
     expect(isClientRoutePath("/chains/Arc", "chain_arc")).toBe(false);
   });

@@ -24,7 +24,7 @@ const WATCH_CHAINS_OR_NULL = [...WATCH_CHAINS, null];
 
 const license = {
   type: "object",
-  description: "The terms the data is offered under. Provisional until a final data license is published.",
+  description: "The license the data is offered under (CC BY 4.0) and the attribution line to show where you use it.",
   required: ["name", "url", "attribution", "notes"],
   additionalProperties: false,
   properties: {
@@ -1117,7 +1117,7 @@ export const API_V1_SPEC = {
     summary: "Read-only facts about agents listed in public registries, each with the date it was read.",
     description:
       "Nooscape is an observatory. It reads public agent registries and says what it saw and when. This API changes no record: payment never changes a record, a tier or an evidence level, and nothing here says an agent is safe or unsafe. Agents listed here are acknowledged, not reviewed, and have no tier. Text an owner wrote is shown only as the owner's word. The public tier needs no key and allows 30 requests a minute from one address. A free key raises that to 60 a minute and 1,000 a day, and unlocks a batch lookup, an agent's history and the key's own usage. The pre-flight check needs a Pro key. A Builder or Pro key may watch up to 100 listings and have one https address called when something is recorded about one of them (an ownership change, a rating added or taken back, a claim edit, a listing leaving or returning to the public view): the one thing a key can write is its own watchlist and webhook. An event states a recorded fact with its date, in the words this API already uses. It is signed, is sent at least once, and may arrive out of order. Where pay per call is switched on, a caller with no key may instead pay in USDC on Arc, or on Base where it is offered (x402, v2), for a lookup past the free limit and for the check: the transfer goes from the caller's wallet to Nooscape's receiving address, and Nooscape never holds a caller's funds.",
-    license: { name: "Provisional terms", url: "https://nooscape.si/terms" },
+    license: { name: "CC BY 4.0", url: "https://creativecommons.org/licenses/by/4.0/" },
     contact: { name: "Nooscape", url: "https://nooscape.si/contact" },
   },
   servers: [{ url: "https://nooscape.si" }],

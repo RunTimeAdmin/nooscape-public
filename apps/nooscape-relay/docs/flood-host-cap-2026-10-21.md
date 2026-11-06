@@ -54,7 +54,8 @@ The run's budget still counts what the window held, so a run does the same numbe
 `readRegistryCounts` adds the host counts to the stored rows for "recorded", and `readRegistryGroups` adds each host's count to the group of
 its stored rows, ranks the hosts again before the cut, and adds the total to "recorded". The pages therefore say what they said with every
 row stored: Base still shows its full count, and Central City as its largest host. Wallets and profile links are counted over
-stored rows only. The look-alike counts on a listed entry (`registryRelatedCounts`) are unchanged: a listed entry's host has fewer than 50
+stored rows only, so a registration counted past a cap has no wallet on record: `readRegistryGroups` returns how many (`counted`), and the
+share block on Arc's page says of them that they were counted by host name and not stored (6 November 2026). The look-alike counts on a listed entry (`registryRelatedCounts`) are unchanged: a listed entry's host has fewer than 50
 registrations, far under the cap.
 
 ### What the cap does not do

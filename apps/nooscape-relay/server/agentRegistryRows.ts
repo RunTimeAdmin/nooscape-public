@@ -692,6 +692,8 @@ export type RegistryGroupsRead = {
   totals: Record<RegistryGroupKind, number>;
   /** Every registration the source holds, counted in the same read, as {@link readRegistryCounts} counts them. */
   recorded: number;
+  /** Of those, the registrations a host cap counted and did not store: no wallet and no profile link is recorded for them. */
+  counted: number;
 };
 
 /**
@@ -753,5 +755,5 @@ export async function readRegistryGroups(protocol: string, minimum: number, limi
     groups.push({ kind: "shared_link", key: link.key!, count: Number(link.total), host: member?.host ?? null, name: member?.name ?? null });
   }
   const [recorded] = await db.select({ total: sql<number>`count(*)` }).from(rows).where(eq(rows.sourceId, source.id));
-  return { groups, totals, recorded: Number(recorded?.total ?? 0) + sumOf(overflow) };
+  return { groups, totals, recorded: Number(recorded?.total ?? 0) + sumOf(overflow), counted: sumOf(overflow) };
 }

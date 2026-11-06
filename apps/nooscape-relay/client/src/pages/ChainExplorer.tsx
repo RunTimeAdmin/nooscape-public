@@ -165,7 +165,7 @@ export default function ChainExplorer({ chain }: { chain: WorldKey }) {
       chain === "robinhood"
         ? registrationShare(robinhoodLights?.fleets ?? EMPTY_GROUPS, robinhoodLights?.listed, robinhoodLights?.groups)
         : chain === "arc"
-          ? registrationShare((arcFleets?.fleets ?? EMPTY_GROUPS).filter(fleet => fleet.kind === "wallet"), arcFleets?.recorded, arcFleets?.walletGroups)
+          ? registrationShare((arcFleets?.fleets ?? EMPTY_GROUPS).filter(fleet => fleet.kind === "wallet"), arcFleets?.recorded, arcFleets?.walletGroups, arcFleets?.counted)
           : null,
     [chain, robinhoodLights, arcFleets]
   );

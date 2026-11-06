@@ -122,7 +122,7 @@ export const CHAIN_GROUP_REPORT: Record<WorldKey, { href: string; label: string 
   robinhood: { href: "/field/robinhood-registry-2026-10-20", label: "Robinhood Chain registry census, 20 October 2026" },
   solana: { href: "/field/solana-registries-2026-10-18", label: "Solana registry census, 18 October 2026" },
   bnb: { href: "/field/bnb-registry-2026-10-16", label: "BNB Chain registry census, 16 October 2026" },
-  arc: { href: "/field/arc-registry-2026-10-20", label: "Arc registry census, 20 October 2026" },
+  arc: { href: "/field/arc-registry-2026-11-06", label: "Arc registry census, 6 November 2026" },
   base: { href: "/field/base-registry-2026-10-21", label: "Base registry census, 21 October 2026" },
   ethereum: { href: "/field/ethereum-registry-2026-10-28", label: "Ethereum registry census, 28 October 2026" },
   monad: { href: "/field/monad-registry-2026-11-01", label: "Monad registry census, 1 November 2026" },
@@ -464,12 +464,17 @@ export type RegistrationShareFigures = {
   wallets: number;
   /** True when these are all the wallets that meet the rule. False when more meet it than are drawn, so the rest of the entries are not all on small wallets. */
   complete: boolean;
-  /** The whole percent of the listed entries that `held` is, rounded down so it never claims more than it is. */
+  /**
+   * The percent of the listed entries that `held` is, rounded down so it never claims more than it is: a whole percent from 1 up, a tenth
+   * of a percent below that (so a small share is not shown as none), and 0 only under a tenth, which the page words as "less than 0.1".
+   */
   percent: number;
   /** One for each wallet, largest first, with its share to one decimal place. */
   segments: ShareSegment[];
-  /** The entries recorded against wallets with fewer than the minimum each. */
+  /** The entries the wallets with a formation are not recorded against: those of wallets with fewer than the minimum each, and the `counted` ones. */
   rest: number;
+  /** Of `rest`, the registrations a host cap counted and did not store. No wallet is recorded for them, so nothing is said about whose they are. */
+  counted: number;
 };
 
 /**
@@ -477,7 +482,7 @@ export type RegistrationShareFigures = {
  * because the lights and the number listed are counted together. Null when there is nothing to say: no wallets, no count, or a count
  * smaller than the wallets' (which two reads of different moments could give, and which is not worth a share over the whole).
  */
-export function registrationShare(fleets: readonly MapFleet[], listed: number | null | undefined, walletsMeetingRule?: number | null): RegistrationShareFigures | null {
+export function registrationShare(fleets: readonly MapFleet[], listed: number | null | undefined, walletsMeetingRule?: number | null, counted?: number | null): RegistrationShareFigures | null {
   if (listed == null || !Number.isFinite(listed) || listed <= 0 || fleets.length === 0) return null;
   const sorted = [...fleets].sort((a, b) => b.count - a.count || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const held = sorted.reduce((sum, fleet) => sum + fleet.count, 0);
@@ -487,8 +492,10 @@ export function registrationShare(fleets: readonly MapFleet[], listed: number | 
     held,
     wallets: sorted.length,
     complete: walletsMeetingRule == null || walletsMeetingRule <= sorted.length,
-    percent: Math.floor((held / listed) * 100),
+    // whole numbers only, so a tenth is exact: 3 of 1,000 is 0.3, not 0.2999
+    percent: held * 100 >= listed ? Math.floor((held * 100) / listed) : Math.floor((held * 1000) / listed) / 10,
     segments: sorted.map(fleet => ({ id: fleet.id, label: fleetTitle(fleet), wallet: fleet.wallet, count: fleet.count, percent: Math.round((fleet.count / listed) * 1000) / 10 })),
     rest: listed - held,
+    counted: counted != null && counted > 0 ? Math.min(counted, listed - held) : 0,
   };
 }

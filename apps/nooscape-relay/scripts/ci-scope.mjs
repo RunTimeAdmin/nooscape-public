@@ -21,6 +21,7 @@ import { pathToFileURL } from "node:url";
 export const READ_BY_TESTS = [
   "SECURITY.md",
   "apps/nooscape-relay/docs/arc-census-2026-10-20.md",
+  "apps/nooscape-relay/docs/arc-census-2026-11-06.md",
   "apps/nooscape-relay/docs/base-census-2026-10-21.md",
   "apps/nooscape-relay/docs/bsc-b1-measurement-2026-10-16.md",
   "apps/nooscape-relay/docs/bsc-clusters-2026-10-16.md",

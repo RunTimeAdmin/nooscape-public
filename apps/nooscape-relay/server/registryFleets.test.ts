@@ -19,6 +19,7 @@ const read = (groups: RegistryGroupRow[], over: Partial<RegistryGroupsRead> = {}
     shared_link: groups.filter(row => row.kind === "shared_link").length,
   },
   recorded: 2_587,
+  counted: 0,
   ...over,
 });
 const dirty = `  Bad${String.fromCharCode(0)} ${String.fromCharCode(0x202e)}name${String.fromCharCode(0x202c)}${String.fromCharCode(0x200b)}  `;
@@ -96,9 +97,15 @@ describe("shaping the groups of an extra chain's registry", () => {
     expect(shapeRegistryFleets("arc", read([group("wallet", wallet(1), 60)], { recorded: 0 }), AT).recorded).toBeNull();
   });
 
+  it("carries how many of the registrations a host cap counted and did not store, read with the groups", () => {
+    expect(shapeRegistryFleets("arc", read([group("wallet", wallet(1), 60)], { recorded: 385_752, counted: 380_736 }), AT).counted).toBe(380_736);
+    expect(shapeRegistryFleets("arc", read([group("wallet", wallet(1), 60)]), AT).counted).toBe(0);
+  });
+
   it("answers a registry with no group at the minimum with nothing to draw, keeping the count of what it holds", () => {
     expect(shapeRegistryFleets("arc", read([], { recorded: 0 }), AT)).toEqual(EMPTY_REGISTRY_FLEETS);
     expect(shapeRegistryFleets("arc", read([]), AT)).toEqual({ ...EMPTY_REGISTRY_FLEETS, recorded: 2_587 });
+    expect(shapeRegistryFleets("arc", read([], { recorded: 385_752, counted: 380_736 }), AT)).toEqual({ ...EMPTY_REGISTRY_FLEETS, recorded: 385_752, counted: 380_736 });
   });
 
   it("skips an empty group", () => {

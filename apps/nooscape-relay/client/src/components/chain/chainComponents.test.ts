@@ -140,7 +140,7 @@ describe("the share of the registrations the registering wallets are recorded ag
     expect(markup).toContain("registrations the registry holds, listed or not, as the registry held them at 20 Oct 2026, 17:27 UTC.");
     expect(markup).toContain("The other 619 are recorded against wallets with fewer than 50 each.");
     expect(markup).toContain(FLEET_NOT_PROVED.wallet);
-    expect(markup).toContain('href="/field/arc-registry-2026-10-20"');
+    expect(markup).toContain('href="/field/arc-registry-2026-11-06"');
     expect(markup).not.toContain("robinhood-registry");
     expect(markup).not.toMatch(/Robinhood/);
   });
@@ -153,6 +153,88 @@ describe("the share of the registrations the registering wallets are recorded ag
     expect(markup).toContain("fewer than 100 each");
     expect(markup).toContain(ROBINHOOD_NOT_PROVED);
     expect(markup).toContain('href="/field/robinhood-registry-2026-10-20"');
+  });
+
+  it("says a small share as what it is, not as none: tenths of a percent in the headline and under a tenth on a wallet", () => {
+    // Arc on 6 November 2026: seven wallets with 50 or more registrations, 2,406 of the 385,752 the registry holds. It said "0 percent" and "0%".
+    const counts = [1_000, 868, 144, 136, 102, 100, 56];
+    const markup = renderToStaticMarkup(
+      createElement(Router, {
+        ssrPath: "/chains/test",
+        children: createElement(RegistrationShare, {
+          chain: "arc",
+          share: registrationShare(counts.map((count, index) => wallet(`w${index}`, count, "arc")), 385_752, 7)!,
+          asOf: "2026-11-06T09:07:00Z",
+          selectedId: null,
+          onSelect: noop,
+        }),
+      })
+    );
+    expect(markup).toContain("<strong>0.6 percent</strong> of the 385,752 registrations on Arc are recorded against 7 registering wallets.");
+    expect(markup).toContain("The other 383,346 are recorded against wallets with fewer than 50 each.");
+    expect(markup).toContain('class="cw-share-percent">0.3%<');
+    expect(markup).toContain('class="cw-share-percent">0.2%<');
+    expect(markup).toContain('class="cw-share-percent">&lt;0.1%<');
+    expect(markup).not.toContain('class="cw-share-percent">0%<');
+    expect(markup).not.toContain("<strong>0 percent</strong>");
+  });
+
+  describe("with registrations a host cap counted and did not store", () => {
+    // Arc on 6 November 2026: 5,016 registrations stored and 380,736 counted past one host's cap, so the wallets are known for the stored ones only.
+    const counts = [1_000, 868, 144, 136, 102, 100, 56];
+    const arcShare = (listed: number, walletsMeetingRule: number, counted: number | null, held: number[] = counts) =>
+      renderToStaticMarkup(
+        createElement(Router, {
+          ssrPath: "/chains/test",
+          children: createElement(RegistrationShare, {
+            chain: "arc",
+            share: registrationShare(held.map((count, index) => wallet(`w${index}`, count, "arc")), listed, walletsMeetingRule, counted)!,
+            asOf: "2026-11-06T09:07:00Z",
+            selectedId: null,
+            onSelect: noop,
+          }),
+        })
+      );
+
+    it("does not put them against wallets with fewer than 50 each, and says no wallet is recorded for them", () => {
+      const markup = arcShare(385_752, 7, 380_736);
+      expect(markup).toContain("Of the other 383,346, 2,610 are recorded against wallets with fewer than 50 each, and 380,736 were counted by host name and not stored, so no wallet is recorded for them.");
+      expect(markup).not.toContain("The other 383,346 are recorded against wallets");
+      expect(markup).toContain("Every other registration");
+      expect(markup).not.toContain("Every other wallet");
+      // the headline and the chips are the wallets' own figures and do not change
+      expect(markup).toContain("<strong>0.6 percent</strong> of the 385,752 registrations on Arc are recorded against 7 registering wallets.");
+    });
+
+    it("says every other wallet, not wallets with fewer than 50, when more wallets meet the rule than are drawn", () => {
+      expect(arcShare(385_752, 9, 380_736)).toContain("Of the other 383,346, 2,610 are recorded against every other wallet, and 380,736 were counted by host name and not stored, so no wallet is recorded for them.");
+    });
+
+    it("says the whole rest was counted when no stored registration is left over", () => {
+      const markup = arcShare(1_060, 1, 1_000, [60]);
+      expect(markup).toContain("The other 1,000 were counted by host name and not stored, so no wallet is recorded for them.");
+      expect(markup).not.toContain("Of the other");
+    });
+
+    it("keeps the sentence it had when nothing was counted", () => {
+      for (const none of [0, null]) {
+        const markup = arcShare(385_752, 7, none);
+        expect(markup).toContain("The other 383,346 are recorded against wallets with fewer than 50 each.");
+        expect(markup).toContain("Every other wallet");
+        expect(markup).not.toContain("were counted by host name");
+      }
+    });
+  });
+
+  it("words a share under a tenth of a percent as less than a tenth, not as zero", () => {
+    const markup = renderToStaticMarkup(
+      createElement(Router, {
+        ssrPath: "/chains/test",
+        children: createElement(RegistrationShare, { chain: "arc", share: registrationShare([wallet("a", 50, "arc")], 100_000, 1)!, asOf: "2026-11-06T09:07:00Z", selectedId: null, onSelect: noop }),
+      })
+    );
+    expect(markup).toContain("<strong>Less than 0.1 percent</strong> of the 100,000 registrations on Arc are recorded against 1 registering wallet.");
+    expect(markup).not.toContain("<strong>0 percent</strong>");
   });
 
   it("draws the Arc event rail from its feed: the listed entry, the block and the coverage, and never says the feed is missing", () => {
