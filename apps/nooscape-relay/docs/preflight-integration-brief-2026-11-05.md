@@ -69,6 +69,8 @@ function reasonsToAsk(data: Awaited<ReturnType<typeof check>>): string[] {
 }
 ```
 
+A runnable version is [`examples/preflight-policy.ts`](../examples/preflight-policy.ts). The thresholds are a `Policy` you can change, a 404, an empty answer and a flag that is not measured are handled on purpose, and it prints "proceed" or "ask a person", where "proceed" only means this policy found nothing to ask about and is not a finding that the agent is safe. Its test builds each answer with the repository's own flag code, so a renamed field breaks it. `node examples/preflight-policy.ts search <host>` runs against the live API with no key.
+
 ## What the answer does not say
 
 - **It covers listed agents only.** The directory holds the agents that public registries record (ERC-8004 on Robinhood Chain, BNB Chain, Ethereum, Base, Arc and Monad, and four registries on Solana): about 61,000 on 5 November 2026, and `/api/v1/stats` has today's figure. For an agent that is not listed the answer is 404, in the same words as a hidden one. A wallet or an address nothing matches answers 200 with an empty list.
@@ -94,3 +96,4 @@ Which flag changes a decision and which never does; what is missing that your po
 
 - The free search by host, the unpaid check (a 402 with the two payment options and the `PAYMENT-SIGNATURE` requirement) and a wrong key (401) were run against the live API on 2026-11-05, and the field names in the snippets come from the OpenAPI document (`/api/v1/openapi.json`).
 - Not run: a paid check, and a check with a Pro key. The shape of a `200` answer is read from the OpenAPI document and the skill file, not from a captured response.
+- `examples/preflight-policy.ts` was run on Node 22 against the live API on 2026-11-05 (`search` with a real host, and `check` with no key, which stops with its message). Its tests build the check's answer with the repository's own flag code, so the field names it reads are held to the real ones; its `check` call is not run with a key, for the reason above.

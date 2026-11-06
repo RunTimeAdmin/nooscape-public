@@ -36,7 +36,7 @@ It states facts and never a verdict.
 - **Payment changes nothing.** A key, a payment or a claim never changes a record, a tier or an evidence level.
 - **Every answer says when it was read and where from.**
 
-On 5 November 2026 the atlas listed 61,395 agents from the chain registries (Robinhood Chain 21,418, Solana 17,993, Base 9,180, BNB Chain 6,974, Ethereum 5,210, Arc 473, Monad 147), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
+On 6 November 2026 the atlas listed 61,434 agents from the chain registries (Robinhood Chain 21,446, Solana 17,995, Base 9,183, BNB Chain 6,974, Ethereum 5,216, Arc 473, Monad 147), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
 
 ## See it
 
@@ -123,6 +123,7 @@ apps/nooscape-relay/     The application
   docs/                    Decision records, runbooks and the documentation index
   scripts/                 Build, CI and live-check scripts
   verifier/                The nooscape-verify package, a command and a library
+  examples/                A runnable policy for the pre-flight check
 packages/nooscape-mcp/   A pointer to the MCP server's own repository, nooscape-mcp
 brand/                   Logos, cards and the screenshots above
 ```
@@ -191,4 +192,4 @@ The code is released under the [MIT License](LICENSE). The data Nooscape serves 
 
 ## About this repository
 
-This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 5 November 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.
+This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 6 November 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.

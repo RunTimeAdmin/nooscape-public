@@ -71,6 +71,15 @@ describe("the nooscape-verify package", () => {
     expect(existsSync(join(root, "README.md"))).toBe(true);
   });
 
+  it("carries the license its package.json names: the MIT text with a copyright line, in a file npm ships on its own", () => {
+    // npm adds a LICENSE file to a package whatever its files list says, so the list stays dist and the README (the test above)
+    const license = read("LICENSE").split(String.fromCharCode(13)).join("");
+    expect(manifest.license).toBe("MIT");
+    expect(license.startsWith("MIT License\n\nCopyright (c) 2026 RunTimeAdmin\n\n")).toBe(true);
+    expect(license).toContain("Permission is hereby granted, free of charge, to any person obtaining a copy");
+    expect(license).toContain('THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND');
+  });
+
   it("is a command that verifies a packet, refuses a changed one and says how to use it", () => {
     const good = node(["dist/bin.js", "packet.json", "--keys", "keys.json"]);
     expect(good.status, good.stdout + good.stderr).toBe(0);

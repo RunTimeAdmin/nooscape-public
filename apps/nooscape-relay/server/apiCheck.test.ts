@@ -475,6 +475,29 @@ describe("the flags", () => {
       expect(checkFlags(input()).fleet).toMatchObject({ present: false, listed_by_same_wallet: 1 });
     });
 
+    it("says what the counts run over: every registration of a registry chain, listed or not, and the listings on the other chains", () => {
+      for (const chain of ["bnb", "ethereum", "base", "arc", "monad"] as const) {
+        const basis = checkFlags(input({ chain })).fleet.basis;
+        expect(basis, chain).toContain("runs over every registration Nooscape holds for this registry, listed or not.");
+        expect(basis, chain).toContain("same_host_others counts the other registrations that share this agent's host, listed or not, and same_name_others the other listings that share its name");
+        expect(basis, chain).not.toContain("counts the listings Nooscape shows");
+      }
+      for (const chain of ["robinhood", "solana"] as const) {
+        const basis = checkFlags(input({ chain })).fleet.basis;
+        expect(basis, chain).toContain("counts the listings Nooscape shows.");
+        expect(basis, chain).toContain("same_host_others and same_name_others count the other listings that share this agent's host or name");
+        expect(basis, chain).not.toContain("listed or not");
+      }
+    });
+
+    it("says the host and name counts take in what other wallets registered and show no common ownership, on every chain", () => {
+      for (const chain of ["robinhood", "bnb", "solana", "base"] as const) {
+        const basis = checkFlags(input({ chain })).fleet.basis;
+        expect(basis, chain).toContain("whoever registered them");
+        expect(basis, chain).toContain("They do not show common ownership: anyone can register an agent that names a host or a name.");
+      }
+    });
+
     it("is not measured without the counts, and uses the site's definition: one wallet, and nothing more", () => {
       expect(checkFlags(input({ entry: { related: null } })).fleet).toMatchObject({ present: null, listed_by_same_wallet: null });
       expect(checkFlags(input()).fleet.basis).toContain("A fleet means identities registered by one wallet, and nothing more.");

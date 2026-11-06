@@ -1,6 +1,6 @@
 {
   "name": "nooscape-verify",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Checks a Nooscape signed evidence packet offline: its SHA-256 digest, its Ed25519 signature, and the key that signed it.",
   "type": "module",
   "license": "MIT",

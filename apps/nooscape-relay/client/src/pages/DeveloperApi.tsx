@@ -363,7 +363,7 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
               ["first_seen", "object", "When Nooscape first saw the listing, not when the agent was registered. present is true when that was under 30 days ago."],
               ["ownership_changes", "object", "Transfers Nooscape recorded, apart from the platform hand-outs made just after a mint. EVM registries are placed by block, because the ledger holds blocks and not clocks, with the distance from the ledger's head. Robinhood Chain adds block days (864,000 blocks, a proxy). Solana is dated by when Nooscape recorded the transfer, which is no later than the transfer."],
               ["revoked_feedback", "object", "Ratings recorded against the agent and how many the rater later revoked, as a share. Robinhood Chain only. It does not say whether a rating was fair."],
-              ["fleet", "object", "Listings one wallet registered, this agent included, and the other agents that share its host and name. A fleet means identities registered by one wallet, and nothing more."],
+              ["fleet", "object", "What one wallet registered, this agent included (the listings Nooscape shows or, on a chain whose whole registry Nooscape reads, every registration it holds, listed or not), and the other agents that share its host and name, whoever registered them. A fleet means identities registered by one wallet, and nothing more."],
             ]} />
 
             <SchemaPanel title="Keys" rows={[
