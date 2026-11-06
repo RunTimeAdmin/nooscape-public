@@ -121,7 +121,7 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
     await register(arcSource, 3);
     // The rows are stored, and none is published into the directory yet: the walk has not caught up.
     expect(await registry.readRegistryGroups("erc8004_arc", 50, 8)).toBeNull();
-    expect(await caller().liveData.registryFleets({ chain: "arc" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, asOf: null });
+    expect(await caller().liveData.registryFleets({ chain: "arc" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, counted: 0, asOf: null });
     expect(await caller().liveData.chainSample({ chain: "arc" })).toEqual({ entries: [], listed: 0 });
   });
 
@@ -202,12 +202,13 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
 
     it("is served by the public read only while the chain's switch is on, as formations with a count and no registration", async () => {
       features(undefined);
-      expect(await caller().liveData.registryFleets({ chain: "arc" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, asOf: null });
+      expect(await caller().liveData.registryFleets({ chain: "arc" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, counted: 0, asOf: null });
       features("chain_base,chain_ethereum");
       expect((await caller().liveData.registryFleets({ chain: "arc" })).fleets).toEqual([]);
       features("chain_arc");
       const answer = await caller().liveData.registryFleets({ chain: "arc" });
       expect(answer.recorded).toBe(423);
+      expect(answer.counted).toBe(0);
       expect(answer.groups).toBe(7);
       expect(answer.walletGroups).toBe(2);
       expect(answer.fleets.map(fleet => [fleet.kind, fleet.count])).toEqual([
@@ -309,7 +310,7 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
       await registry.refreshAgentRegistryListing(baseSource, { classify: true, publish: true });
 
       features(undefined);
-      expect(await caller().liveData.registryFleets({ chain: "base" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, asOf: null });
+      expect(await caller().liveData.registryFleets({ chain: "base" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, counted: 0, asOf: null });
       features("chain_arc,chain_ethereum");
       expect((await caller().liveData.registryFleets({ chain: "base" })).fleets).toEqual([]);
       features("chain_base");
@@ -346,7 +347,7 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
       await registry.refreshAgentRegistryListing(ethereumSource, { classify: true, publish: true });
 
       features(undefined);
-      expect(await caller().liveData.registryFleets({ chain: "ethereum" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, asOf: null });
+      expect(await caller().liveData.registryFleets({ chain: "ethereum" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, counted: 0, asOf: null });
       features("chain_arc,chain_base");
       expect((await caller().liveData.registryFleets({ chain: "ethereum" })).fleets).toEqual([]);
       features("chain_ethereum");
@@ -385,7 +386,7 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
       await registry.refreshAgentRegistryListing(monadSource, { classify: true, publish: true });
 
       features(undefined);
-      expect(await caller().liveData.registryFleets({ chain: "monad" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, asOf: null });
+      expect(await caller().liveData.registryFleets({ chain: "monad" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, counted: 0, asOf: null });
       features("chain_arc,chain_base,chain_ethereum");
       expect((await caller().liveData.registryFleets({ chain: "monad" })).fleets).toEqual([]);
       features("chain_monad");

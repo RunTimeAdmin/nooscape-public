@@ -238,10 +238,11 @@ describe("the tests against the documents", () => {
     }
   });
 
-  it("read the docs directory by name only in the eight reports' tests and the status page's, which name each document they read", () => {
+  it("read the docs directory by name only in the nine reports' tests and the status page's, which name each document they read", () => {
     const readers = tests.filter(({ code }) => /["'`]docs["'`]/.test(code)).map(({ file }) => file);
     expect(readers.sort()).toEqual([
       "client/src/pages/arcRegistryReport.test.ts",
+      "client/src/pages/arcRegistryReport20261106.test.ts",
       "client/src/pages/baseRegistryReport.test.ts",
       "client/src/pages/bnbRatingsReport.test.ts",
       "client/src/pages/bnbRegistryReport.test.ts",

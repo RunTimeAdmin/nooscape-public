@@ -42,13 +42,13 @@ These are mine, so the operator can say no.
 5. **Search takes exactly one of `q`, `owner` or `host`**, plus `chain` and `limit` (1 to 25, default 10). `owner` and `host` are exact filters over the page the search returns, so a count with one of them says "at least" when the page was full. There is no cursor yet.
 6. **A browser may keep an answer for 60 seconds, and a shared cache may not** (`Cache-Control: private, max-age=60`; errors are `no-store`). D1 first sent `public, max-age=60`. That was changed on 19 Oct 2026, after D2 went live: see "Caching, corrected" below. The index and the OpenAPI document hold nothing per caller and stay `public, max-age=300`.
 7. **Browsers on other sites may read it** (`Access-Control-Allow-Origin: *`, GET, HEAD and OPTIONS only). A preflight does not count against the limit. The API is public, read only and carries no credential.
-8. **The license field is provisional.** It says attribution is required and bulk copies are not to be resold, and points at the Terms. The Terms already bar scraping beyond the published limits. A final data license is decision 4 in the spec, with the lawyer, and replaces it.
+8. **The license field says CC BY 4.0** (decided 2026-11-06, [the record](./data-license-2026-11-06.md)). Until then it was provisional: attribution required, bulk copies not to be resold. The facts and records Nooscape produces may now be copied, shared and adapted, commercially too, with the attribution line the API gives; text that registrants published stays theirs; and the Terms still bar scraping beyond the published limits.
 9. **An unknown query option is refused** on search (so a typo is not silently ignored) and on lookup.
 
 ## Not in D1
 
 - **Free keys, batch lookup, history, feedback, fleets, raters, watchlists** (D2 and later): they need keys and metering. A lookup for several agents, or the claim history, is therefore not here.
-- **`/check`** (D3), **x402** (D4, needs the receiving wallet), **webhooks** (D5), **daily exports and the final data license** (D6).
+- **`/check`** (D3), **x402** (D4, needs the receiving wallet), **webhooks** (D5), **daily exports** (D6; its license half is done, CC BY 4.0).
 - **Prices and any billing.**
 
 ## Checked
@@ -179,7 +179,7 @@ These are mine, so the operator can say no.
 
 ## Not in D2
 
-`/check` (D3), x402 (D4, needs the receiving wallet), webhooks and watchlists (D5), daily exports and the final data license (D6), the Builder-tier endpoints (feedback, fleets, owners, raters), prices, and any billing.
+`/check` (D3), x402 (D4, needs the receiving wallet), webhooks and watchlists (D5), daily exports (D6; the data license is done, CC BY 4.0), the Builder-tier endpoints (feedback, fleets, owners, raters), prices, and any billing.
 
 ## Checked
 
@@ -237,7 +237,7 @@ These are mine, so the operator can say no.
 
 ## Not in D3
 
-x402 pay per call (D4, needs the receiving wallet), the Builder-tier fleet, owner and rater endpoints, webhooks (D5), exports and the data license (D6), prices, and a cursor for wallets with more than 10 listings.
+x402 pay per call (D4, needs the receiving wallet), the Builder-tier fleet, owner and rater endpoints, webhooks (D5), exports (D6; the data license is done, CC BY 4.0), prices, and a cursor for wallets with more than 10 listings.
 
 ## Checked
 

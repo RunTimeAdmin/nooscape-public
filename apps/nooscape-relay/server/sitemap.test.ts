@@ -55,6 +55,7 @@ describe("the pages behind a switch that the sitemap lists", () => {
     expect(flaggedSitemapUrls("chain_ethereum,chain_base,chain_arc")).toEqual([
       `${SITE_ORIGIN}/chains/arc`,
       `${SITE_ORIGIN}/field/arc-registry-2026-10-20`,
+      `${SITE_ORIGIN}/field/arc-registry-2026-11-06`,
       `${SITE_ORIGIN}/chains/base`,
       `${SITE_ORIGIN}/field/base-registry-2026-10-21`,
       `${SITE_ORIGIN}/chains/ethereum`,
@@ -64,6 +65,7 @@ describe("the pages behind a switch that the sitemap lists", () => {
     expect(flaggedSitemapUrls("chain_monad,chain_ethereum,chain_base,chain_arc")).toEqual([
       `${SITE_ORIGIN}/chains/arc`,
       `${SITE_ORIGIN}/field/arc-registry-2026-10-20`,
+      `${SITE_ORIGIN}/field/arc-registry-2026-11-06`,
       `${SITE_ORIGIN}/chains/base`,
       `${SITE_ORIGIN}/field/base-registry-2026-10-21`,
       `${SITE_ORIGIN}/chains/ethereum`,
@@ -75,11 +77,12 @@ describe("the pages behind a switch that the sitemap lists", () => {
     expect(flaggedSitemapUrls("chain_base,chain_arc")).toEqual([
       `${SITE_ORIGIN}/chains/arc`,
       `${SITE_ORIGIN}/field/arc-registry-2026-10-20`,
+      `${SITE_ORIGIN}/field/arc-registry-2026-11-06`,
       `${SITE_ORIGIN}/chains/base`,
       `${SITE_ORIGIN}/field/base-registry-2026-10-21`,
     ]);
-    expect(flaggedSitemapUrls("chain_arc")).toEqual([`${SITE_ORIGIN}/chains/arc`, `${SITE_ORIGIN}/field/arc-registry-2026-10-20`]);
-    expect(flaggedSitemapUrls(" Watch , CHAIN_ARC ")).toEqual([`${SITE_ORIGIN}/chains/arc`, `${SITE_ORIGIN}/field/arc-registry-2026-10-20`]);
+    expect(flaggedSitemapUrls("chain_arc")).toEqual([`${SITE_ORIGIN}/chains/arc`, `${SITE_ORIGIN}/field/arc-registry-2026-10-20`, `${SITE_ORIGIN}/field/arc-registry-2026-11-06`]);
+    expect(flaggedSitemapUrls(" Watch , CHAIN_ARC ")).toEqual([`${SITE_ORIGIN}/chains/arc`, `${SITE_ORIGIN}/field/arc-registry-2026-10-20`, `${SITE_ORIGIN}/field/arc-registry-2026-11-06`]);
   });
 });
 
@@ -214,16 +217,18 @@ describe("GET /sitemap.xml", () => {
   it("adds Arc's page right after the fixed pages while its switch is on, and leaves it out otherwise", async () => {
     const arc = `${SITE_ORIGIN}/chains/arc`;
     const census = `${SITE_ORIGIN}/field/arc-registry-2026-10-20`;
+    const second = `${SITE_ORIGIN}/field/arc-registry-2026-11-06`;
     const saved = process.env.VITE_FEATURES;
     try {
       delete process.env.VITE_FEATURES;
       expect(sitemapLocs(await (await fetch(`${base}/sitemap.xml`)).text())).not.toContain(arc);
       expect(sitemapLocs(await (await fetch(`${base}/sitemap.xml`)).text())).not.toContain(census);
+      expect(sitemapLocs(await (await fetch(`${base}/sitemap.xml`)).text())).not.toContain(second);
       process.env.VITE_FEATURES = "chain_arc";
       const on = sitemapLocs(await (await fetch(`${base}/sitemap.xml`)).text());
       expect(on.slice(0, FIXED.length)).toEqual(FIXED);
-      expect(on.slice(FIXED.length, FIXED.length + 2)).toEqual([arc, census]);
-      expect(on.filter(url => url === arc || url === census)).toHaveLength(2);
+      expect(on.slice(FIXED.length, FIXED.length + 3)).toEqual([arc, census, second]);
+      expect(on.filter(url => url === arc || url === census || url === second)).toHaveLength(3);
     } finally {
       if (saved === undefined) delete process.env.VITE_FEATURES;
       else process.env.VITE_FEATURES = saved;
@@ -246,7 +251,7 @@ describe("GET /sitemap.xml", () => {
       expect(on.filter(url => url === page || url === census)).toHaveLength(2);
       process.env.VITE_FEATURES = "chain_base,chain_arc";
       const both = sitemapLocs(await (await fetch(`${base}/sitemap.xml`)).text());
-      expect(both.slice(FIXED.length, FIXED.length + 4)).toEqual([`${SITE_ORIGIN}/chains/arc`, `${SITE_ORIGIN}/field/arc-registry-2026-10-20`, page, census]);
+      expect(both.slice(FIXED.length, FIXED.length + 5)).toEqual([`${SITE_ORIGIN}/chains/arc`, `${SITE_ORIGIN}/field/arc-registry-2026-10-20`, `${SITE_ORIGIN}/field/arc-registry-2026-11-06`, page, census]);
     } finally {
       if (saved === undefined) delete process.env.VITE_FEATURES;
       else process.env.VITE_FEATURES = saved;

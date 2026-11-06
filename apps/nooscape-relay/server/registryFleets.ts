@@ -50,8 +50,8 @@ export function shapeRegistryFleets(chain: WorldExtraChain, read: RegistryGroups
   );
   const groups = read.totals.wallet + read.totals.platform_host + read.totals.shared_link;
   const recorded = read.recorded > 0 ? read.recorded : null;
-  if (fleets.length === 0) return { ...EMPTY_REGISTRY_FLEETS, recorded };
-  return { fleets, groups: Math.max(groups, fleets.length), walletGroups: Math.max(read.totals.wallet, fleets.filter(fleet => fleet.kind === "wallet").length), recorded, asOf: readAt.toISOString() };
+  if (fleets.length === 0) return { ...EMPTY_REGISTRY_FLEETS, recorded, counted: read.counted };
+  return { fleets, groups: Math.max(groups, fleets.length), walletGroups: Math.max(read.totals.wallet, fleets.filter(fleet => fleet.kind === "wallet").length), recorded, counted: read.counted, asOf: readAt.toISOString() };
 }
 
 /** The groups of a chain's registry, from the shared directory cache. */

@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Router } from "wouter";
 import { describe, expect, it } from "vitest";
 import type { MapFleet } from "@shared/mapFleets";
-import { CHAIN_GROUP_REPORT, registrationShare } from "@/lib/chainExplorerModel";
+import { registrationShare } from "@/lib/chainExplorerModel";
 import { ARC_DOC, ARC_SQL, CHAIN, DERIVED as d, MEASURED, PASS_TIME, REGISTRY, RULES, THRESHOLDS, formatPercent as pc, percent } from "@/lib/arcRegistryReport";
 import ArcRegistryReport from "./ArcRegistryReport";
 
@@ -489,7 +489,7 @@ describe("what the page says, and does not", () => {
 });
 
 describe("the address", () => {
-  it("is a route the app draws only while Arc's switch is on, the server answers 200 for then, the sitemap lists then, and the Arc pages link to", () => {
+  it("is a route the app draws only while Arc's switch is on, the server answers 200 for then, and the sitemap lists then; the Arc pages link to the newer census", () => {
     expect(read("..", "App.tsx")).toContain(`{featureOn("chain_arc", FEATURES) && <Route path="${ROUTE}" component={ArcRegistryReport} />}`);
     expect(read("..", "..", "..", "server", "clientRoutes.ts")).toContain(`"${ROUTE}"`);
     const sitemap = read("..", "..", "..", "server", "sitemap.ts");
@@ -497,10 +497,6 @@ describe("the address", () => {
     const head = read("..", "..", "..", "server", "routeHead.ts");
     expect(head).toContain(`"${ROUTE}": {`);
     expect(head).toContain('title: "Arc registry census, 2026-10-20"');
-    // The home tab, the map's caption, the Arc page's share note and the card of a selected group all link to it.
-    expect(read("..", "components", "home", "ChainTabs.tsx")).toContain(`<Link href="${ROUTE}"`);
-    expect(read("home", "LandingHero.tsx")).toContain(`<Link href="${ROUTE}"`);
-    expect(CHAIN_GROUP_REPORT.arc).toEqual({ href: ROUTE, label: "Arc registry census, 20 October 2026" });
-    expect(read("..", "components", "chain", "RegistrationShare.tsx")).toContain("CHAIN_GROUP_REPORT.arc");
+    // The links that named it (the home tab, the map's caption, the Arc page's share note) went to the census of 2026-11-06, which links back here.
   });
 });

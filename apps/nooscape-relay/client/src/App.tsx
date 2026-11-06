@@ -30,6 +30,7 @@ const BnbRatingsReport = lazy(() => import("./pages/BnbRatingsReport"));
 const SolanaRegistryReport = lazy(() => import("./pages/SolanaRegistryReport"));
 const RobinhoodRegistryReport = lazy(() => import("./pages/RobinhoodRegistryReport"));
 const ArcRegistryReport = lazy(() => import("./pages/ArcRegistryReport"));
+const ArcRegistryReport20261106 = lazy(() => import("./pages/ArcRegistryReport20261106"));
 const BaseRegistryReport = lazy(() => import("./pages/BaseRegistryReport"));
 const EthereumRegistryReport = lazy(() => import("./pages/EthereumRegistryReport"));
 const MonadRegistryReport = lazy(() => import("./pages/MonadRegistryReport"));
@@ -64,6 +65,7 @@ function Router() {
         <Route path="/field/solana-registries-2026-10-18" component={SolanaRegistryReport} />
         <Route path="/field/robinhood-registry-2026-10-20" component={RobinhoodRegistryReport} />
         {featureOn("chain_arc", FEATURES) && <Route path="/field/arc-registry-2026-10-20" component={ArcRegistryReport} />}
+        {featureOn("chain_arc", FEATURES) && <Route path="/field/arc-registry-2026-11-06" component={ArcRegistryReport20261106} />}
         {featureOn("chain_base", FEATURES) && <Route path="/field/base-registry-2026-10-21" component={BaseRegistryReport} />}
         {featureOn("chain_ethereum", FEATURES) && <Route path="/field/ethereum-registry-2026-10-28" component={EthereumRegistryReport} />}
         {featureOn("chain_monad", FEATURES) && <Route path="/field/monad-registry-2026-11-01" component={MonadRegistryReport} />}

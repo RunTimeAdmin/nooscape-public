@@ -119,6 +119,8 @@ export type RegistryFleets = {
   walletGroups: number;
   /** The registrations the registry holds, counted in the same read as the groups (so a share of them is one figure from one moment). Null when there is none. */
   recorded: number | null;
+  /** Of `recorded`, the registrations a host cap counted and did not store, so no wallet is recorded for them. 0 when none was capped. */
+  counted: number;
   /** When the registry was read for them (ISO 8601), or null. */
   asOf: string | null;
 };
@@ -126,7 +128,7 @@ export type RegistryFleets = {
 /** The most groups of one kind an extra chain's page draws. The rest are counted, not drawn. */
 export const REGISTRY_FLEETS_LIMIT = 8;
 
-export const EMPTY_REGISTRY_FLEETS: RegistryFleets = { fleets: [], groups: 0, walletGroups: 0, recorded: null, asOf: null };
+export const EMPTY_REGISTRY_FLEETS: RegistryFleets = { fleets: [], groups: 0, walletGroups: 0, recorded: null, counted: 0, asOf: null };
 
 export const EMPTY_SOLANA_LIGHTS: SolanaLights = { fleets: [], groups: 0, asOf: null };
 export const EMPTY_ROBINHOOD_LIGHTS: RobinhoodLights = { fleets: [], groups: 0, asOf: null, listed: null };

@@ -413,6 +413,38 @@ describe("the share of the listed entries the registering wallets are recorded a
     expect(registrationShare([wallet("a", 1_000)], 1_000)!.rest).toBe(0);
   });
 
+  it("keeps a tenth of a percent below one percent, rounded down, so a small share is not shown as none", () => {
+    // Arc on 6 November 2026: seven wallets, 2,406 of 385,752 registrations, which is 0.62 percent and was shown as 0.
+    const arc = registrationShare([1_000, 868, 144, 136, 102, 100, 56].map((count, index) => wallet(`w${index}`, count)), 385_752)!;
+    expect(arc.held).toBe(2_406);
+    expect(arc.rest).toBe(383_346);
+    expect(arc.percent).toBe(0.6);
+    expect(arc.segments.map(segment => segment.percent)).toEqual([0.3, 0.2, 0, 0, 0, 0, 0]);
+    // a tenth that is exact stays exact, and one that is not is rounded down, never up to the next tenth or to one percent
+    expect(registrationShare([wallet("a", 3)], 1_000)!.percent).toBe(0.3);
+    expect(registrationShare([wallet("a", 999)], 100_000)!.percent).toBe(0.9);
+    expect(registrationShare([wallet("a", 1_000)], 100_000)!.percent).toBe(1);
+    // under a tenth it is 0, which the page words as "less than 0.1"
+    expect(registrationShare([wallet("a", 50)], 100_000)!.percent).toBe(0);
+  });
+
+  it("keeps the registrations a host cap counted apart from the rest, and never more of them than the rest", () => {
+    // Arc on 6 November 2026: 5,016 registrations stored and 380,736 counted past one host's cap, so 2,610 of the other 383,346 have a wallet on record.
+    const wallets = [1_000, 868, 144, 136, 102, 100, 56].map((count, index) => wallet(`w${index}`, count));
+    const arc = registrationShare(wallets, 385_752, 7, 380_736)!;
+    expect(arc.rest).toBe(383_346);
+    expect(arc.counted).toBe(380_736);
+    expect(arc.rest - arc.counted).toBe(2_610);
+    // the held share and the segments are not touched by it
+    expect(arc.held).toBe(2_406);
+    expect(arc.percent).toBe(0.6);
+    // nothing counted, a count that is not one, or none given: 0
+    for (const none of [0, -5, Number.NaN, null, undefined]) expect(registrationShare(wallets, 385_752, 7, none)!.counted).toBe(0);
+    expect(registrationShare(wallets, 385_752, 7)!.counted).toBe(0);
+    // more counted than the rest (two reads of different moments) is cut to the rest
+    expect(registrationShare(wallets, 385_752, 7, 999_999)!.counted).toBe(383_346);
+  });
+
   it("orders wallets of the same size by id, so the same wallets are in the same order every time", () => {
     const a = registrationShare([wallet("z", 200), wallet("m", 200)], 1_000)!;
     const b = registrationShare([wallet("m", 200), wallet("z", 200)], 1_000)!;

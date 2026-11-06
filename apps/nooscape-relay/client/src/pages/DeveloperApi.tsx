@@ -85,10 +85,10 @@ const restResponseExample = `{
     "mint_block": 123456
   },
   "license": {
-    "name": "Nooscape data, provisional terms",
+    "name": "CC BY 4.0",
     "url": "https://nooscape.si/terms",
-    "attribution": "Data from Nooscape (https://nooscape.si).",
-    "notes": "Attribution is required. Do not resell bulk copies."
+    "attribution": "Data from Nooscape (https://nooscape.si), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).",
+    "notes": "Attribution is required. The facts and records Nooscape produces are licensed under CC BY 4.0: copy, share and adapt them, commercially too, with that credit. Text that registrants published is theirs and is shown as published. The Terms still set the rate limits for reading the data from this service."
   },
   "data": {
     "chain": "robinhood",
@@ -300,7 +300,7 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
               ["api_version", "string", "Always v1 here. A change that breaks a caller will be a new version."],
               ["as_of", "ISO 8601", "For an agent: when Nooscape last saw it at its source. For a search: when the search ran."],
               ["source", "object", "Where the record was read from: the chain, the registry, the key it is stored under, when it was first and last seen, and the mint block where known."],
-              ["license", "object", "The terms the data is offered under, and the attribution line to show where you use it. Provisional."],
+              ["license", "object", "The license the data is offered under (CC BY 4.0), and the attribution line to show where you use it."],
               ["data", "object", "The agent, or the page of search results."],
             ]} />
             <SchemaPanel title="An agent" rows={[
@@ -407,7 +407,7 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
               ["429", "rate_limited | quota_exceeded", "rate_limited: wait Retry-After seconds. quota_exceeded: the key has used its day, and Retry-After is the time until 00:00 UTC."],
               ["503", "unavailable", "The data, or the keys, cannot be read now. Wait Retry-After seconds."],
             ]} />
-            <p className="developer-body-copy">Show the attribution line from <code>license</code> where you use the data, and do not resell bulk copies. These are provisional terms: see the <a href="/terms">Terms</a>, which also bar scraping beyond the published limits. A final data license will replace them.</p>
+            <p className="developer-body-copy">Show the attribution line from <code>license</code> where you use the data. The facts are licensed under CC BY 4.0: you may copy, share and adapt them, commercially too, with that credit. The <a href="/terms">Terms</a> say what the license does not cover, and still bar scraping beyond the published limits.</p>
           </section>
 
           <section className="developer-section" id="trust">

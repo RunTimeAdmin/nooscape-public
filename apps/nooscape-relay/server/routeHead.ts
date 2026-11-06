@@ -97,6 +97,10 @@ export const ROUTE_HEADS: Record<string, Head> = {
     title: "Arc registry census, 2026-10-20",
     description: "A dated count of the ERC-8004 identity registry on Arc as the directory holds it: who registered, what the listing rules held out and what the chain records. Counts only, with no agent, wallet or host named.",
   },
+  "/field/arc-registry-2026-11-06": {
+    title: "Arc registry census, 2026-11-06",
+    description: "A second dated count of the ERC-8004 identity registry on Arc, with what a host cap counted and did not store: who registered, what the listing rules held out, what the chain records. Counts only, no agent, wallet or host named.",
+  },
   "/field/base-registry-2026-10-21": {
     title: "Base registry census, 2026-10-21",
     description: "A dated count of the ERC-8004 identity registry on Base as the directory holds it: who registered, what the listing rules held out, what the chain records and when. Counts only, with no agent, wallet or host named.",

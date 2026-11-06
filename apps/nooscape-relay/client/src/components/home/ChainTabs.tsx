@@ -144,7 +144,7 @@ export function ChainTabs({ bnbProfile }: Props) {
                     {chain === "arc" && (
                       <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
                         A dated count of what the registry holds: the{" "}
-                        <Link href="/field/arc-registry-2026-10-20" className="underline underline-offset-4 hover:text-ns-ink">Arc registry census, 20 October 2026</Link>.
+                        <Link href="/field/arc-registry-2026-11-06" className="underline underline-offset-4 hover:text-ns-ink">Arc registry census, 6 November 2026</Link>.
                       </p>
                     )}
                     {chain === "base" && (

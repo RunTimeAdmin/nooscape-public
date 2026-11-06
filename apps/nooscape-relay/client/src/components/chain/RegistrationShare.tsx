@@ -15,6 +15,19 @@ type Props = {
   onSelect: (id: string) => void;
 };
 
+/** What the registrations outside the wallets drawn are recorded against, said for what is known: a registration a host cap counted has no wallet. */
+function restSentence(share: RegistrationShareFigures, minimum: number): string {
+  const rest = share.rest.toLocaleString("en-US");
+  if (share.counted === 0) {
+    return share.complete ? ` The other ${rest} are recorded against wallets with fewer than ${minimum} each.` : ` The other ${rest} are recorded against every other wallet.`;
+  }
+  const counted = `${share.counted.toLocaleString("en-US")} were counted by host name and not stored, so no wallet is recorded for them.`;
+  const stored = share.rest - share.counted;
+  if (stored === 0) return ` The other ${counted}`;
+  const against = share.complete ? `wallets with fewer than ${minimum} each` : "every other wallet";
+  return ` Of the other ${rest}, ${stored.toLocaleString("en-US")} are recorded against ${against}, and ${counted}`;
+}
+
 /**
  * What the Robinhood Chain page leads with: how much of the directory's list of entries a few registering wallets are recorded against, as
  * a bar and a row of wallets. One figure from one read (the wallets and the count are taken together). It is a count of entries by the
@@ -31,7 +44,7 @@ export function RegistrationShare({ chain, share, asOf, selectedId, onSelect }: 
     <section className="cw-share" aria-labelledby="cw-share-heading">
       <p className="cw-small-label">{arc ? "WHO REGISTERED ON ARC" : "WHO REGISTERED THE ENTRIES"}</p>
       <h2 id="cw-share-heading" className="cw-share-headline">
-        <strong>{share.percent} percent</strong> of the {share.listed.toLocaleString("en-US")} {arc ? "registrations on Arc" : "entries the directory lists on Robinhood Chain"} are recorded against {share.complete ? "" : "the "}
+        <strong>{share.percent === 0 ? "Less than 0.1" : share.percent} percent</strong> of the {share.listed.toLocaleString("en-US")} {arc ? "registrations on Arc" : "entries the directory lists on Robinhood Chain"} are recorded against {share.complete ? "" : "the "}
         {share.wallets} {share.complete ? "registering" : "largest registering"} {share.wallets === 1 ? "wallet" : "wallets"}.
       </h2>
       {/* The bar is a picture of the legend below it, which holds the controls. */}
@@ -58,7 +71,7 @@ export function RegistrationShare({ chain, share, asOf, selectedId, onSelect }: 
                 <span className="cw-share-swatch" style={{ "--cw-shade": `${100 - index * 9}%` } as CSSProperties} aria-hidden="true" />
                 <span>{segment.label.replace(/^Wallet /, "")}</span>
                 <span className="cw-share-count">{segment.count.toLocaleString("en-US")}</span>
-                <span className="cw-share-percent">{segment.percent}%</span>
+                <span className="cw-share-percent">{segment.percent === 0 ? "<0.1" : segment.percent}%</span>
               </button>
             </li>
           );
@@ -66,18 +79,14 @@ export function RegistrationShare({ chain, share, asOf, selectedId, onSelect }: 
         {share.rest > 0 && (
           <li className="cw-share-other">
             <span className="cw-share-swatch cw-share-swatch-rest" aria-hidden="true" />
-            <span>Every other wallet</span>
+            <span>{share.counted > 0 ? "Every other registration" : "Every other wallet"}</span>
             <span className="cw-share-count">{share.rest.toLocaleString("en-US")}</span>
           </li>
         )}
       </ul>
       <p className="cw-share-note">
         {arc ? FLEET_NOT_PROVED.wallet : ROBINHOOD_NOT_PROVED} Shares are of the {arc ? "registrations the registry holds, listed or not" : "entries the directory lists"}{when ? `, as ${arc ? "the registry" : "it"} held them at ${when}` : ""}.
-        {share.rest > 0
-          ? share.complete
-            ? ` The other ${share.rest.toLocaleString("en-US")} are recorded against wallets with fewer than ${minimum} each.`
-            : ` The other ${share.rest.toLocaleString("en-US")} are recorded against every other wallet.`
-          : ""}
+        {share.rest > 0 ? restSentence(share, minimum) : ""}
         {census && (
           <>
             {" "}

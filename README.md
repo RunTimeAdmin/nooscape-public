@@ -36,7 +36,7 @@ It states facts and never a verdict.
 - **Payment changes nothing.** A key, a payment or a claim never changes a record, a tier or an evidence level.
 - **Every answer says when it was read and where from.**
 
-On 6 November 2026 the atlas listed 61,434 agents from the chain registries (Robinhood Chain 21,446, Solana 17,995, Base 9,183, BNB Chain 6,974, Ethereum 5,216, Arc 473, Monad 147), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
+On 6 November 2026 the atlas listed 61,498 agents from the chain registries (Robinhood Chain 21,496, Solana 17,996, Base 9,186, BNB Chain 6,976, Ethereum 5,216, Arc 481, Monad 147), out of many more registrations recorded, and 76 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
 
 ## See it
 
@@ -188,7 +188,7 @@ Issues and pull requests are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) 
 
 ## License
 
-The code is released under the [MIT License](LICENSE). The data Nooscape serves is under provisional terms: attribution is required, and bulk copies may not be resold (see the [terms](https://nooscape.si/terms)). The Nooscape name and logo are not part of the code license.
+The code is released under the [MIT License](LICENSE). The facts and records Nooscape produces are licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): you may copy, share and adapt them, commercially too, if you credit Nooscape with the attribution line every answer carries (`license.attribution`). Text that registrants published stays theirs and is shown as published. The [terms](https://nooscape.si/terms) still set the rate limits for reading the data from the service. The Nooscape name and logo are not part of the code license or the data license.
 
 ## About this repository
 
