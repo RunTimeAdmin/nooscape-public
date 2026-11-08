@@ -1,5 +1,6 @@
 import { CHAIN, DERIVED as d, MEASURED, PASS_TIME, PUBLIC, REGISTRY, RULES, THRESHOLDS, formatPercent as pc } from "@/lib/ethereumRegistryReport";
 import { InfoPage, headingClass, listClass, textClass } from "@/components/InfoPage";
+import { CensusToday } from "@/components/CensusToday";
 
 /**
  * A dated census of the ERC-8004 identity registry on Ethereum as the directory holds it. It is a report, not a directory: it lists no
@@ -48,6 +49,7 @@ export default function EthereumRegistryReport() {
         <dt>Counted from</dt>
         <dd className="text-ns-ink">the registry pass that finished at {PASS_TIME}</dd>
       </dl>
+      <CensusToday chain="ethereum" measuredOn={MEASURED.date} figures={SURFACE} />
 
       <section aria-labelledby="census-method">
         <h2 id="census-method" className={headingClass}>How it was done</h2>

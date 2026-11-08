@@ -191,6 +191,7 @@ export const ETHEREUM_LISTING_RULES: RegistryListingRules = { sharedProfileLinkF
 export const BASE_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
 export const ARC_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
 export const MONAD_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
+export const GNOSIS_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
 
 /**
  * The most registry rows one host may hold on the chains added after BNB Chain (docs/flood-host-cap-2026-10-21.md). One platform
@@ -200,7 +201,7 @@ export const MONAD_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom
  */
 export const FLOOD_HOST_ROW_CAP = 2_000;
 
-/** The ERC-8004 reputation registry, at the same address on Ethereum, Base, Arc and Monad (Arc's contract page names it; the first three had code there on 2026-10-21, and Monad on 2026-11-01). */
+/** The ERC-8004 reputation registry, at the same address on Ethereum, Base, Arc, Monad and Gnosis (Arc's contract page names it; the first three had code there on 2026-10-21, Monad on 2026-11-01 and Gnosis on 2026-11-06). */
 export const ERC8004_REPUTATION_REGISTRY = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63";
 
 /**
@@ -492,8 +493,71 @@ export const MONAD_CHAIN: PinnedErc8004Chain = {
   feature: "chain_monad",
 };
 
+/**
+ * Gnosis Chain (chain id 100, `eth_chainId` 0x64; the registry authors' contracts README names it). Read through Alchemy, the plan the Base
+ * and Monad passes use. Facts measured 2026-11-06 (docs/gnosis-erc8004-2026-11-06.md):
+ *  - the identity registry is the same 130-byte proxy at the same address, and its implementation (0x7274e874ca62410a93bd8bf61c69d8045e399c02)
+ *    has the same 14,474 bytes of code as Ethereum's, so the decoding is shared. The code's SHA-256 prefixes equal Ethereum's.
+ *  - deploy block 44,505,010 (2026-02-04 09:49:00 UTC), found by binary search on `eth_getCode` (empty at 44,505,009, 130 bytes at
+ *    44,505,010) through the keyed endpoint, which archives to it. 4,639,735 blocks lie between it and the finalized head, which sat
+ *    40 blocks behind the head.
+ *  - 5.0827 s per block over the last 100,000 blocks, so an hour is 708 blocks.
+ *  - the keyed endpoint answers `eth_getLogs` over at most 10,000 blocks and puts no cap on the response: the first 10,000 blocks
+ *    returned 21,217 logs of every kind (18 MB). A wider window is refused with an HTTP 400 that reads "You can make eth_getLogs requests
+ *    with up to a 10000 block range" and names a range that works; the pass never asks for one, so that refusal is a planner fault.
+ *  - the whole history, read as 740 windows of at most 10,000 blocks (79 s, none failed): 32,826 logs of every kind. The three kinds the
+ *    pass asks for are 8,412 of them (4,179 Registered, 4,184 Transfer, 49 URIUpdated), 779 bytes each as JSON, in 238 of the 464
+ *    windows of 10,000 blocks. The registry holds 4,179 tokens, ids 0 to 4,178. The busiest window holds 5,304 of those events (4.0 MB;
+ *    blocks 44,505,010 to 44,515,009, the launch) and the next busiest 202.
+ *  - quiet now: a few registrations a month since August; the last log of any kind was on 2026-11-04.
+ */
+export const GNOSIS_CHAIN: PinnedErc8004Chain = {
+  protocol: "erc8004_gnosis",
+  chainKey: "gnosis",
+  chainId: 100,
+  chainIdHex: "0x64",
+  label: "Gnosis",
+  chainLabel: "Gnosis",
+  identityRegistry: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+  deployBlock: 44_505_010,
+  maxLogRange: 10_000,
+  /** 3.8 times the busiest window measured (5,304 events). A read that comes back holding more is a provider fault. */
+  maxWindowLogs: 20_000,
+  handoutBlockWindow: 708,
+  sourceKey: "gnosis-erc8004-identity-registry",
+  provider: { kind: "pinned", rootUrl: "https://gnosis-mainnet.g.alchemy.com", allowedHostname: "gnosis-mainnet.g.alchemy.com" },
+  rpcEnvVar: "GNOSIS_RPC_URL",
+  readRpcUrl: () => ENV.gnosisRpcUrl,
+  rpc: {
+    timeoutMs: 30_000,
+    /** 4.2 times the busiest window measured (3.8 MiB). A read that passes it is split in halves, not failed. */
+    maxResponseBytes: 16 * MIB,
+    retryStatuses: [429, 500, 502, 503, 504],
+    backoffMs: [1_000, 3_000],
+    /** Alchemy explains a refused range, in words, in the body of an HTTP 400. */
+    readErrorBodies: true,
+  },
+  budget: {
+    /** 100 windows of 10,000 blocks: 1,000,000 blocks a run, so the 4.6 million blocks of history are read in five runs. */
+    maxWindows: 100,
+    concurrency: 3,
+    maxElapsedMs: 30_000,
+    /** Almost two of the busiest window. Only the launch window is that dense; the rest of the history is read a hundred windows at a time. */
+    maxEvents: 10_000,
+  },
+  cursorPrefix: "gnosis",
+  errorPrefix: "Gnosis",
+  logTag: "GNOSIS",
+  fetchSentence: RECORDED_ONLY_SENTENCE,
+  listingRules: GNOSIS_LISTING_RULES,
+  hostRowCap: FLOOD_HOST_ROW_CAP,
+  /** Read from the identity registry's deploy block, where the reputation registry was deployed with it (its first rating is six blocks later). Window: Alchemy's ceiling here is 10,000 blocks, and the registry had 4,341 ratings and no revocation in all on 2026-11-06, in 23 of its 465 windows. */
+  reputation: { registry: ERC8004_REPUTATION_REGISTRY, window: 10_000 },
+  feature: "chain_gnosis",
+};
+
 /** Every chain the pass reads, in the order they were added. */
-export const ERC8004_CHAINS: readonly Erc8004Chain[] = [BSC_CHAIN, ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN];
+export const ERC8004_CHAINS: readonly Erc8004Chain[] = [BSC_CHAIN, ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN];
 
 /** The chain a source protocol belongs to, or null when the protocol is not read by this pass. */
 export function erc8004ChainOfProtocol(protocol: string): Erc8004Chain | null {

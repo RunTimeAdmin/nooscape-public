@@ -1,0 +1,26 @@
+-- Gnosis identity registry scheduled flip (migration 0058). The same reviewed flip the Arc pass received from 0050, the Ethereum pass from
+-- 0052 and the Monad pass from 0054: the source moves from operator-paced to the scheduler, so the Gnosis registry refreshes by itself and no
+-- one has to press "Run chain pass". Once a day.
+--
+-- Preconditions, all encoded in the WHERE so a fresh or unhealthy deployment never wakes up to an unattended pass: the row is the approved
+-- Gnosis identity source (by its key), it is active, it is still manual_only (so running this file again is a no-op and an operator's later
+-- cadence change is never overwritten), it holds a `gnosis:` cursor (an operator staged and approved it and ran it, the last pass ending at
+-- 21:12Z on 2026-11-06), it has a recorded success, and it has no recorded failure. The protocol is not named, as in 0050, 0052 and 0054: this
+-- runs at every boot, including on a database that has not had the by-hand migration 0057 that adds Gnosis's protocol value, and
+-- dbMigrations.test.ts keeps those values out of every boot. The key is unique and the `gnosis:` cursor is written only by the Gnosis pass.
+--
+-- What the unattended pass is: the reviewed chain-facts-only posture of server/ingestion/erc8004Chains.ts. It reads windows of at most 10,000
+-- finalized blocks through the keyed Alchemy endpoint (GNOSIS_RPC_URL), up to three at a time, applies them in chain order and stops at a
+-- budget of 100 windows, 30 seconds and 10,000 events. It writes registry rows, ledger rows and URI updates, fetches no registration URI and
+-- adds no agent, snapshot or evidence event, so no run can add a reviewed record. A failed pass leaves the cursor untouched. Gnosis's
+-- finalized block sits about 40 blocks (under four minutes) behind the head, so a run lists what the chain had finalized when it started. The
+-- pass does not start while the `chain_gnosis` switch is off, and a scheduled run then records a failure.
+--
+-- Cadence 1440 minutes. finishIngestionRun sets nextRunAt to the finish time plus the cadence, whatever the outcome, and the cron fires on
+-- fixed 15-minute marks, so the pass runs about once every 24 hours and a run that fails is tried again a day later. A day of Gnosis is about
+-- 17,000 blocks (5.08 seconds a block), two windows. The registry has recorded 8,412 events of the three kinds in all, 5,304 in its busiest
+-- window (the launch), and none in the day to 21:00Z on 2026-11-06 (4 in the week, 48 in the month), so one run a day has room. Were Gnosis
+-- ever to record more than 10,000 events a day, a daily run would fall behind and the cadence would have to shorten.
+-- Until this runs, the chain's figures stay as of the last manual pass. nextRunAt uses NOW(), not UTC_TIMESTAMP(), for the reason migration
+-- 0031 records. The worker's maxSourcesPerTick and interval are not touched.
+UPDATE `ingestion_sources` SET `executionPolicy` = 'scheduled', `scheduleMinutes` = 1440, `nextRunAt` = NOW() WHERE `sourceKey` = 'gnosis-erc8004-identity-registry' AND `state` = 'active' AND `executionPolicy` = 'manual_only' AND `cursor` LIKE 'gnosis:%' AND `lastSuccessfulAt` IS NOT NULL AND `failureCount` = 0;

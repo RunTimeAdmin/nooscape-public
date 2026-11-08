@@ -141,15 +141,18 @@ describe.skipIf(!dbReachable)("the ratings step, against a real database", { tim
     await admin.end();
   });
 
-  it("names the reputation registry on Ethereum, Base, Arc and Monad, and the entries are sound", async () => {
-    const { ETHEREUM_CHAIN, MONAD_CHAIN } = await import("./ingestion/erc8004Chains");
+  it("names the reputation registry on Ethereum, Base, Arc, Monad and Gnosis, and the entries are sound", async () => {
+    const { ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN } = await import("./ingestion/erc8004Chains");
     const { ROBINHOOD_REPUTATION_REGISTRY } = await import("./ingestion/robinhoodReputation");
     expect(ERC8004_REPUTATION_REGISTRY).toBe(ROBINHOOD_REPUTATION_REGISTRY);
-    for (const chain of [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN]) expect(chain.reputation?.registry, chain.protocol).toBe(ERC8004_REPUTATION_REGISTRY);
+    for (const chain of [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN]) expect(chain.reputation?.registry, chain.protocol).toBe(ERC8004_REPUTATION_REGISTRY);
     // Monad reads from its identity registry's deploy block in windows of 50,000 blocks, the most Alchemy answers for one request.
     expect(MONAD_CHAIN.reputation?.window).toBe(50_000);
     expect(MONAD_CHAIN.reputation!.window).toBeLessThanOrEqual(MONAD_CHAIN.maxLogRange);
-    expect(validateErc8004Chains([ARC, BASE, MONAD_CHAIN])).toEqual([]);
+    // Gnosis reads from its identity registry's deploy block in windows of 10,000 blocks, the most Alchemy answers for one request there.
+    expect(GNOSIS_CHAIN.reputation?.window).toBe(10_000);
+    expect(GNOSIS_CHAIN.reputation!.window).toBeLessThanOrEqual(GNOSIS_CHAIN.maxLogRange);
+    expect(validateErc8004Chains([ARC, BASE, MONAD_CHAIN, GNOSIS_CHAIN])).toEqual([]);
   });
 
   describe("counting", () => {

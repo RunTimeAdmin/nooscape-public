@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arcClaimsOn, baseClaimsOn, ethereumClaimsOn, FEATURES, featureOn, monadClaimsOn } from "@shared/features";
+import { arcClaimsOn, baseClaimsOn, ethereumClaimsOn, FEATURES, featureOn, gnosisClaimsOn, monadClaimsOn } from "@shared/features";
 
 /**
  * The switches behind which the Your Watch and Patrols scaffolds stay off. Off is the default: nothing is on unless
@@ -28,8 +28,8 @@ describe("featureOn", () => {
     expect(featureOn("watch", "unwatch,patrols")).toBe(false);
   });
 
-  it("names exactly the two scaffolds, the claim panel, one switch for each extra chain and a claims switch for each of Arc, Base, Ethereum and Monad", () => {
-    expect([...FEATURES]).toEqual(["watch", "patrols", "claims", "chain_base", "chain_ethereum", "chain_arc", "claims_arc", "claims_base", "claims_ethereum", "chain_monad", "claims_monad"]);
+  it("names exactly the two scaffolds, the claim panel, one switch for each extra chain and a claims switch for each of Arc, Base, Ethereum, Monad and Gnosis", () => {
+    expect([...FEATURES]).toEqual(["watch", "patrols", "claims", "chain_base", "chain_ethereum", "chain_arc", "claims_arc", "claims_base", "claims_ethereum", "chain_monad", "claims_monad", "chain_gnosis", "claims_gnosis"]);
     expect(featureOn("claims", "claims")).toBe(true);
     expect(featureOn("claims", "watch,patrols")).toBe(false);
     expect(featureOn("claims", "claimsx")).toBe(false);
@@ -63,9 +63,10 @@ describe("arcClaimsOn", () => {
 });
 
 describe.each([
-  { label: "baseClaimsOn", on: baseClaimsOn, chain: "chain_base", claims: "claims_base", other: "chain_ethereum,claims_ethereum,chain_arc,claims_arc,chain_monad,claims_monad" },
-  { label: "ethereumClaimsOn", on: ethereumClaimsOn, chain: "chain_ethereum", claims: "claims_ethereum", other: "chain_base,claims_base,chain_arc,claims_arc,chain_monad,claims_monad" },
-  { label: "monadClaimsOn", on: monadClaimsOn, chain: "chain_monad", claims: "claims_monad", other: "chain_base,claims_base,chain_ethereum,claims_ethereum,chain_arc,claims_arc" },
+  { label: "baseClaimsOn", on: baseClaimsOn, chain: "chain_base", claims: "claims_base", other: "chain_ethereum,claims_ethereum,chain_arc,claims_arc,chain_monad,claims_monad,chain_gnosis,claims_gnosis" },
+  { label: "ethereumClaimsOn", on: ethereumClaimsOn, chain: "chain_ethereum", claims: "claims_ethereum", other: "chain_base,claims_base,chain_arc,claims_arc,chain_monad,claims_monad,chain_gnosis,claims_gnosis" },
+  { label: "monadClaimsOn", on: monadClaimsOn, chain: "chain_monad", claims: "claims_monad", other: "chain_base,claims_base,chain_ethereum,claims_ethereum,chain_arc,claims_arc,chain_gnosis,claims_gnosis" },
+  { label: "gnosisClaimsOn", on: gnosisClaimsOn, chain: "chain_gnosis", claims: "claims_gnosis", other: "chain_base,claims_base,chain_ethereum,claims_ethereum,chain_arc,claims_arc,chain_monad,claims_monad" },
 ])("$label", ({ on, chain, claims, other }) => {
   it("is on only while the chain itself is on and its claims are switched on, each named in the list", () => {
     expect(on(`${chain},${claims}`)).toBe(true);

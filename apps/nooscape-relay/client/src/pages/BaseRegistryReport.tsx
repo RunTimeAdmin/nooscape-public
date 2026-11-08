@@ -1,5 +1,6 @@
 import { CHAIN, DERIVED as d, MEASURED, PASS_TIME, REGISTRY, RULES, THRESHOLDS, formatPercent as pc } from "@/lib/baseRegistryReport";
 import { InfoPage, headingClass, listClass, textClass } from "@/components/InfoPage";
+import { CensusToday } from "@/components/CensusToday";
 
 /**
  * A dated census of the ERC-8004 identity registry on Base as the directory holds it. It is a report, not a directory: it lists no
@@ -24,6 +25,13 @@ const SURFACE: ReadonlyArray<readonly [label: string, count: number]> = [
   ["Different profile links", REGISTRY.profileLinks],
 ];
 
+/**
+ * Said under the Today table. The report was measured before the rows already stored past a host's cap were cleared on the day of the
+ * cap (docs/flood-host-cap-2026-10-21.md), so four of its counts fell by the size of one platform's flood without a registration lost.
+ */
+const TODAY_NOTE =
+  "Since 2026-10-21 the directory has capped the rows it stores for one host name and counts the registrations past the cap without storing them. This report was measured before the rows already stored past that cap were cleared the same day, so today's counts of stored registrations, registering wallets, registrations with an https link and different profile links are not comparable with the report's. Those registrations were not lost: they are counted and not stored.";
+
 /** What the listing rules did, in the order the table shows it. */
 const LISTING: ReadonlyArray<readonly [label: string, count: number]> = [
   ["Listed in the directory", d.listing.listed],
@@ -46,6 +54,7 @@ export default function BaseRegistryReport() {
         <dt>Counted from</dt>
         <dd className="text-ns-ink">the registry pass that finished at {PASS_TIME}</dd>
       </dl>
+      <CensusToday chain="base" measuredOn={MEASURED.date} figures={SURFACE} note={TODAY_NOTE} />
 
       <section aria-labelledby="census-method">
         <h2 id="census-method" className={headingClass}>How it was done</h2>

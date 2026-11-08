@@ -400,6 +400,27 @@
       "when": 1793889259135,
       "tag": "0056_listing_pins",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "5",
+      "when": 1793996487785,
+      "tag": "0057_gnosis_erc8004_protocol",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "5",
+      "when": 1794000805956,
+      "tag": "0058_gnosis_scheduled_flip",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "5",
+      "when": 1794106280089,
+      "tag": "0059_catalog_party_host",
+      "breakpoints": true
     }
   ]
 }

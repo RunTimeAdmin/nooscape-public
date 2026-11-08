@@ -65,9 +65,11 @@ import { extraChainsOn, extraProtocolOf, type ChainStat, type ExtraChainKey, typ
 import { readCatchArchive, readCatchForDate, readTodaysCatch, unavailableCatch } from "../owlsCatch";
 import { storagePut, verifyStoredObject } from "../storage";
 import { isCatchDate } from "@shared/owlsCatch";
+import { CENSUS_CHAINS, censusChainOn } from "@shared/censusToday";
+import { readCensusToday } from "../censusToday";
 import { validateA2aSourceRoot } from "../ingestion/a2a";
 import { runApprovedA2aSource } from "../ingestion/runA2a";
-import { runApprovedAgenstrySource } from "../ingestion/runAgenstry";
+import { runApprovedCatalogSource } from "../ingestion/runCatalog";
 import { runApprovedAgentEconomySource } from "../ingestion/runAgentEconomy";
 import { runApproved8004SolanaSource } from "../ingestion/run8004Solana";
 import { runApprovedSaidSource } from "../ingestion/runSaid";
@@ -78,7 +80,7 @@ import { BSC_ALLOWED_HOSTNAME, BSC_ROOT_URL, BSC_SOURCE_KEY, BscRegistryValidati
 import { BscRpcError, BscRpcNotConfiguredError } from "../ingestion/bscRpc";
 import { runApprovedErc8004ChainSource } from "../ingestion/runErc8004Chain";
 import { Erc8004ChainOffError } from "../ingestion/erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, erc8004ChainOfProtocol } from "../ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, erc8004ChainOfProtocol } from "../ingestion/erc8004Chains";
 import { Erc8004RpcNotConfiguredError } from "../ingestion/erc8004Rpc";
 import { chainSourcePreset } from "../ingestion/chainPresets";
 import { runApprovedMetaplexRegistrySource } from "../ingestion/runMetaplex";
@@ -127,6 +129,27 @@ const approvedPublicSources = {
     // The documented anonymous feed permits six requests/hour. A 24-hour cadence
     // keeps the first population wave deliberately below that boundary.
     scheduleMinutes: 1_440,
+  },
+  // Two public A2A registries read as catalogs (docs/a2a-registries-2026-11-06.md). Both are staged manual_only: nothing reads either
+  // registry until an operator runs it, and a2aregistry.org has given no written permission.
+  a2aregistry: {
+    sourceKey: "a2aregistry-public-api",
+    label: "a2aregistry.org community A2A registry",
+    protocol: "catalog" as const,
+    rootUrl: "https://a2aregistry.org/api/agents",
+    allowedHostname: "a2aregistry.org",
+    scheduleMinutes: 1_440,
+    executionPolicy: "manual_only" as const,
+  },
+  a2aRegistryApi: {
+    sourceKey: "a2a-registry-org-public-api",
+    label: "A2A Registry public API (a2a-registry.org)",
+    protocol: "catalog" as const,
+    rootUrl: "https://api.a2a-registry.org/public/agents",
+    allowedHostname: "api.a2a-registry.org",
+    // The approval allows at most one read a week.
+    scheduleMinutes: 10_080,
+    executionPolicy: "manual_only" as const,
   },
   agentEconomy: {
     sourceKey: "agent-economy-public-census",
@@ -254,7 +277,7 @@ const approvedPublicSources = {
  * The chains of the identity pass that have a switch (docs/multichain-erc8004-2026-10-20.md), by the name the staging action gives them.
  * Their sources are made from the chain's entry (ingestion/chainPresets.ts), not from a constant here.
  */
-const switchedChains = { ethereum: ETHEREUM_CHAIN, base: BASE_CHAIN, arc: ARC_CHAIN, monad: MONAD_CHAIN } as const;
+const switchedChains = { ethereum: ETHEREUM_CHAIN, base: BASE_CHAIN, arc: ARC_CHAIN, monad: MONAD_CHAIN, gnosis: GNOSIS_CHAIN } as const;
 
 /** The preset for one of them, with the two refusals it can make (switched off; endpoint not set) put to the operator as what they are. */
 function stageableChainSource(name: keyof typeof switchedChains) {
@@ -455,6 +478,17 @@ export const liveDataRouter = router({
       return { chains: [] };
     }
   }),
+  // The Today block on a registry census page: the counts of the page's first table as the directory holds them now. Counts only. A chain
+  // whose switch is off, or whose source is not active, has none; a read that fails gives none, never zeros.
+  censusToday: publicProcedure.input(z.object({ chain: z.enum(CENSUS_CHAINS) })).query(async ({ input }) => {
+    try {
+      if (!censusChainOn(input.chain, process.env.VITE_FEATURES)) return { today: null } as const;
+      return { today: await readCensusToday(input.chain) } as const;
+    } catch (error) {
+      if (!isCircuitOpenError(error)) console.warn("[LiveData] Census today read failed:", describeStorageFailure(error));
+      return { today: null } as const;
+    }
+  }),
   // What entered the directory in the last 24 hours, per chain, and the newest few by name: the Home page's "new to the
   // Owl" lines. Counts of visible entries by their own first-seen time; fails closed to no figures, never to zeros.
   arrivals: publicProcedure.query(async () => {
@@ -555,7 +589,7 @@ export const liveDataRouter = router({
   // more of its registrations share, from the registry rows (docs/chain-worlds-2026-10-20.md). No registration is returned, only the
   // shared fact. Fails closed to no groups, which is also what it answers while the chain's switch is off or before its first
   // complete pass has published.
-  registryFleets: publicProcedure.input(z.object({ chain: z.enum(["arc", "base", "ethereum", "monad"]) })).query(async ({ input }) => {
+  registryFleets: publicProcedure.input(z.object({ chain: z.enum(["arc", "base", "ethereum", "monad", "gnosis"]) })).query(async ({ input }) => {
     try {
       if (!extraChainsOn(process.env.VITE_FEATURES).includes(input.chain)) return EMPTY_REGISTRY_FLEETS;
       return await readRegistryFleets(input.chain);
@@ -763,10 +797,10 @@ export const liveDataRouter = router({
       }
     }),
     registerApprovedPublicSource: operatorProcedure
-      .input(z.object({ source: z.enum(["agenstry", "agentEconomy", "metaplex", "robinhood", "usdgSettlements", "robinhoodReputation", "solana8004", "said", "agenc", "bsc", "ethereum", "base", "arc", "monad"]) }))
+      .input(z.object({ source: z.enum(["agenstry", "a2aregistry", "a2aRegistryApi", "agentEconomy", "metaplex", "robinhood", "usdgSettlements", "robinhoodReputation", "solana8004", "said", "agenc", "bsc", "ethereum", "base", "arc", "monad", "gnosis"]) }))
       .mutation(async ({ ctx, input }) => {
         const candidate =
-          input.source === "ethereum" || input.source === "base" || input.source === "arc" || input.source === "monad"
+          input.source === "ethereum" || input.source === "base" || input.source === "arc" || input.source === "monad" || input.source === "gnosis"
             ? stageableChainSource(input.source)
             : approvedPublicSources[input.source];
         try {
@@ -783,6 +817,10 @@ export const liveDataRouter = router({
           // The same for Monad's value (migration 0053).
           if (input.source === "monad" && driverErrorHas(error, "WARN_DATA_TRUNCATED") && describeFailure(error).includes("'protocol'")) {
             throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The database does not have the Monad protocol value yet. Paste migration 0053 first (docs/monad-erc8004-2026-11-01.md), then stage the source again." });
+          }
+          // The same for Gnosis's value (migration 0057).
+          if (input.source === "gnosis" && driverErrorHas(error, "WARN_DATA_TRUNCATED") && describeFailure(error).includes("'protocol'")) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The database does not have the Gnosis protocol value yet. Paste migration 0057 first (docs/gnosis-erc8004-2026-11-06.md), then stage the source again." });
           }
           return databaseFailure(error);
         }
@@ -1224,7 +1262,7 @@ export const liveDataRouter = router({
             });
           }
           if (source.protocol === "a2a") return await runApprovedA2aSource(source, "manual");
-          if (source.protocol === "catalog") return await runApprovedAgenstrySource(source, "manual");
+          if (source.protocol === "catalog") return await runApprovedCatalogSource(source, "manual");
           if (source.protocol === "census") return await runApprovedAgentEconomySource(source, "manual");
           if (source.protocol === "solana_registry") {
             // The API pilot (observe) and the on-chain chain pass (activity)

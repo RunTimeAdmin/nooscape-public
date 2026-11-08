@@ -47,7 +47,7 @@ describe("the sitemap text", () => {
 });
 
 describe("the pages behind a switch that the sitemap lists", () => {
-  it("lists the Arc, Base, Ethereum and Monad pages and their census reports once their switches are on, and no scaffold page", () => {
+  it("lists the Arc, Base, Ethereum, Monad and Gnosis pages and their census reports once their switches are on, and no scaffold page", () => {
     expect(flaggedSitemapUrls(undefined)).toEqual([]);
     expect(flaggedSitemapUrls("")).toEqual([]);
     expect(flaggedSitemapUrls("watch,patrols,claims")).toEqual([]);
@@ -72,6 +72,20 @@ describe("the pages behind a switch that the sitemap lists", () => {
       `${SITE_ORIGIN}/field/ethereum-registry-2026-10-28`,
       `${SITE_ORIGIN}/chains/monad`,
       `${SITE_ORIGIN}/field/monad-registry-2026-11-01`,
+    ]);
+    expect(flaggedSitemapUrls("chain_gnosis")).toEqual([`${SITE_ORIGIN}/chains/gnosis`, `${SITE_ORIGIN}/field/gnosis-registry-2026-11-06`]);
+    expect(flaggedSitemapUrls("chain_gnosis,chain_monad,chain_ethereum,chain_base,chain_arc")).toEqual([
+      `${SITE_ORIGIN}/chains/arc`,
+      `${SITE_ORIGIN}/field/arc-registry-2026-10-20`,
+      `${SITE_ORIGIN}/field/arc-registry-2026-11-06`,
+      `${SITE_ORIGIN}/chains/base`,
+      `${SITE_ORIGIN}/field/base-registry-2026-10-21`,
+      `${SITE_ORIGIN}/chains/ethereum`,
+      `${SITE_ORIGIN}/field/ethereum-registry-2026-10-28`,
+      `${SITE_ORIGIN}/chains/monad`,
+      `${SITE_ORIGIN}/field/monad-registry-2026-11-01`,
+      `${SITE_ORIGIN}/chains/gnosis`,
+      `${SITE_ORIGIN}/field/gnosis-registry-2026-11-06`,
     ]);
     expect(flaggedSitemapUrls("chain_base")).toEqual([`${SITE_ORIGIN}/chains/base`, `${SITE_ORIGIN}/field/base-registry-2026-10-21`]);
     expect(flaggedSitemapUrls("chain_base,chain_arc")).toEqual([

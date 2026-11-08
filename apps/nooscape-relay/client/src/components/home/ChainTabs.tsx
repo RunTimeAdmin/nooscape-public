@@ -95,6 +95,11 @@ export function ChainTabs({ bnbProfile }: Props) {
               Open the Monad page <span aria-hidden="true">&rarr;</span>
             </Link>
           )}
+          {regions.includes("gnosis") && (
+            <Link href="/chains/gnosis" className={PAGE_LINK_CLASS}>
+              Open the Gnosis page <span aria-hidden="true">&rarr;</span>
+            </Link>
+          )}
         </nav>
       </div>
 
@@ -163,6 +168,12 @@ export function ChainTabs({ bnbProfile }: Props) {
                       <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
                         A dated count of what the registry holds: the{" "}
                         <Link href="/field/monad-registry-2026-11-01" className="underline underline-offset-4 hover:text-ns-ink">Monad registry census, 1 November 2026</Link>.
+                      </p>
+                    )}
+                    {chain === "gnosis" && (
+                      <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
+                        A dated count of what the registry holds: the{" "}
+                        <Link href="/field/gnosis-registry-2026-11-06" className="underline underline-offset-4 hover:text-ns-ink">Gnosis registry census, 6 November 2026</Link>.
                       </p>
                     )}
                     {chain === "bnb" && bnbSentence(bnbProfile) && <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">{bnbSentence(bnbProfile)}</p>}

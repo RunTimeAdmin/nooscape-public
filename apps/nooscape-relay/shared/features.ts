@@ -6,16 +6,17 @@
  *  - `watch` and `patrols`: the two scaffold pages (docs/watch-patrols-scaffold-2026-10-15.md), each with a route of its own.
  *  - `claims`: the "Claim this agent" panel on the page of an EVM registry entry (docs/claims-2026-10-18.md). It has no route: it
  *    is a section of an existing page. It stays off until the Privacy and Terms pages say what it does and the owner turns it on.
- *  - `chain_base`, `chain_ethereum`, `chain_arc` and `chain_monad`: one switch for each chain the ERC-8004 identity pass reads besides BNB Chain
- *    (docs/multichain-erc8004-2026-10-20.md, and docs/monad-erc8004-2026-11-01.md for Monad). While a chain's switch is off its pass does
+ *  - `chain_base`, `chain_ethereum`, `chain_arc`, `chain_monad` and `chain_gnosis`: one switch for each chain the ERC-8004 identity pass reads besides BNB Chain
+ *    (docs/multichain-erc8004-2026-10-20.md, docs/monad-erc8004-2026-11-01.md for Monad and docs/gnosis-erc8004-2026-11-06.md for Gnosis). While a chain's switch is off its pass does
  *    not run, its source cannot be staged, and nothing of it is shown or served.
  *  - `claims_arc`: the claim flow for agents on Arc (docs/arc-claims-2026-10-20.md). It works only while `chain_arc` is on as well, and the
  *    panel itself is `claims`. It is a switch of its own so that Arc's claims are turned on on purpose and not when its page goes live.
  *  - `claims_base` and `claims_ethereum`: the same for agents on Base and on Ethereum (docs/base-ethereum-claims-2026-10-28.md), each working
  *    only while its chain's own switch is on as well.
  *  - `claims_monad`: the same for agents on Monad (docs/monad-claims-2026-11-01.md), working only while `chain_monad` is on as well.
+ *  - `claims_gnosis`: the same for agents on Gnosis (docs/gnosis-claims-2026-11-06.md), working only while `chain_gnosis` is on as well.
  */
-export const FEATURES = ["watch", "patrols", "claims", "chain_base", "chain_ethereum", "chain_arc", "claims_arc", "claims_base", "claims_ethereum", "chain_monad", "claims_monad"] as const;
+export const FEATURES = ["watch", "patrols", "claims", "chain_base", "chain_ethereum", "chain_arc", "claims_arc", "claims_base", "claims_ethereum", "chain_monad", "claims_monad", "chain_gnosis", "claims_gnosis"] as const;
 
 export type Feature = (typeof FEATURES)[number];
 
@@ -37,3 +38,6 @@ export const ethereumClaimsOn = (list: string | undefined): boolean => featureOn
 
 /** Whether agents on Monad can be claimed: Monad itself is on and its claims have been switched on. */
 export const monadClaimsOn = (list: string | undefined): boolean => featureOn("chain_monad", list) && featureOn("claims_monad", list);
+
+/** Whether agents on Gnosis can be claimed: Gnosis itself is on and its claims have been switched on. */
+export const gnosisClaimsOn = (list: string | undefined): boolean => featureOn("chain_gnosis", list) && featureOn("claims_gnosis", list);

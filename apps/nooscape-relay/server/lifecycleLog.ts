@@ -468,6 +468,22 @@ function readText(file: string): string | null {
   }
 }
 
+/**
+ * Whether `pid` is another process that is still there. This process's own pid never counts: a container restarted in place gives the
+ * new process the pid of the one that was killed (it is the same inside the container's own pid space), and a process cannot be its own
+ * predecessor. Without this a killed process read from the trail would be called running, and listed as another instance beside this one.
+ */
+export function isOtherProcessAlive(pid: number, self: number = process.pid, probe: (pid: number) => void = target => process.kill(target, 0)): boolean {
+  if (pid === self) return false;
+  try {
+    probe(pid);
+    return true;
+  } catch (error) {
+    // EPERM is a process that exists and is not ours to signal.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 /** The real world: the files, the clock, the console and the process. */
 function realIo(): { io: Io; stop: () => void } {
   const histogram = monitorEventLoopDelay({ resolution: 20 });
@@ -485,15 +501,7 @@ function realIo(): { io: Io; stop: () => void } {
         return null;
       }
     },
-    alive: pid => {
-      try {
-        process.kill(pid, 0);
-        return true;
-      } catch (error) {
-        // EPERM is a process that exists and is not ours to signal.
-        return (error as NodeJS.ErrnoException).code === "EPERM";
-      }
-    },
+    alive: pid => isOtherProcessAlive(pid),
     lag: () => {
       const reading = { p99: histogram.percentile(99) / 1e6, max: histogram.max / 1e6 };
       histogram.reset();

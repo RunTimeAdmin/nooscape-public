@@ -6,11 +6,11 @@ vi.mock("./ingestion/a2a", () => ({ assertPublicHostname: mocks.assertPublicHost
 
 import { readTokenUrisFromChain } from "./chainNames";
 import { MULTICALL3 } from "./ingestion/bscMulticall";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
 import { Erc8004RpcHttpError, Erc8004RpcNotConfiguredError } from "./ingestion/erc8004Rpc";
 
 /**
- * The chain read of the Base, Arc, Ethereum and Monad name step (docs/approvals/2026-10-26-base-arc-names.md): one `eth_call` through Multicall3 for the
+ * The chain read of the Base, Arc, Ethereum, Monad and Gnosis name step (docs/approvals/2026-10-26-base-arc-names.md): one `eth_call` through Multicall3 for the
  * tokenURI of each id, on the chain's own node, at the finalized block, in one attempt. The request and the answer below are the real
  * ones of NodeReal on 2026-10-16 for the ids 2, 1000 and 99999999 (server/ingestion/bscMulticall.test.ts): the registry is the same
  * contract at the same address on every chain, so the same ids give the same request on Base and on Arc. The endpoints below are made up.
@@ -24,6 +24,7 @@ const BASE_URL = `https://base-mainnet.g.alchemy.com/v2/${KEY}`;
 const ARC_URL = `https://arc-node.example/${KEY}/rpc`;
 const ETHEREUM_URL = `https://eth-mainnet.nodereal.io/v1/${KEY}`;
 const MONAD_URL = `https://monad-mainnet.g.alchemy.com/v2/${KEY}`;
+const GNOSIS_URL = `https://gnosis-mainnet.g.alchemy.com/v2/${KEY}`;
 /** A real chain entry with its endpoint made up, so the test does not depend on the environment. */
 const withEndpoint = (chain: Erc8004Chain, url: string): Erc8004Chain => ({ ...chain, readRpcUrl: () => url });
 const sourceAt = (host: string) => ({ allowedHostname: host }) as IngestionSource;
@@ -46,6 +47,7 @@ describe.each([
   ["Arc", withEndpoint(ARC_CHAIN, ARC_URL), ARC_URL, "arc-node.example"],
   ["Ethereum", withEndpoint(ETHEREUM_CHAIN, ETHEREUM_URL), ETHEREUM_URL, "eth-mainnet.nodereal.io"],
   ["Monad", withEndpoint(MONAD_CHAIN, MONAD_URL), MONAD_URL, "monad-mainnet.g.alchemy.com"],
+  ["Gnosis", withEndpoint(GNOSIS_CHAIN, GNOSIS_URL), GNOSIS_URL, "gnosis-mainnet.g.alchemy.com"],
 ])("the %s chain read", (_name, chain, url, host) => {
   it("asks the chain's own node once, through Multicall3, at the finalized block, and decodes the answer", async () => {
     const { calls, call } = recorder(RESPONSE);

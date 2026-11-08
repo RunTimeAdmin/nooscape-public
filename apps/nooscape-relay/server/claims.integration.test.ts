@@ -118,7 +118,7 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     await writer.insert(schema.ingestionSources).values({ id, sourceKey: `claims-${id}`, label: id, protocol, rootUrl: "https://claims.example/feed", allowedHostname: "claims.example", state, createdByUserId: operatorUserId });
   }
   /** An entry on a registry with an owner on the fake chain, and the wallet the directory recorded for it. */
-  async function entry(sourceId: string, protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "erc8004_monad" | "solana_8004", chainId: number, token: number, owner: string | null, registrant: string | null = owner, extra: Partial<typeof schema.agentDirectoryEntries.$inferInsert> = {}) {
+  async function entry(sourceId: string, protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis" | "solana_8004", chainId: number, token: number, owner: string | null, registrant: string | null = owner, extra: Partial<typeof schema.agentDirectoryEntries.$inferInsert> = {}) {
     n += 1;
     const id = `claim-entry-${n}`;
     const externalKey = protocol === "solana_8004" ? `solana-asset-${n}` : `eip155:${chainId}:${REGISTRY}:${token}`;
@@ -183,8 +183,8 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     // Migration 0046 is manual too: it adds Arc's protocol to the four tables.
     const arcMigration = await createConnection(process.env.DATABASE_URL);
     for (const statement of splitMigrationStatements(await readFile("drizzle/0046_multichain_erc8004_protocols.sql", "utf8"))) await arcMigration.query(statement);
-    // And 0051 and 0053, the last of which adds Monad's protocol, in the order production had them.
-    for (const migrationFile of ["0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql"]) {
+    // And 0051, 0053 and 0057, the last of which adds Gnosis's protocol, in the order production had them.
+    for (const migrationFile of ["0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql", "0057_gnosis_erc8004_protocol.sql"]) {
       for (const statement of splitMigrationStatements(await readFile(`drizzle/${migrationFile}`, "utf8"))) await arcMigration.query(statement);
     }
     await arcMigration.end();
@@ -1187,7 +1187,8 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     { label: "Base", protocol: "erc8004_base" as const, chainId: 8453, chain: "chain_base", claimsSwitch: "claims_base", sourceId: "src-base", tokenBase: 4000, key: `0x${"8".repeat(64)}`, otherKey: `0x${"a".repeat(64)}` },
     { label: "Ethereum", protocol: "erc8004_eth" as const, chainId: 1, chain: "chain_ethereum", claimsSwitch: "claims_ethereum", sourceId: "src-eth", tokenBase: 5000, key: `0x${"9".repeat(64)}`, otherKey: `0x${"b".repeat(64)}` },
     { label: "Monad", protocol: "erc8004_monad" as const, chainId: 143, chain: "chain_monad", claimsSwitch: "claims_monad", sourceId: "src-monad", tokenBase: 6000, key: `0x${"c".repeat(64)}`, otherKey: `0x${"d".repeat(64)}` },
-  ])("an agent on $label (docs/base-ethereum-claims-2026-10-28.md and docs/monad-claims-2026-11-01.md)", ({ label, protocol, chainId, chain, claimsSwitch, sourceId, tokenBase, key, otherKey }) => {
+    { label: "Gnosis", protocol: "erc8004_gnosis" as const, chainId: 100, chain: "chain_gnosis", claimsSwitch: "claims_gnosis", sourceId: "src-gnosis", tokenBase: 7000, key: `0x${"e".repeat(64)}`, otherKey: `0x${"6".repeat(64)}` },
+  ])("an agent on $label (docs/base-ethereum-claims-2026-10-28.md, docs/monad-claims-2026-11-01.md and docs/gnosis-claims-2026-11-06.md)", ({ label, protocol, chainId, chain, claimsSwitch, sourceId, tokenBase, key, otherKey }) => {
     const ON = `${chain},${claimsSwitch}`;
     /** A wallet no other test has used, so it holds no claims and is no fleet. */
     const FRANK = testWallet(key);

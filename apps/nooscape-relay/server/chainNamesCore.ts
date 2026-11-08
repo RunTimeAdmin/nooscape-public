@@ -1,11 +1,11 @@
 import { externalKey } from "./ingestion/erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
 import { sanitizePublicText } from "./publicText";
 import { ENTRY_PLACEHOLDER_PATTERN, SHOWN_NAME_MAX_CHARS } from "./robinhoodNamesCore";
 
 /**
- * The pure rules of the Base, Arc, Ethereum and Monad name step (docs/approvals/2026-10-26-base-arc-names.md, extended to Ethereum on
- * 2026-10-27 and to Monad on 2026-11-01). A registration on these chains that carries no name of its own inside its link is called "Agent #<n>". The step reads
+ * The pure rules of the Base, Arc, Ethereum, Monad and Gnosis name step (docs/approvals/2026-10-26-base-arc-names.md, extended to Ethereum on
+ * 2026-10-27, to Monad on 2026-11-01 and to Gnosis on 2026-11-06). A registration on these chains that carries no name of its own inside its link is called "Agent #<n>". The step reads
  * the link from the chain, reads the file the link names, and lays the name it finds over the placeholder of the registration's
  * directory entry. Nothing here touches the network or the database.
  */
@@ -14,7 +14,7 @@ import { ENTRY_PLACEHOLDER_PATTERN, SHOWN_NAME_MAX_CHARS } from "./robinhoodName
  * The chains the step names, in the order it takes its turns. Robinhood Chain has a step of its own (robinhoodNames.ts), and the
  * BNB Chain registration files keep no name (docs/approvals/2026-10-17-bnb-registration-files.md), so neither is here.
  */
-export const NAME_CHAINS: readonly Erc8004Chain[] = [BASE_CHAIN, ARC_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN];
+export const NAME_CHAINS: readonly Erc8004Chain[] = [BASE_CHAIN, ARC_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN];
 
 /** The agent id in a directory key of this chain (`eip155:<chain id>:<registry>:<agent id>`), or null for a key of any other shape. */
 export function agentIdOfKey(chain: Erc8004Chain, key: string): string | null {

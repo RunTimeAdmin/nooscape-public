@@ -52,4 +52,10 @@ export const ENV = {
    * others: environment only, never printed, unset means the Monad pass refuses to run.
    */
   monadRpcUrl: process.env.MONAD_RPC_URL ?? "",
+  /**
+   * Gnosis mainnet endpoint for the ERC-8004 identity pass: an Alchemy endpoint whose path carries the key. The pass walks the registry's
+   * history from block 44,505,010 in windows of 10,000 blocks, the widest range the plan answers. Same rules as the others: environment
+   * only, never printed, unset means the Gnosis pass refuses to run.
+   */
+  gnosisRpcUrl: process.env.GNOSIS_RPC_URL ?? "",
 };

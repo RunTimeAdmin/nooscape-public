@@ -48,6 +48,7 @@ import { currentBnbSourceNote } from "./bscSourceNote";
 import { BSC_NOT_CHECKED, registrationReadOf, type BscRegistrationRead } from "./bscRegistrationRead";
 import { nameableRecord, overlayResolvedNames, ROBINHOOD_SOURCE_KEY, type ResolvedName } from "./robinhoodNamesCore";
 import { publicDisplayName, sanitizePrimaryCapability, sanitizePublicText } from "./publicText";
+import { partyHostOf } from "./partyHost";
 import type { ValidatedPublisherKeyProof } from "./publisherVerification";
 import { buildArrivals, ARRIVALS_NEWEST_PER_CHAIN, ARRIVALS_WINDOW_HOURS, type Arrivals } from "@shared/arrivals";
 import { balancedNewest } from "@shared/balancedNewest";
@@ -326,7 +327,7 @@ export async function getLatestCensusObservation() {
 
 /**
  * Upper bound on how many observations of one run the operator review tooling
- * will list and batch-verify. Current intake ceilings (Agenstry 96, Metaplex
+ * will list and batch-verify. Current intake ceilings (Agenstry 128, Metaplex
  * accepted 192) must stay at or below this so every retained observation of a
  * reviewed run can be hash- and governance-checked before projection.
  */
@@ -2941,7 +2942,7 @@ export async function getDirectoryEntryForClaim(id: string) {
 }
 
 /** How many entries the directory lists for one registering wallet on one protocol, under the public visibility rule. The fleet rule of the claim flow reads it. */
-export async function countVisibleEntriesOfRegistrant(protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "erc8004_monad", registrant: string): Promise<number> {
+export async function countVisibleEntriesOfRegistrant(protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis", registrant: string): Promise<number> {
   const db = requireDb(await getDb());
   const [row] = await db
     .select({ total: sql<number>`count(*)` })
@@ -3233,12 +3234,14 @@ export async function persistCatalogObservation(input: {
   runId: string;
   observation: RawObservationInput;
   candidate: CatalogNormalizedCandidate;
+  /** The parser that read the record; the Agenstry feed's unless the caller names its own. */
+  parserVersion?: string;
 }) {
   return persistSourceScopedAgentObservation({
     source: input.source,
     runId: input.runId,
     protocol: "catalog",
-    parserVersion: "agenstry-catalog-v2-source-scoped",
+    parserVersion: input.parserVersion ?? "agenstry-catalog-v2-source-scoped",
     observation: input.observation,
     candidate: {
       displayName: input.candidate.displayName,
@@ -3249,6 +3252,8 @@ export async function persistCatalogObservation(input: {
       // can support a future merge review but never takes over a direct identity.
       identityType: "catalog_record",
       externalId: `${input.source.id}:${input.candidate.externalRecordId}`,
+      // No endpoint row, on purpose; the host of the card is kept on the snapshot for the cross-source rule of the registry runs.
+      partyHost: partyHostOf(input.candidate.agentCardUrl) ?? partyHostOf(input.candidate.endpointUrl),
       protocols: ["catalog"],
       eventType: "CATALOG_AGENT_METADATA_OBSERVED",
       eventDescription: `Agent metadata observed in approved catalog ${input.source.label}; catalog verification signals remain assertions.`,
@@ -3377,6 +3382,8 @@ type SourceScopedCandidate = {
   protocols: string[];
   endpointUrl?: string | null;
   authentication?: string | null;
+  /** The host a catalog entry's card is served from; see `agentPublicSnapshots.partyHost`. */
+  partyHost?: string | null;
   eventType: string;
   eventDescription: string;
 };
@@ -3535,6 +3542,7 @@ export async function persistSourceScopedAgentObservation(input: {
         evidenceTier: "tier_2",
         sourceCount: 1,
         observedAt: input.observation.observedAt,
+        partyHost: input.candidate.partyHost ?? null,
       })
       .onDuplicateKeyUpdate({
         set: {
@@ -3543,6 +3551,8 @@ export async function persistSourceScopedAgentObservation(input: {
           untrustedSelfDescription: input.candidate.summary,
           protocols: JSON.stringify(input.candidate.protocols),
           observedAt: input.observation.observedAt,
+          // A record seen again gets its host if it had none; a candidate that names none leaves what is there.
+          ...(input.candidate.partyHost ? { partyHost: input.candidate.partyHost } : {}),
         },
       });
 
@@ -3844,6 +3854,34 @@ export async function isAgentPubliclyVisible(agentId: string): Promise<boolean> 
   const key = agentId.trimEnd().toLowerCase();
   const withdrawn = await listActiveWithdrawnAgentIds();
   return !withdrawn.some(id => id.trimEnd().toLowerCase() === key);
+}
+
+/**
+ * The addresses the records that are public today from sources other than `sourceId` are held at, by the same gate as every public read
+ * (an active source, a public decision, the approved run) and without the records an operator withdrew. A record with an endpoint row gives
+ * that address. A catalog record has none, on purpose, so it gives the host its card is served from (its snapshot's `partyHost`) as
+ * `https://host/`. A registry adapter reads this before it picks records, so a party that already holds a reviewed record from another
+ * source is not taken a second time. Read from the endpoint rows alone, the rule saw nothing between catalog sources
+ * (docs/catalog-party-rule-2026-11-07.md).
+ */
+export async function listReviewedAddressesOfOtherSources(sourceId: string): Promise<string[]> {
+  const db = requireDb(await getDb());
+  const rows = await db
+    .select({ agentId: agentPublicSnapshots.agentId, endpointUrl: agentEndpoints.endpointUrl, partyHost: agentPublicSnapshots.partyHost })
+    .from(agentPublicSnapshots)
+    .innerJoin(sourceProjectionDecisions, publicDecisionJoinCondition())
+    .innerJoin(sourceObservationRuns, approvedRunJoinCondition())
+    .innerJoin(ingestionSources, activeSourceJoinCondition())
+    .leftJoin(agentEndpoints, eq(agentEndpoints.agentId, agentPublicSnapshots.agentId))
+    .where(notInArray(agentPublicSnapshots.sourceId, [sourceId]));
+  const withdrawn = new Set((await listActiveWithdrawnAgentIds()).map(id => id.trimEnd().toLowerCase()));
+  const addresses = new Set<string>();
+  for (const row of rows) {
+    if (withdrawn.has(row.agentId.trimEnd().toLowerCase())) continue;
+    if (row.endpointUrl) addresses.add(row.endpointUrl);
+    if (row.partyHost) addresses.add(`https://${row.partyHost}/`);
+  }
+  return Array.from(addresses);
 }
 
 /** Append-only withdrawal ledger in event order (oldest first). */

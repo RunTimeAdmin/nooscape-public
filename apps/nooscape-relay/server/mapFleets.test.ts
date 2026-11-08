@@ -12,7 +12,9 @@ import {
   ETHEREUM_LIGHTS_LIMIT,
   ethereumLightsCaption,
   MONAD_LIGHTS_LIMIT,
+  GNOSIS_LIGHTS_LIMIT,
   monadLightsCaption,
+  gnosisLightsCaption,
   FLEET_KIND_LABEL,
   FLEET_NOT_PROVED,
   FLEET_OVERLAP_NOTE,
@@ -427,6 +429,25 @@ describe("the words around a light", () => {
     expect(new Set(shapes).size).toBe(7);
   });
 
+  it("words a Gnosis group as a formation on the Gnosis page, with the facts Arc's groups state, and draws it as an octagon", () => {
+    const gnosis = (kind: MapFleet["kind"], overrides: Partial<MapFleet> = {}): MapFleet => fleet(kind, { chain: "gnosis", count: 2_000, ...overrides });
+    expect(fleetShape(gnosis("platform_host"))).toBe("octagon");
+    expect(fleetKindLabel(gnosis("platform_host"))).toBe("Same host");
+    expect(fleetFact(gnosis("wallet"))).toBe("2,000 registrations on Gnosis name the same registering wallet.");
+    expect(fleetFact(gnosis("shared_link"))).toBe("2,000 registrations on Gnosis record exactly the same profile link.");
+    expect(fleetFact(gnosis("platform_host", { name: "run.example.app" }))).toBe("2,000 registrations on Gnosis point their profile link at run.example.app.");
+    expect(fleetFact(gnosis("platform_host"))).toBe("2,000 registrations on Gnosis point their profile link at the same host.");
+    expect(fleetNotProved(gnosis("platform_host"))).toBe(FLEET_NOT_PROVED.platform_host);
+    // Like an Arc, Base, Ethereum or Monad group, a Gnosis group is a formation on a page, so it shares Arc's note.
+    expect(fleetOverlapNote(gnosis("wallet"))).toBe(ARC_OVERLAP_NOTE);
+    const words = MAP_FLEET_KINDS.map(kind => fleetFact(gnosis(kind))).join(" ");
+    expect(words).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
+    expect(words).not.toMatch(new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`));
+    // The shapes of the eight chains are eight, so a group is never told from another by colour alone.
+    const shapes = [gnosis("wallet"), fleet("wallet", { chain: "monad" }), fleet("wallet", { chain: "ethereum" }), fleet("wallet", { chain: "base" }), fleet("wallet", { chain: "arc" }), owner(), fleet("wallet", { chain: "robinhood" }), fleet("wallet")].map(fleetShape);
+    expect(new Set(shapes).size).toBe(8);
+  });
+
   it("captions the Arc lights with how many are drawn of how many groups there are, and says what a dome is", () => {
     expect(ARC_LIGHTS_LIMIT).toBe(8);
     expect(arcLightsCaption({ groups: 11 }, 8)).toBe(
@@ -439,10 +460,11 @@ describe("the words around a light", () => {
     expect(words).not.toMatch(/[–—]/);
   });
 
-  it("captions the Base, Ethereum and Monad lights the same way, naming the chain and its shape", () => {
+  it("captions the Base, Ethereum, Monad and Gnosis lights the same way, naming the chain and its shape", () => {
     expect(BASE_LIGHTS_LIMIT).toBe(5);
     expect(ETHEREUM_LIGHTS_LIMIT).toBe(5);
     expect(MONAD_LIGHTS_LIMIT).toBe(5);
+    expect(GNOSIS_LIGHTS_LIMIT).toBe(5);
     expect(baseLightsCaption({ groups: 121 }, 5)).toBe(
       "Large crosses are Base groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 121 groups, as the registry held them at its last read. Each cross is one group, not one agent. No individual Base registration is drawn."
     );
@@ -452,7 +474,10 @@ describe("the words around a light", () => {
     expect(monadLightsCaption({ groups: 40 }, 5)).toBe(
       "Large stars are Monad groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 40 groups, as the registry held them at its last read. Each star is one group, not one agent. No individual Monad registration is drawn."
     );
-    for (const caption of [baseLightsCaption, ethereumLightsCaption, monadLightsCaption]) {
+    expect(gnosisLightsCaption({ groups: 12 }, 5)).toBe(
+      "Large octagons are Gnosis groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 12 groups, as the registry held them at its last read. Each octagon is one group, not one agent. No individual Gnosis registration is drawn."
+    );
+    for (const caption of [baseLightsCaption, ethereumLightsCaption, monadLightsCaption, gnosisLightsCaption]) {
       expect(caption({ groups: 0 }, 1)).toContain("1 of 1 group,");
       expect(caption({ groups: 3 }, 0)).toBeNull();
       const words = caption({ groups: 9 }, 8)!;

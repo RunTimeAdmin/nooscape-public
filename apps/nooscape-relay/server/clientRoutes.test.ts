@@ -76,6 +76,25 @@ describe("isClientRoutePath", () => {
     expect(isClientRoutePath("/chains/ethereum", "chain_monad")).toBe(false);
   });
 
+  it("serves Gnosis's page and its census report only while its own switch is on, and no other chain's switch opens them", () => {
+    expect(isClientRoutePath("/field/gnosis-registry-2026-11-06", undefined)).toBe(false);
+    expect(isClientRoutePath("/field/gnosis-registry-2026-11-06", "chain_arc,chain_base,chain_ethereum,chain_monad")).toBe(false);
+    expect(isClientRoutePath("/field/gnosis-registry-2026-11-06", "chain_gnosis")).toBe(true);
+    expect(isClientRoutePath("/field/gnosis-registry-2026-11-06/", "chain_gnosis")).toBe(false);
+    expect(isClientRoutePath("/field/monad-registry-2026-11-01", "chain_gnosis")).toBe(false);
+    expect(isClientRoutePath("/chains/gnosis", undefined)).toBe(false);
+    expect(isClientRoutePath("/chains/gnosis", "chain_arc,chain_base,chain_ethereum,chain_monad")).toBe(false);
+    expect(isClientRoutePath("/chains/gnosis", "chain_gnosis")).toBe(true);
+    expect(isClientRoutePath("/chains/gnosis", "chain_base,chain_ethereum,chain_arc,chain_monad,chain_gnosis")).toBe(true);
+    expect(isClientRoutePath("/chains/gnosis/", "chain_gnosis")).toBe(false);
+    expect(isClientRoutePath("/chains/Gnosis", "chain_gnosis")).toBe(false);
+    // Its switch opens no other chain's page.
+    expect(isClientRoutePath("/chains/arc", "chain_gnosis")).toBe(false);
+    expect(isClientRoutePath("/chains/base", "chain_gnosis")).toBe(false);
+    expect(isClientRoutePath("/chains/ethereum", "chain_gnosis")).toBe(false);
+    expect(isClientRoutePath("/chains/monad", "chain_gnosis")).toBe(false);
+  });
+
   it("serves Base's page and its census report only while its switch is on", () => {
     expect(isClientRoutePath("/chains/base", undefined)).toBe(false);
     expect(isClientRoutePath("/chains/base", "chain_arc,chain_ethereum")).toBe(false);

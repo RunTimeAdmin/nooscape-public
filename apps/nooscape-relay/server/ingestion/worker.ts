@@ -10,7 +10,7 @@ import { runSaidNames } from "../saidNames";
 import { selectTodaysCatch } from "../owlsCatch";
 import type { IngestionSource } from "../../drizzle/schema";
 import { runApprovedA2aSource } from "./runA2a";
-import { runApprovedAgenstrySource } from "./runAgenstry";
+import { runApprovedCatalogSource } from "./runCatalog";
 import { runApprovedAgentEconomySource } from "./runAgentEconomy";
 import { runApproved8004SolanaSource } from "./run8004Solana";
 import { runApprovedSaidSource } from "./runSaid";
@@ -112,8 +112,8 @@ const runSaidNamesStep = (tickStartedAt: number) =>
   bestEffort("nooscape_said_names_failed", "Unknown SAID names error", () => runSaidNames({ tickStartedAt }));
 
 /**
- * Best-effort, after the SAID names for the same reasons: the Base, Arc, Ethereum and Monad name step reads the registration link of a directory
- * entry on any of the four chains that is still called "Agent #n", through the safe fetch, and lays the name it finds over the placeholder
+ * Best-effort, after the SAID names for the same reasons: the Base, Arc, Ethereum, Monad and Gnosis name step reads the registration link of a
+ * directory entry on any of the five chains that is still called "Agent #n", through the safe fetch, and lays the name it finds over the placeholder
  * (docs/approvals/2026-10-26-base-arc-names.md). It reads the chain's own node and asks other people's hosts, so it runs only on a tick
  * that claimed sources, it takes one chain a run in turn, and it never throws; a failure here never fails the tick, whatever it reports.
  */
@@ -146,7 +146,7 @@ async function runApprovedSource(source: IngestionSource) {
     case "a2a":
       return runApprovedA2aSource(source, "scheduled");
     case "catalog":
-      return runApprovedAgenstrySource(source, "scheduled");
+      return runApprovedCatalogSource(source, "scheduled");
     case "census":
       return runApprovedAgentEconomySource(source, "scheduled");
     case "solana_registry":
@@ -190,8 +190,9 @@ async function runApprovedSource(source: IngestionSource) {
     case "erc8004_eth":
     case "erc8004_base":
     case "erc8004_arc":
-    case "erc8004_monad": {
-      // The Ethereum, Base, Arc and Monad identity passes are the BNB Chain pass on another chain (erc8004Chains.ts), staged manual_only and
+    case "erc8004_monad":
+    case "erc8004_gnosis": {
+      // The Ethereum, Base, Arc, Monad and Gnosis identity passes are the BNB Chain pass on another chain (erc8004Chains.ts), staged manual_only and
       // handed to the scheduler only by a later reviewed migration, after an operator has run and checked a first pass. The pass
       // itself rejects a scheduled trigger unless the source holds the scheduled policy, and does not start while the chain's
       // switch is off, so an unflipped source, or a chain that is switched off, can never run unattended.

@@ -10,7 +10,7 @@ import { API_TIERS, type ApiKeyRecord, type UsageReport } from "./apiKeys";
 import { problems, schemaOf } from "./apiV1Testing";
 import { API_V1_SPEC, apiV1SpecFor } from "./apiV1Spec";
 import { externalKey } from "./ingestion/erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN } from "./ingestion/erc8004Chains";
 import { resetRateLimits } from "./rateLimit";
 
 /**
@@ -24,9 +24,9 @@ const WALLET = "0x14791697260e4c9a71f18484c9f997b308e59325";
 const KEY = `nsk_${"a".repeat(40)}`;
 const ORIGINAL = ["robinhood", "bnb", "solana"];
 
-const CHAIN_OF = { ethereum: ETHEREUM_CHAIN, base: BASE_CHAIN, arc: ARC_CHAIN, monad: MONAD_CHAIN } as const;
-const idOf = { ethereum: "11", base: "12", arc: "13", monad: "14" } as const;
-const entryIdOf = (chain: keyof typeof CHAIN_OF) => `${{ ethereum: "e", base: "b", arc: "a", monad: "c" }[chain]}0000000-0000-4000-8000-000000000000`;
+const CHAIN_OF = { ethereum: ETHEREUM_CHAIN, base: BASE_CHAIN, arc: ARC_CHAIN, monad: MONAD_CHAIN, gnosis: GNOSIS_CHAIN } as const;
+const idOf = { ethereum: "11", base: "12", arc: "13", monad: "14", gnosis: "15" } as const;
+const entryIdOf = (chain: keyof typeof CHAIN_OF) => `${{ ethereum: "e", base: "b", arc: "a", monad: "c", gnosis: "d" }[chain]}0000000-0000-4000-8000-000000000000`;
 
 const entry = (chain: keyof typeof CHAIN_OF, overrides: Record<string, unknown> = {}) =>
   ({
@@ -60,7 +60,7 @@ const keys: ApiV1Deps["keys"] = {
  */
 const STATS_AT = "2026-10-20T02:58:00.000Z";
 const statRow = (chain: ChainStat["chain"], acknowledged: number, feedbackEvents: number | null, registries: ChainStat["registries"]): ChainStat => ({ chain, indexed: true, acknowledged, reviewed: 0, feedbackEvents, registries, asOf: "2026-10-20T02:30:00.000Z" });
-const ARRIVED = { robinhood: 5, solana: 6, bnb: 7, ethereum: 8, base: 9, arc: 10, monad: 11 } as const;
+const ARRIVED = { robinhood: 5, solana: 6, bnb: 7, ethereum: 8, base: 9, arc: 10, monad: 11, gnosis: 12 } as const;
 const STATS_READ: StatsRead = {
   readAt: STATS_AT,
   chains: [statRow("robinhood", 300, 40, [{ protocol: "erc8004", count: 300 }]), statRow("solana", 200, 10, [{ protocol: "solana_said", count: 150 }, { protocol: "solana_8004", count: 50 }]), statRow("bnb", 100, null, [{ protocol: "erc8004_bsc", count: 100 }])],
@@ -149,22 +149,23 @@ describe("the chains the API serves", () => {
     }
   });
 
-  it("gain each extra chain whose switch is on, after the three, in the order Ethereum, Base, Arc, Monad", () => {
+  it("gain each extra chain whose switch is on, after the three, in the order Ethereum, Base, Arc, Monad, Gnosis", () => {
     expect([...servedChains("chain_base")]).toEqual([...ORIGINAL, "base"]);
     expect([...servedChains("chain_arc,chain_ethereum")]).toEqual([...ORIGINAL, "ethereum", "arc"]);
     expect([...servedChains("claims, CHAIN_BASE ,chain_ethereum,chain_arc,chain_monad")]).toEqual([...ORIGINAL, "ethereum", "base", "arc", "monad"]);
     expect([...servedChains("chain_monad,chain_base")]).toEqual([...ORIGINAL, "base", "monad"]);
+    expect([...servedChains("chain_gnosis,chain_monad")]).toEqual([...ORIGINAL, "monad", "gnosis"]);
   });
 
   it("name an extra chain's protocol only among the chains given", () => {
     for (const chain of EXTRA_CHAINS) {
       expect(apiChainOfProtocol(CHAIN_OF[chain].protocol)).toBeNull();
-      expect(apiChainOfProtocol(CHAIN_OF[chain].protocol, servedChains("chain_base,chain_ethereum,chain_arc,chain_monad"))).toBe(chain);
+      expect(apiChainOfProtocol(CHAIN_OF[chain].protocol, servedChains("chain_base,chain_ethereum,chain_arc,chain_monad,chain_gnosis"))).toBe(chain);
     }
     expect(apiChainOfProtocol("erc8004_bsc")).toBe("bnb");
     expect(apiChainOfProtocol("erc8004_base", servedChains("chain_ethereum"))).toBeNull();
     // With no list given it is the original three, whatever is switched on.
-    process.env.VITE_FEATURES = "chain_ethereum,chain_base,chain_arc,chain_monad";
+    process.env.VITE_FEATURES = "chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis";
     for (const chain of EXTRA_CHAINS) expect(apiChainOfProtocol(CHAIN_OF[chain].protocol), chain).toBeNull();
   });
 
@@ -320,12 +321,12 @@ describe("with one switch on", () => {
 
 describe("with every switch on", () => {
   it("lists all six chains in order and serves one agent on each with its own chain id and registry", async () => {
-    await start("chain_ethereum,chain_base,chain_arc,chain_monad");
+    await start("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis");
     const index = await body(await get("/api/v1"));
-    expect(index.chains.map((chain: { chain: string }) => chain.chain)).toEqual([...ORIGINAL, "ethereum", "base", "arc", "monad"]);
-    expect(index.chains.slice(3).map((chain: { label: string }) => chain.label)).toEqual(["Ethereum", "Base", "Arc", "Monad"]);
-    const spec = apiV1SpecFor(servedChains("chain_ethereum,chain_base,chain_arc,chain_monad"));
-    for (const [chain, chainId] of [["ethereum", 1], ["base", 8453], ["arc", 5042], ["monad", 143]] as const) {
+    expect(index.chains.map((chain: { chain: string }) => chain.chain)).toEqual([...ORIGINAL, "ethereum", "base", "arc", "monad", "gnosis"]);
+    expect(index.chains.slice(3).map((chain: { label: string }) => chain.label)).toEqual(["Ethereum", "Base", "Arc", "Monad", "Gnosis"]);
+    const spec = apiV1SpecFor(servedChains("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis"));
+    for (const [chain, chainId] of [["ethereum", 1], ["base", 8453], ["arc", 5042], ["monad", 143], ["gnosis", 100]] as const) {
       const answer = await body(await get(`/api/v1/agents/${chain}/${idOf[chain]}`));
       expect(answer.source).toMatchObject({ chain, chain_id: chainId, registry: CHAIN_OF[chain].protocol, registry_address: CHAIN_OF[chain].identityRegistry });
       expect(problems(schemaOf("AgentResponse"), answer, "$", spec), chain).toEqual([]);
@@ -333,15 +334,15 @@ describe("with every switch on", () => {
   });
 
   it("is one document, whatever order the switches were written in", () => {
-    expect(apiV1SpecFor(servedChains("chain_monad,chain_arc,chain_base,chain_ethereum"))).toBe(apiV1SpecFor(servedChains("chain_ethereum,chain_base,chain_arc,chain_monad")));
+    expect(apiV1SpecFor(servedChains("chain_gnosis,chain_monad,chain_arc,chain_base,chain_ethereum"))).toBe(apiV1SpecFor(servedChains("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis")));
   });
 
   it("looks up a batch across the chains for a caller with a key", async () => {
-    await start("chain_ethereum,chain_base,chain_arc,chain_monad");
+    await start("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis");
     const response = await post("/api/v1/agents/batch", { agents: EXTRA_CHAINS.map(chain => ({ chain, id: idOf[chain] })) });
     expect(response.status).toBe(200);
     const answer = await body(response);
-    expect(answer.data.results.map((item: { chain: string; status: number }) => [item.chain, item.status])).toEqual([["ethereum", 200], ["base", 200], ["arc", 200], ["monad", 200]]);
+    expect(answer.data.results.map((item: { chain: string; status: number }) => [item.chain, item.status])).toEqual([["ethereum", 200], ["base", 200], ["arc", 200], ["monad", 200], ["gnosis", 200]]);
   });
 });
 
@@ -386,20 +387,20 @@ describe("the stats", () => {
     expect(problems(schemaOf("StatsResponse"), answer).length).toBeGreaterThan(0);
   });
 
-  it("count all seven chains in the order the index gives them while every switch is on, each extra chain with its own chain id and registry", async () => {
-    await start("chain_ethereum,chain_base,chain_arc,chain_monad");
+  it("count all eight chains in the order the index gives them while every switch is on, each extra chain with its own chain id and registry", async () => {
+    await start("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis");
     const answer = await body(await get("/api/v1/stats"));
-    expect(chainsOf(answer)).toEqual([...ORIGINAL, "ethereum", "base", "arc", "monad"]);
-    expect(answer.data.totals).toEqual({ acknowledged: 300 + 100 + 200 + 1000 + 2000 + 3000 + 4000 });
-    for (const [chain, chainId] of [["ethereum", 1], ["base", 8453], ["arc", 5042], ["monad", 143]] as const) {
+    expect(chainsOf(answer)).toEqual([...ORIGINAL, "ethereum", "base", "arc", "monad", "gnosis"]);
+    expect(answer.data.totals).toEqual({ acknowledged: 300 + 100 + 200 + 1000 + 2000 + 3000 + 4000 + 5000 });
+    for (const [chain, chainId] of [["ethereum", 1], ["base", 8453], ["arc", 5042], ["monad", 143], ["gnosis", 100]] as const) {
       const row = rowsOf(answer)[chain]!;
       expect(row, chain).toMatchObject({ chain_id: chainId });
       expect(row.registries, chain).toEqual([{ registry: CHAIN_OF[chain].protocol, address: CHAIN_OF[chain].identityRegistry, acknowledged: row.acknowledged }]);
     }
     // The registrations of a registry come from its own count, and BNB Chain keeps the count of its registry read; Robinhood Chain and Solana have none.
-    expect(Object.values(rowsOf(answer)).map(row => row.registrations_on_chain)).toEqual([null, 5000, null, 50_000, 100_000, 150_000, 200_000]);
-    expect(Object.values(rowsOf(answer)).map(row => row.new_in_24h)).toEqual([5, 7, 6, 8, 9, 10, 11]);
-    expect(problems(schemaOf("StatsResponse"), answer, "$", apiV1SpecFor(servedChains("chain_ethereum,chain_base,chain_arc,chain_monad")))).toEqual([]);
+    expect(Object.values(rowsOf(answer)).map(row => row.registrations_on_chain)).toEqual([null, 5000, null, 50_000, 100_000, 150_000, 200_000, 250_000]);
+    expect(Object.values(rowsOf(answer)).map(row => row.new_in_24h)).toEqual([5, 7, 6, 8, 9, 10, 11, 12]);
+    expect(problems(schemaOf("StatsResponse"), answer, "$", apiV1SpecFor(servedChains("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis")))).toEqual([]);
   });
 
   it("name a chain that is on in the lists of chains in the served document, and only that one", async () => {
@@ -412,7 +413,7 @@ describe("the stats", () => {
   });
 
   it("say what the counts are and are not in the same words whatever the switches", async () => {
-    for (const features of [undefined, "chain_ethereum,chain_base,chain_arc,chain_monad"]) {
+    for (const features of [undefined, "chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis"]) {
       await start(features);
       expect((await body(await get("/api/v1/stats"))).data.statement, String(features)).toBe(STATS_STATEMENT);
     }

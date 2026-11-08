@@ -50,6 +50,7 @@ const SITEMAP_FLAGGED_ROUTES: Partial<Record<Feature, readonly string[]>> = {
   chain_base: ["/chains/base", "/field/base-registry-2026-10-21"],
   chain_ethereum: ["/chains/ethereum", "/field/ethereum-registry-2026-10-28"],
   chain_monad: ["/chains/monad", "/field/monad-registry-2026-11-01"],
+  chain_gnosis: ["/chains/gnosis", "/field/gnosis-registry-2026-11-06"],
 };
 
 export function flaggedSitemapUrls(features: string | undefined = process.env.VITE_FEATURES): string[] {

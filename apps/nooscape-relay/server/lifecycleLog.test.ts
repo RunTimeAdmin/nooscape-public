@@ -9,6 +9,7 @@ import {
   createLifecycleLog,
   describeError,
   hostSettings,
+  isOtherProcessAlive,
   parseLimits,
   parseProcStatus,
   parseTrail,
@@ -134,6 +135,24 @@ describe("how the earlier processes ended", () => {
     // A process that wrote its end is never running, even if its pid answers: the pid can be used again by something else.
     const ended = [start("a1", 0, { pid: 111 }), { ev: "exit", inst: "a1", at: at(5), code: 0 } as TrailEvent];
     expect(summarizeTrail(ended, "b2", now, null, 5, () => true)[0]).toMatchObject({ ended: "exit", detail: 0 });
+  });
+
+  it("never takes this process's own pid for an earlier one still running: a container restarted in place gives the new process the old pid", () => {
+    // The container was killed with no end record and started again, so the new process has the pid, 7, that the trail holds.
+    const alive = (pid: number) => isOtherProcessAlive(pid, 7, () => undefined);
+    expect(summarizeTrail([start("a1", 0, { pid: 7 })], "b2", T0 + 60_000, null, 5, alive)[0]).toMatchObject({ id: "a1", pid: 7, ended: "unknown" });
+    // Another pid that answers is still another process running.
+    expect(summarizeTrail([start("a1", 0, { pid: 8 })], "b2", T0 + 60_000, null, 5, alive)[0]).toMatchObject({ ended: "running" });
+  });
+
+  it("asks the system whether another pid is there, and counts a process it may not signal as there", () => {
+    const probe = (code?: string) => () => {
+      if (code) throw Object.assign(new Error(code), { code });
+    };
+    expect(isOtherProcessAlive(8, 7, probe())).toBe(true);
+    expect(isOtherProcessAlive(8, 7, probe("EPERM"))).toBe(true);
+    expect(isOtherProcessAlive(8, 7, probe("ESRCH"))).toBe(false);
+    expect(isOtherProcessAlive(7, 7, probe())).toBe(false);
   });
 
   it("measures how long a running process has been silent from now, and a lost one from the next start", () => {

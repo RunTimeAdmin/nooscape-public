@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ assertPublicHostname: vi.fn(async (_host: stri
 vi.mock("./ingestion/a2a", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/a2a")>()), assertPublicHostname: mocks.assertPublicHostname }));
 
 import { ENV } from "./_core/env";
-import { callBaseRpcOnce, callEthereumRpcOnce, callMonadRpcOnce, forgetCheckedPinnedNodes } from "./claimsPinned";
+import { callBaseRpcOnce, callEthereumRpcOnce, callGnosisRpcOnce, callMonadRpcOnce, forgetCheckedPinnedNodes } from "./claimsPinned";
 import { Erc8004RpcError, Erc8004RpcHttpError } from "./ingestion/erc8004Rpc";
 
 /**
@@ -95,6 +95,16 @@ describe.each([
     chainId: "0x8f",
     otherChainId: "0x1",
     variable: "MONAD_RPC_URL",
+  },
+  {
+    label: "Gnosis",
+    read: callGnosisRpcOnce,
+    set: (value: string) => (ENV.gnosisRpcUrl = value),
+    host: "gnosis-mainnet.g.alchemy.com",
+    path: `/v2/${KEY}`,
+    chainId: "0x64",
+    otherChainId: "0x1",
+    variable: "GNOSIS_RPC_URL",
   },
 ])("a read on $label's node", ({ label, read, set, host, path, chainId, otherChainId, variable }) => {
   const NODE = `https://${host}${path}`;
@@ -291,6 +301,19 @@ describe("the nodes are separate", () => {
     ENV.monadRpcUrl = `https://monad-mainnet.g.alchemy.com/v2/${KEY}`;
     sent.length = 0;
     expect((await thrown(callMonadRpcOnce("eth_call", []))).message).toBe("Monad's node did not answer as Monad.");
+    expect(methods()).toEqual(["eth_chainId"]);
+  });
+
+  it("Gnosis's has its own address and its own checks: Monad's being right says nothing of Gnosis's", async () => {
+    ENV.monadRpcUrl = `https://monad-mainnet.g.alchemy.com/v2/${KEY}`;
+    ENV.gnosisRpcUrl = "";
+    node.chainId = "0x8f";
+    expect(await callMonadRpcOnce("eth_call", [])).toBe("0xabc");
+    expect((await thrown(callGnosisRpcOnce("eth_call", []))).message).toBe("Gnosis's node is not configured.");
+    // Monad's chain id answer is not kept for Gnosis, which asks for its own.
+    ENV.gnosisRpcUrl = `https://gnosis-mainnet.g.alchemy.com/v2/${KEY}`;
+    sent.length = 0;
+    expect((await thrown(callGnosisRpcOnce("eth_call", []))).message).toBe("Gnosis's node did not answer as Gnosis.");
     expect(methods()).toEqual(["eth_chainId"]);
   });
 

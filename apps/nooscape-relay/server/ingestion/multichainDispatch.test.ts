@@ -17,7 +17,7 @@ describe("the scheduled worker", () => {
 
   it("sends Ethereum, Base and Arc to the one chain pass, looked up by the source's protocol, as a scheduled trigger", () => {
     const block = worker.slice(worker.indexOf('case "erc8004_eth":'), worker.indexOf('case "solana_said":'));
-    for (const protocol of ["erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_monad"]) expect(block).toContain(`case "${protocol}":`);
+    for (const protocol of ["erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_monad", "erc8004_gnosis"]) expect(block).toContain(`case "${protocol}":`);
     expect(block).toContain("erc8004ChainOfProtocol(source.protocol)");
     expect(block).toContain('runApprovedErc8004ChainSource(chain, source, "scheduled")');
     expect(block).not.toContain("runApprovedBscRegistrySource");
@@ -49,9 +49,9 @@ describe("the operator's page", () => {
 });
 
 describe("every chain of the pass is a protocol the database knows", () => {
-  it("is in the list of ingestion protocols, in the schema's enum on every table that carries it, and in the migration that added it if it is a later one (0046, or 0053 for Monad)", () => {
+  it("is in the list of ingestion protocols, in the schema's enum on every table that carries it, and in the migration that added it if it is a later one (0046, 0053 for Monad or 0057 for Gnosis)", () => {
     const schema = read("drizzle", "schema.ts");
-    const addedBy: Record<string, string> = { erc8004_monad: "0053_monad_erc8004_protocol.sql" };
+    const addedBy: Record<string, string> = { erc8004_monad: "0053_monad_erc8004_protocol.sql", erc8004_gnosis: "0057_gnosis_erc8004_protocol.sql" };
     for (const chain of ERC8004_CHAINS) {
       expect(INGESTION_PROTOCOLS as readonly string[], chain.protocol).toContain(chain.protocol);
       expect(schema.split(`"${chain.protocol}"`).length - 1, chain.protocol).toBeGreaterThanOrEqual(3);

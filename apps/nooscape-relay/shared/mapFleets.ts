@@ -16,12 +16,12 @@ export type MapFleetKind = (typeof MAP_FLEET_KINDS)[number];
 
 /**
  * The chain a light is on: BNB Chain groups are drawn as circles, Solana owner wallets as diamonds, Robinhood Chain registering wallets as hexagons.
- * Arc's groups are drawn as domes, Base's as crosses, Ethereum's as pentagons and Monad's as stars, on the chain's own page and, while its switch is on, on the home map.
+ * Arc's groups are drawn as domes, Base's as crosses, Ethereum's as pentagons, Monad's as stars and Gnosis's as octagons, on the chain's own page and, while its switch is on, on the home map.
  */
-type MapFleetChain = "bnb" | "solana" | "robinhood" | "arc" | "base" | "ethereum" | "monad";
+type MapFleetChain = "bnb" | "solana" | "robinhood" | "arc" | "base" | "ethereum" | "monad" | "gnosis";
 
 /** The outline of a light. Each chain has its own, so no light is told apart from another by colour alone. */
-export type FleetShape = "circle" | "diamond" | "hexagon" | "dome" | "cross" | "pentagon" | "star";
+export type FleetShape = "circle" | "diamond" | "hexagon" | "dome" | "cross" | "pentagon" | "star" | "octagon";
 
 /** The most BNB Chain lights the map draws. The rest are counted, not drawn. */
 export const MAP_FLEETS_LIMIT = 10;
@@ -48,10 +48,11 @@ export const ROBINHOOD_LIGHTS_LIMIT = 8;
 /** The most Arc lights the home map draws: the largest groups of the Arc page's, whatever their kind. The rest are counted, not drawn. */
 export const ARC_LIGHTS_LIMIT = 8;
 
-/** The same for Base, Ethereum and Monad, each with a constant of its own so that tuning one never moves another. Five each and not eight: with the other chains' lights the map is already full at the width of a phone (docs/base-ethereum-lights-2026-10-28.md). */
+/** The same for Base, Ethereum, Monad and Gnosis, each with a constant of its own so that tuning one never moves another. Five each and not eight: with the other chains' lights the map is already full at the width of a phone (docs/base-ethereum-lights-2026-10-28.md). */
 export const BASE_LIGHTS_LIMIT = 5;
 export const ETHEREUM_LIGHTS_LIMIT = 5;
 export const MONAD_LIGHTS_LIMIT = 5;
+export const GNOSIS_LIGHTS_LIMIT = 5;
 
 export type MapFleet = {
   /** A stable id for the light, derived from the shared fact. It is not the fact itself. */
@@ -106,7 +107,7 @@ export type MapFleets = {
 };
 
 /**
- * The groups of registrations an extra chain's own page draws (Arc, Base, Ethereum and Monad): the registering wallets, hosts and profile links that
+ * The groups of registrations an extra chain's own page draws (Arc, Base, Ethereum, Monad and Gnosis): the registering wallets, hosts and profile links that
  * {@link FLEET_MIN} or more registrations share, counted over every registration the registry holds, listed or not. Read from the
  * registry rows, so it needs no table of its own, and it carries a shared fact and a count and nothing about any one registration.
  */
@@ -174,9 +175,9 @@ export const FLEET_KIND_LABEL: Record<MapFleetKind, string> = {
 /** A Solana light's kind in words: the wallet is the owner the registry records today, not necessarily the one that registered. */
 export const SOLANA_WALLET_LABEL = "Same owner wallet";
 
-/** The outline a light is drawn with: a circle for BNB Chain, a diamond for Solana, a hexagon for Robinhood Chain, a dome for Arc, a cross for Base, a pentagon for Ethereum, a star for Monad. */
+/** The outline a light is drawn with: a circle for BNB Chain, a diamond for Solana, a hexagon for Robinhood Chain, a dome for Arc, a cross for Base, a pentagon for Ethereum, a star for Monad, an octagon for Gnosis. */
 export const fleetShape = (fleet: Pick<MapFleet, "chain"> | undefined): FleetShape =>
-  fleet?.chain === "solana" ? "diamond" : fleet?.chain === "robinhood" ? "hexagon" : fleet?.chain === "arc" ? "dome" : fleet?.chain === "base" ? "cross" : fleet?.chain === "ethereum" ? "pentagon" : fleet?.chain === "monad" ? "star" : "circle";
+  fleet?.chain === "solana" ? "diamond" : fleet?.chain === "robinhood" ? "hexagon" : fleet?.chain === "arc" ? "dome" : fleet?.chain === "base" ? "cross" : fleet?.chain === "ethereum" ? "pentagon" : fleet?.chain === "monad" ? "star" : fleet?.chain === "gnosis" ? "octagon" : "circle";
 
 /** The kind of a light in words, whichever chain it is on. */
 export const fleetKindLabel = (fleet: Pick<MapFleet, "kind" | "chain">): string => (fleet.chain === "solana" ? SOLANA_WALLET_LABEL : FLEET_KIND_LABEL[fleet.kind]);
@@ -191,7 +192,7 @@ export function fleetFact(fleet: Pick<MapFleet, "kind" | "chain" | "registry" | 
   const count = grouped(fleet.count);
   if (fleet.chain === "robinhood") return `${count} registrations on Robinhood Chain name the same registering wallet.`;
   if (fleet.chain === "solana") return `${count} registrations in the ${solanaRegistryLabel(fleet.registry)} on Solana record the same owner wallet today.`;
-  const place = fleet.chain === "arc" ? "Arc" : fleet.chain === "base" ? "Base" : fleet.chain === "ethereum" ? "Ethereum" : fleet.chain === "monad" ? "Monad" : "BNB Chain";
+  const place = fleet.chain === "arc" ? "Arc" : fleet.chain === "base" ? "Base" : fleet.chain === "ethereum" ? "Ethereum" : fleet.chain === "monad" ? "Monad" : fleet.chain === "gnosis" ? "Gnosis" : "BNB Chain";
   switch (fleet.kind) {
     case "wallet":
       return `${count} registrations on ${place} name the same registering wallet.`;
@@ -231,11 +232,11 @@ export const SOLANA_OVERLAP_NOTE = "Each light counts one registry, so a wallet 
 /** The same for a Robinhood Chain light: a registration has one registering wallet, so it is counted in at most one light. */
 export const ROBINHOOD_OVERLAP_NOTE = "Each light is one registering wallet, so a registration is counted in at most one light.";
 
-/** The same for an Arc, Base, Ethereum or Monad group, which is a formation on the chain's own page and not a light. */
+/** The same for an Arc, Base, Ethereum, Monad or Gnosis group, which is a formation on the chain's own page and not a light. */
 export const ARC_OVERLAP_NOTE = "Groups are counted one by one and can overlap: a registration can share a wallet with one group and a host with another.";
 
 export const fleetOverlapNote = (fleet: Pick<MapFleet, "chain">): string =>
-  fleet.chain === "robinhood" ? ROBINHOOD_OVERLAP_NOTE : fleet.chain === "solana" ? SOLANA_OVERLAP_NOTE : fleet.chain === "arc" || fleet.chain === "base" || fleet.chain === "ethereum" || fleet.chain === "monad" ? ARC_OVERLAP_NOTE : FLEET_OVERLAP_NOTE;
+  fleet.chain === "robinhood" ? ROBINHOOD_OVERLAP_NOTE : fleet.chain === "solana" ? SOLANA_OVERLAP_NOTE : fleet.chain === "arc" || fleet.chain === "base" || fleet.chain === "ethereum" || fleet.chain === "monad" || fleet.chain === "gnosis" ? ARC_OVERLAP_NOTE : FLEET_OVERLAP_NOTE;
 
 /** The sentence under the map about the BNB Chain lights, with how many are drawn of how many are stored. */
 export function fleetsCaption(fleets: Pick<MapFleets, "fleets" | "groups" | "registrations">): string | null {
@@ -270,6 +271,9 @@ export const ethereumLightsCaption = (ethereum: Pick<RegistryFleets, "groups">, 
 
 /** The sentence under the map about the Monad lights, which are stars. */
 export const monadLightsCaption = (monad: Pick<RegistryFleets, "groups">, drawn: number): string | null => registryLightsCaption("Monad", "star", "stars", monad, drawn);
+
+/** The sentence under the map about the Gnosis lights, which are octagons. */
+export const gnosisLightsCaption = (gnosis: Pick<RegistryFleets, "groups">, drawn: number): string | null => registryLightsCaption("Gnosis", "octagon", "octagons", gnosis, drawn);
 
 /** The sentence under the map about the Robinhood Chain lights: how many are drawn of how many there are, and what a hexagon is. */
 export function robinhoodLightsCaption(robinhood: Pick<RobinhoodLights, "fleets" | "groups">): string | null {

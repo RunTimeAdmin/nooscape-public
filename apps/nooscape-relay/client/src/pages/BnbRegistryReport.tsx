@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { BNB_REGISTRY_REPORT as report } from "@/lib/bnbRegistryReport";
 import { InfoPage, headingClass, linkClass, listClass, textClass } from "@/components/InfoPage";
+import { CensusToday } from "@/components/CensusToday";
 
 /**
  * A dated census of the BNB Chain ERC-8004 registry as a whole. It is a report, not a directory: it lists no agent, ranks
@@ -22,6 +23,8 @@ export default function BnbRegistryReport() {
         <dt>Finalized block</dt>
         <dd className="text-ns-ink">{n(r.finalizedBlock)}</dd>
       </dl>
+      {/* Only the count the report and the directory make the same way: the report replayed the chain for its registrations. */}
+      <CensusToday chain="bnb" measuredOn={r.date} figures={[["Registrations the directory lists", r.listed.value]]} />
 
       <section aria-labelledby="census-method">
         <h2 id="census-method" className={headingClass}>How it was done</h2>
