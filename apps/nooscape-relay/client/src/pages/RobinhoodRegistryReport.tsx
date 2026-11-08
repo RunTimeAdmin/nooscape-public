@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { DERIVED as d, MEASURED, PASS_TIME, REGISTRY, THRESHOLDS, formatPercent as pc } from "@/lib/robinhoodRegistryReport";
 import { InfoPage, headingClass, linkClass, listClass, textClass } from "@/components/InfoPage";
+import { CensusToday } from "@/components/CensusToday";
 
 /**
  * A dated census of the ERC-8004 identity registry on Robinhood Chain as the directory holds it. It is a report, not a directory:
@@ -24,6 +25,14 @@ const SURFACE: ReadonlyArray<readonly [label: string, count: number]> = [
   ["Host names of those links", REGISTRY.hosts],
 ];
 
+/** The counts above, as the Today block matches them to the directory's: the first and third are this registry's own words. */
+const TODAY: ReadonlyArray<readonly [label: string, count: number, figure?: "listed" | "withHttpsHost"]> = [
+  ["Entries the directory shows", REGISTRY.entries, "listed"],
+  ["Registering wallets", REGISTRY.wallets],
+  ["Entries with an https link", REGISTRY.withHttpsHost, "withHttpsHost"],
+  ["Host names of those links", REGISTRY.hosts],
+];
+
 /** The size buckets of the per-entry table, in the order they grow. A bucket the query did not return holds no entries. */
 const PER_ENTRY = ["0", "1", "2-4", "5+"] as const;
 const perEntry = (what: "transfers" | "edits", bucket: string) => MEASURED.q6b.find(row => row[0] === what && row[1] === bucket)?.[2] ?? 0;
@@ -38,6 +47,7 @@ export default function RobinhoodRegistryReport() {
         <dt>Counted from</dt>
         <dd className="text-ns-ink">the registry pass that finished at {PASS_TIME}</dd>
       </dl>
+      <CensusToday chain="robinhood" measuredOn={MEASURED.date} figures={TODAY} />
 
       <section aria-labelledby="census-method">
         <h2 id="census-method" className={headingClass}>How it was done</h2>

@@ -54,6 +54,7 @@ const MARKERS: Record<MarkerShape, Path2D> = {
   cross: new Path2D(markerPath("cross")),
   pentagon: new Path2D(markerPath("pentagon")),
   star: new Path2D(markerPath("star")),
+  octagon: new Path2D(markerPath("octagon")),
 };
 
 const ARROWS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
@@ -61,7 +62,7 @@ const ARROWS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "righ
 /** The red, green and blue of a #RRGGBB colour, for the translucent fills of a light. */
 const rgbOf = (hex: string): [number, number, number] => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 
-/** The outline of a light centred on a point: a circle, a diamond, a hexagon, a dome, a cross, a pentagon or a star, whose points are `reach` away. It leaves the path ready to fill or stroke. */
+/** The outline of a light centred on a point: a circle, a diamond, a hexagon, a dome, a cross, a pentagon, a star or an octagon, whose points are `reach` away. It leaves the path ready to fill or stroke. */
 function lightOutline(context: CanvasRenderingContext2D, x: number, y: number, reach: number, shape: FleetShape) {
   context.beginPath();
   if (shape === "circle") {
@@ -87,6 +88,16 @@ function lightOutline(context: CanvasRenderingContext2D, x: number, y: number, r
     const notch = (reach * 0.35) / 1.3;
     const outline = [[0, -reach], [notch, -notch], [reach, 0], [notch, notch], [0, reach], [-notch, notch], [-reach, 0], [-notch, -notch]];
     outline.forEach(([dx, dy], index) => (index === 0 ? context.moveTo(x + dx!, y + dy!) : context.lineTo(x + dx!, y + dy!)));
+    context.closePath();
+    return;
+  }
+  if (shape === "octagon") {
+    // A regular octagon with flat sides at the top, bottom, left and right, one corner `reach` away at each eighth of a turn, as on the Gnosis tab's icon.
+    for (let corner = 0; corner < 8; corner += 1) {
+      const angle = Math.PI / 8 + (corner * Math.PI) / 4;
+      if (corner === 0) context.moveTo(x + reach * Math.cos(angle), y + reach * Math.sin(angle));
+      else context.lineTo(x + reach * Math.cos(angle), y + reach * Math.sin(angle));
+    }
     context.closePath();
     return;
   }

@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { AGENSTRY_MAX_ACCEPTED_RECORDS, AGENSTRY_MAX_DIRECTORY_ENTRIES, agenstryDirectoryDraft, fetchAgenstryCatalog } from "./agenstry";
+import { MAX_RUN_REVIEW_OBSERVATIONS } from "../db";
+import {
+  AGENSTRY_EVIDENCE_WINDOW_LINES,
+  AGENSTRY_MAX_ACCEPTED_RECORDS,
+  AGENSTRY_MAX_COMPRESSED_BYTES,
+  AGENSTRY_MAX_DIRECTORY_ENTRIES,
+  AGENSTRY_MAX_WALK_LINES,
+  agenstryDirectoryDraft,
+  fetchAgenstryCatalog,
+} from "./agenstry";
 import { METAPLEX_MAX_ACCEPTED_RECORDS, METAPLEX_MAX_PAGES, metaplexPageUrl } from "./metaplex";
 import { fetchAgentEconomyCensus } from "./agenteconomy";
 import type { IngestionSource } from "../../drizzle/schema";
@@ -28,14 +37,29 @@ function source(overrides: Partial<IngestionSource>): IngestionSource {
 
 describe("bounded public-feed adapters", () => {
   it("keeps the reviewed catalog intake ceiling explicit and bounded", () => {
-    expect(AGENSTRY_MAX_ACCEPTED_RECORDS).toBe(96);
-    expect(AGENSTRY_MAX_ACCEPTED_RECORDS).toBeLessThan(100);
+    expect(AGENSTRY_MAX_ACCEPTED_RECORDS).toBe(128);
+    expect(AGENSTRY_MAX_ACCEPTED_RECORDS).toBeLessThan(200);
+  });
+
+  it("keeps the intake ceiling inside what the review tooling lists and batch-verifies in one run, so every retained observation can be checked before projection", () => {
+    expect(AGENSTRY_MAX_ACCEPTED_RECORDS).toBeLessThanOrEqual(MAX_RUN_REVIEW_OBSERVATIONS);
   });
 
   it("keeps the full-feed directory harvest ceiling explicit and bounded", () => {
-    // The 2026-10-09 feed held ~213.7k acknowledged-kind records; the ceiling
-    // must admit them all without admitting unbounded growth.
-    expect(AGENSTRY_MAX_DIRECTORY_ENTRIES).toBe(240_000);
+    // The 2026-10-09 feed held ~213.7k acknowledged-kind records and the 2026-11-06 feed 230.8k; the ceiling
+    // must admit them all with room without admitting unbounded growth.
+    expect(AGENSTRY_MAX_DIRECTORY_ENTRIES).toBe(300_000);
+  });
+
+  it("keeps the size and line bounds of the feed read explicit, each above what the 2026-11-06 feed used (22.35 MiB compressed, 299,073 lines, the last a2a_agent record at line 11,375)", () => {
+    expect(AGENSTRY_MAX_COMPRESSED_BYTES).toBe(48 * 1024 * 1024);
+    expect(AGENSTRY_MAX_COMPRESSED_BYTES).toBeGreaterThan(23_431_777);
+    expect(AGENSTRY_MAX_WALK_LINES).toBe(450_000);
+    expect(AGENSTRY_MAX_WALK_LINES).toBeGreaterThan(299_073);
+    expect(AGENSTRY_EVIDENCE_WINDOW_LINES).toBe(24_000);
+    expect(AGENSTRY_EVIDENCE_WINDOW_LINES).toBeGreaterThan(11_375);
+    // The walk reaches every line the window does.
+    expect(AGENSTRY_EVIDENCE_WINDOW_LINES).toBeLessThan(AGENSTRY_MAX_WALK_LINES);
   });
 
   it("acknowledges MCP and paid API records with kind-prefixed directory keys", () => {

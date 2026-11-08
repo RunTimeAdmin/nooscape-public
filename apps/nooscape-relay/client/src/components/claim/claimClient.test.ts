@@ -91,6 +91,6 @@ describe("where the panel is", () => {
 
   it("is off in a build that does not name it", () => {
     const features = read(join(client, "..", "..", "shared", "features.ts"));
-    expect(features).toContain('export const FEATURES = ["watch", "patrols", "claims", "chain_base", "chain_ethereum", "chain_arc", "claims_arc", "claims_base", "claims_ethereum", "chain_monad", "claims_monad"] as const;');
+    expect(features).toContain('export const FEATURES = ["watch", "patrols", "claims", "chain_base", "chain_ethereum", "chain_arc", "claims_arc", "claims_base", "claims_ethereum", "chain_monad", "claims_monad", "chain_gnosis", "claims_gnosis"] as const;');
   });
 });

@@ -14,6 +14,8 @@ import {
   ERC8004_REPUTATION_REGISTRY,
   ETHEREUM_LISTING_RULES,
   FLOOD_HOST_ROW_CAP,
+  GNOSIS_CHAIN,
+  GNOSIS_LISTING_RULES,
   MONAD_CHAIN,
   MONAD_LISTING_RULES,
   erc8004ChainOfProtocol,
@@ -240,6 +242,48 @@ describe("the Monad entry", () => {
   });
 });
 
+describe("the Gnosis entry", () => {
+  it("holds the facts measured on 2026-11-06", () => {
+    expect(GNOSIS_CHAIN).toMatchObject({
+      protocol: "erc8004_gnosis",
+      chainKey: "gnosis",
+      chainId: 100,
+      chainIdHex: "0x64",
+      label: "Gnosis",
+      chainLabel: "Gnosis",
+      identityRegistry: REGISTRY,
+      deployBlock: 44_505_010,
+      maxLogRange: 10_000,
+      maxWindowLogs: 20_000,
+      handoutBlockWindow: 708,
+      sourceKey: "gnosis-erc8004-identity-registry",
+      provider: { kind: "pinned", rootUrl: "https://gnosis-mainnet.g.alchemy.com", allowedHostname: "gnosis-mainnet.g.alchemy.com" },
+      rpcEnvVar: "GNOSIS_RPC_URL",
+      cursorPrefix: "gnosis",
+      errorPrefix: "Gnosis",
+      logTag: "GNOSIS",
+      feature: "chain_gnosis",
+    });
+    expect(GNOSIS_CHAIN.rpc).toEqual({ timeoutMs: 30_000, maxResponseBytes: 16 * MIB, retryStatuses: [429, 500, 502, 503, 504], backoffMs: [1_000, 3_000], readErrorBodies: true });
+    expect(GNOSIS_CHAIN.budget).toEqual({ maxWindows: 100, concurrency: 3, maxElapsedMs: 30_000, maxEvents: 10_000 });
+    expect(GNOSIS_CHAIN.listingRules).toBe(GNOSIS_LISTING_RULES);
+  });
+
+  it("is a chain id the registry's own chain answers with, in the hex form a node gives", () => {
+    expect(Number.parseInt(GNOSIS_CHAIN.chainIdHex.slice(2), 16)).toBe(GNOSIS_CHAIN.chainId);
+  });
+
+  it("plans windows of the 10,000 blocks the provider answers, from the busiest window measured on 2026-11-06", () => {
+    // The whole history was read as windows of at most 10,000 blocks: the busiest held 5,304 of the three event kinds the pass asks for (4.0 MB as JSON), the launch.
+    const BUSIEST = { events: 5_304, bytes: 4_005_347 };
+    expect(GNOSIS_CHAIN.maxLogRange).toBe(10_000);
+    expect(GNOSIS_CHAIN.maxWindowLogs).toBeGreaterThanOrEqual(3 * BUSIEST.events);
+    expect(GNOSIS_CHAIN.rpc.maxResponseBytes).toBeGreaterThanOrEqual(3 * BUSIEST.bytes);
+    // A run of 100 windows reads a million blocks, so the 4.6 million blocks of history (finalized head 49,144,745) take five runs.
+    expect(Math.ceil((49_144_745 - GNOSIS_CHAIN.deployBlock) / (GNOSIS_CHAIN.budget.maxWindows * GNOSIS_CHAIN.maxLogRange))).toBe(5);
+  });
+});
+
 describe("what the measurements ask of the caps", () => {
   // The densest windows measured on 2026-10-20. A cap below one of these would stall the walk at that window.
   const ETHEREUM_DENSEST_2000 = { events: 19_200, bytes: 12_994_910 };
@@ -282,7 +326,7 @@ describe("what the measurements ask of the caps", () => {
 });
 
 describe("every chain after BNB Chain", () => {
-  const later: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN];
+  const later: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN];
 
   it("has a switch named for its key, its own listing rules and a note that says only what happened", () => {
     for (const chain of later) {
@@ -293,8 +337,8 @@ describe("every chain after BNB Chain", () => {
   });
 
   it("has listing rules of its own: a constant each, equal to BNB Chain's for now, which are provisional until its first census", () => {
-    expect(new Set([ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES]).size).toBe(4);
-    for (const rules of [ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES]) {
+    expect(new Set([ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES, GNOSIS_LISTING_RULES]).size).toBe(5);
+    for (const rules of [ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES, GNOSIS_LISTING_RULES]) {
       expect(rules).toEqual(BSC_LISTING_RULES);
       expect(rules).not.toBe(BSC_LISTING_RULES);
     }
@@ -316,12 +360,14 @@ describe("every chain after BNB Chain", () => {
       ["erc8004_base", { registry: REPUTATION_REGISTRY, window: 50_000 }],
       ["erc8004_arc", { registry: REPUTATION_REGISTRY, window: 100_000 }],
       ["erc8004_monad", { registry: REPUTATION_REGISTRY, window: 50_000 }],
+      ["erc8004_gnosis", { registry: REPUTATION_REGISTRY, window: 10_000 }],
     ]);
     // BNB Chain keeps its own internal ratings read (docs/bsc-rater-credibility-2026-10-16.md) and is not counted by this step.
     expect(BSC_CHAIN.reputation).toBeUndefined();
     // No window is wider than the ceiling its provider gives the identity pass for a call.
     expect(ETHEREUM_CHAIN.reputation!.window).toBeLessThanOrEqual(50_000);
     expect(MONAD_CHAIN.reputation!.window).toBeLessThanOrEqual(MONAD_CHAIN.maxLogRange);
+    expect(GNOSIS_CHAIN.reputation!.window).toBeLessThanOrEqual(GNOSIS_CHAIN.maxLogRange);
     // Base's is wider than Alchemy's 10,000-block answer in full: the plan answers any range of 10,000 logs or fewer, and a refusal halves the window.
   });
 
@@ -377,7 +423,7 @@ describe("a chain's switch", () => {
 
 describe("the endpoint each chain reads", () => {
   it("is the variable the entry names and no other: each chain, with every variable set to a value of its own, reads its own", async () => {
-    const names = ["BSC_RPC_URL", "ETH_RPC_URL", "BASE_RPC_URL", "MONAD_RPC_URL"];
+    const names = ["BSC_RPC_URL", "ETH_RPC_URL", "BASE_RPC_URL", "MONAD_RPC_URL", "GNOSIS_RPC_URL"];
     const before = Object.fromEntries(names.map(name => [name, process.env[name]]));
     const value = (name: string) => `https://node.example/${name}`;
     for (const name of names) process.env[name] = value(name);
@@ -401,7 +447,7 @@ describe("the endpoint each chain reads", () => {
 describe("the list of chains", () => {
   it("is sound", () => {
     expect(validateErc8004Chains(ERC8004_CHAINS)).toEqual([]);
-    expect(ERC8004_CHAINS.map(chain => chain.protocol)).toEqual(["erc8004_bsc", "erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_monad"]);
+    expect(ERC8004_CHAINS.map(chain => chain.protocol)).toEqual(["erc8004_bsc", "erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_monad", "erc8004_gnosis"]);
   });
 
   it("stays sound with a further chain beside the others, so a chain can be added by an entry alone", () => {

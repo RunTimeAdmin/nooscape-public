@@ -30,6 +30,7 @@ const DIRECT: Record<string, { calls: number; why: string }> = {
 
 /** Files that call the deadline wrapper, which is a plain `fetch`, and how many times. */
 const WRAPPED: Record<string, { calls: number; why: string }> = {
+  "server/ingestion/a2aRegistryCatalog.ts": { calls: 1, why: "the two A2A registries' list endpoints, the one URL fixed in the adapter for each registry, with no address taken from a record" },
   "server/ingestion/agenteconomy.ts": { calls: 1, why: "the Agent Economy census feed, the one URL fixed in the adapter" },
   "server/ingestion/erc8004Rpc.ts": { calls: 1, why: "the chains' RPC: a host pinned in the chain table, or the operator's own node" },
 };

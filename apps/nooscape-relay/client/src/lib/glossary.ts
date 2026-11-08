@@ -11,7 +11,7 @@ import { EXTRA_CHAIN_LABEL, extraChainsOn } from "@shared/chains";
  * each extra chain whose switch is on in this build. With none on it is the sentence the glossary has always had.
  */
 const REGION_NAMES = ["Robinhood Chain", "BNB Chain", "Solana", ...extraChainsOn(import.meta.env.VITE_FEATURES).map(chain => EXTRA_CHAIN_LABEL[chain])];
-const COUNT_WORD = ["no", "one", "two", "three", "four", "five", "six", "seven"];
+const COUNT_WORD = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight"];
 const REGIONS_SENTENCE = `${REGION_NAMES.slice(0, -1).join(", ")} and ${REGION_NAMES[REGION_NAMES.length - 1]}: the ${COUNT_WORD[REGION_NAMES.length] ?? REGION_NAMES.length} places Nooscape reads agent registries. Pick one to see only its counts.`;
 
 export type GlossaryKey =

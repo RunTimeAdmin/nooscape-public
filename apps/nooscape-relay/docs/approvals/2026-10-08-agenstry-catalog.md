@@ -40,3 +40,19 @@ After the first run, an operator must recompute the stored-object SHA-256 and co
 - [x] First bounded snapshot completed: 1 request, 473 discovered records, 12 accepted, 456 rejected
 - [x] All 12 retained raw objects passed independent SHA-256 recomputation and 90-day governance-retention checks
 - [x] Source-level projection approved; all 12 are publicly visible as Tier 2 / unverified catalog discovery metadata
+
+## Addendum (2026-11-06): the bounds as they stand
+
+The bounds table above is the approval of 2026-10-08. The adapter's bounds have been raised since, and the code holds the values below ([the record of the latest change](../agenstry-limits-2026-11-06.md)). The scope of the approval is unchanged: one read-only request for the same endpoint, nothing inside a record is followed, and a record is taken only if it is `kind=a2a_agent`, carries no sanction flag, reports at least one signal and is the only one taken for its provider hostname.
+
+| Control | 2026-10-08 (above) | 2026-10-09 | 2026-11-06 |
+|---|---:|---:|---:|
+| Accepted records | 12 (48 later the same day) | 96 | 128 |
+| Lines scanned for accepted records | 5,000 | 12,000 | 24,000 |
+| Compressed payload cap | 4 MiB | 24 MiB | 48 MiB |
+| Expanded payload cap, and the longest line being assembled | none | 512 MiB and 1 MiB (from 2026-10-12) | unchanged |
+| Line cap | 32 KiB | 32 KiB | 32 KiB |
+| Whole-feed walk for the directory | none | 300,000 lines, 240,000 records | 450,000 lines, 300,000 records |
+| Request timeout | 20 seconds | 120 seconds | 120 seconds |
+
+The 2026-10-09 values were set in commit `041646b` and the expanded and line caps in `158747f`, and this approval was not updated then; this addendum is the record. The order for the 2026-11-06 change is the operator's, in chat: "merge 302 and build the limits pr". The evidence interpretation, the projection rule and the outcome above stand. Raising the accepted-records bound publishes nothing: the public reviewed set is the operator's last published run, which is still the 48 records of the manual run of 2026-10-09.

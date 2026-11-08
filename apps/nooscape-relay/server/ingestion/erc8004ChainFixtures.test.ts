@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeRegisteredLog, decodeUriUpdatedLog, directoryDraft, externalKey, hasProfileLink, parseWindowLogs, uriFacts } from "./erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, BSC_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./erc8004Chains";
-import { ARC_FIXTURES, BASE_FIXTURES, ETHEREUM_FIXTURES, MONAD_FIXTURES, type ChainFixtureLog, type ChainFixtures } from "./erc8004ChainFixtures";
+import { ARC_CHAIN, BASE_CHAIN, BSC_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./erc8004Chains";
+import { ARC_FIXTURES, BASE_FIXTURES, ETHEREUM_FIXTURES, GNOSIS_FIXTURES, MONAD_FIXTURES, type ChainFixtureLog, type ChainFixtures } from "./erc8004ChainFixtures";
 import { Erc8004RpcHttpError, Erc8004RpcRangeError, callRpc } from "./erc8004Rpc";
 
 /**
@@ -16,6 +16,7 @@ const CASES: Array<[string, Erc8004Chain, ChainFixtures]> = [
   ["Base", BASE_CHAIN, BASE_FIXTURES],
   ["Arc", ARC_CHAIN, ARC_FIXTURES],
   ["Monad", MONAD_CHAIN, MONAD_FIXTURES],
+  ["Gnosis", GNOSIS_CHAIN, GNOSIS_FIXTURES],
 ];
 const EVERYTHING = { fromBlock: 0, toBlock: Number.MAX_SAFE_INTEGER };
 const blockOf = (log: ChainFixtureLog) => Number.parseInt(log.blockNumber as string, 16);
@@ -91,7 +92,7 @@ describe.each(CASES)("the %s recording", (_name, chain, fixtures) => {
   });
 
   it("gives the same agent id on another chain a different entry", () => {
-    for (const other of [BSC_CHAIN, ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN].filter(candidate => candidate !== chain)) {
+    for (const other of [BSC_CHAIN, ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN].filter(candidate => candidate !== chain)) {
       for (const { expected } of Object.values(fixtures.registered)) {
         expect(externalKey(other, expected.agentId)).not.toBe(externalKey(chain, expected.agentId));
       }
@@ -217,6 +218,16 @@ describe("what each provider said to a window that was too wide", () => {
     expect(monad.message).toBe("Monad eth_getLogs was rejected as returning too many results.");
   });
 
+  it("names Alchemy's refusal on Gnosis, sent as an HTTP 400 that says the window passed the 10,000 blocks its plan answers, a block-range fault", async () => {
+    const [refusal] = GNOSIS_FIXTURES.refusals;
+    expect(refusal!.status).toBe(400);
+    fetchMock.mockResolvedValueOnce(answer(refusal!));
+    const gnosis = await outcome(GNOSIS_CHAIN);
+    expect(gnosis).toBeInstanceOf(Erc8004RpcRangeError);
+    expect((gnosis as Erc8004RpcRangeError).reason).toBe("block_range");
+    expect(gnosis.message).toBe("Gnosis eth_getLogs was rejected as exceeding the provider's block range.");
+  });
+
   it("has nothing recorded for Arc, whose node never refused a window", () => {
     expect(ARC_FIXTURES.refusals).toEqual([]);
   });
@@ -227,6 +238,7 @@ describe("what each provider said to a window that was too wide", () => {
       [BASE_CHAIN, [1_000, 3_000]],
       [ARC_CHAIN, [1_000, 2_000, 4_000]],
       [MONAD_CHAIN, [1_000, 3_000]],
+      [GNOSIS_CHAIN, [1_000, 3_000]],
     ] as const) {
       fetchMock.mockReset();
       fetchMock.mockImplementation(async () => new Response("", { status: 429 }));

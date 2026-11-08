@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { ARC_LIGHTS_LIMIT, BASE_LIGHTS_LIMIT, ETHEREUM_LIGHTS_LIMIT, MONAD_LIGHTS_LIMIT, type MapFleets } from "@shared/mapFleets";
+import { ARC_LIGHTS_LIMIT, BASE_LIGHTS_LIMIT, ETHEREUM_LIGHTS_LIMIT, GNOSIS_LIGHTS_LIMIT, MONAD_LIGHTS_LIMIT, type MapFleets } from "@shared/mapFleets";
 import { regionIcon } from "./chainTabsModel";
 import {
   ACKNOWLEDGED_TIER,
@@ -15,6 +15,7 @@ import {
   currentSelection,
   ethereumLights,
   monadLights,
+  gnosisLights,
   fleetRadius,
   fleetReach,
   fleetRecords,
@@ -230,20 +231,22 @@ describe("how a chain looks", () => {
     expect(css).toContain(`--ns-ink-dim: ${CHAIN_STYLE.none.color.toLowerCase()};`);
     // Arc's tab colour is the colour of its dome on the map.
     expect(css).toContain(`--ns-chain-arc: ${CHAIN_STYLE.arc.color.toLowerCase()};`);
-    // So are Base's, Ethereum's and Monad's: the colour of the tab is the colour of the cross, the pentagon and the star.
+    // So are Base's, Ethereum's, Monad's and Gnosis's: the colour of the tab is the colour of the cross, the pentagon, the star and the octagon.
     expect(css).toContain(`--ns-chain-base: ${CHAIN_STYLE.base.color.toLowerCase()};`);
     expect(css).toContain(`--ns-chain-ethereum: ${CHAIN_STYLE.ethereum.color.toLowerCase()};`);
     expect(css).toContain(`--ns-chain-monad: ${CHAIN_STYLE.monad.color.toLowerCase()};`);
+    expect(css).toContain(`--ns-chain-gnosis: ${CHAIN_STYLE.gnosis.color.toLowerCase()};`);
   });
 
   it("draws Arc's records with the dome of its tab, so the key, the tab and the map agree", () => {
     expect(CHAIN_STYLE.arc).toMatchObject({ label: "Arc", shape: "dome" });
     expect(markerPath("dome")).toBe(regionIcon("arc").path);
     expect(recordChain('["erc8004_arc"]')).toBe("arc");
-    // The identity registries of Base, Ethereum and Monad count too: their groups have lights.
+    // The identity registries of Base, Ethereum, Monad and Gnosis count too: their groups have lights.
     expect(recordChain('["erc8004_base"]')).toBe("base");
     expect(recordChain('["erc8004_eth"]')).toBe("ethereum");
     expect(recordChain('["erc8004_monad"]')).toBe("monad");
+    expect(recordChain('["erc8004_gnosis"]')).toBe("gnosis");
     const nodes = [node("a", 0.1, 0.1, { chain: "arc" }), node("b", 0.2, 0.2, { chain: "bnb" }), node("c", 0.3, 0.3)];
     expect(legendEntries(nodes).map(entry => [entry.key, entry.count])).toEqual([["bnb", 1], ["arc", 1], ["none", 1]]);
   });
@@ -257,6 +260,16 @@ describe("how a chain looks", () => {
     expect(markerPath("star")).toBe(regionIcon("monad").path);
     const nodes = [node("a", 0.1, 0.1, { chain: "ethereum" }), node("b", 0.2, 0.2, { chain: "base" }), node("c", 0.3, 0.3, { chain: "arc" }), node("d", 0.4, 0.4, { chain: "solana" }), node("e", 0.5, 0.5, { chain: "monad" })];
     expect(legendEntries(nodes).map(entry => [entry.key, entry.count])).toEqual([["solana", 1], ["arc", 1], ["base", 1], ["ethereum", 1], ["monad", 1]]);
+  });
+
+  it("draws Gnosis's records with the octagon of its tab, a shape no other chain's lights have, so the key, the tab and the map agree", () => {
+    expect(CHAIN_STYLE.gnosis).toMatchObject({ label: "Gnosis", shape: "octagon" });
+    expect(markerPath("octagon")).toBe(regionIcon("gnosis").path);
+    // Robinhood Chain's lights are hexagons, so no chain shares an outline with another.
+    const shapes = Object.entries(CHAIN_STYLE).filter(([key]) => key !== "none").map(([, style]) => style.shape);
+    expect(new Set(shapes).size).toBe(shapes.length);
+    const nodes = [node("a", 0.1, 0.1, { chain: "monad" }), node("b", 0.2, 0.2, { chain: "gnosis" })];
+    expect(legendEntries(nodes).map(entry => [entry.key, entry.count])).toEqual([["monad", 1], ["gnosis", 1]]);
   });
 
   it("lists in the legend only the chains that have a record on the map, with counts, in a fixed order", () => {
@@ -855,6 +868,7 @@ describe.each([
   { chain: "base" as const, label: "Base", shape: "cross", shapes: "crosses", protocol: "erc8004_base", limit: BASE_LIGHTS_LIMIT, lights: baseLights },
   { chain: "ethereum" as const, label: "Ethereum", shape: "pentagon", shapes: "pentagons", protocol: "erc8004_eth", limit: ETHEREUM_LIGHTS_LIMIT, lights: ethereumLights },
   { chain: "monad" as const, label: "Monad", shape: "star", shapes: "stars", protocol: "erc8004_monad", limit: MONAD_LIGHTS_LIMIT, lights: monadLights },
+  { chain: "gnosis" as const, label: "Gnosis", shape: "octagon", shapes: "octagons", protocol: "erc8004_gnosis", limit: GNOSIS_LIGHTS_LIMIT, lights: gnosisLights },
 ])("the $label lights on the scan map", ({ chain, label, shape, shapes, protocol, limit, lights }) => {
   const group = (id: string, count: number, kind: "wallet" | "platform_host" | "shared_link" = "wallet") => ({
     id,
@@ -867,7 +881,7 @@ describe.each([
     wallets: kind === "wallet" ? 1 : null,
   });
   /** This chain's groups as map records, in the argument fleetRecords reads them from. */
-  const recordsOf = (groups: ReturnType<typeof group>[]) => (chain === "base" ? fleetRecords(null, null, { fleets: groups }) : chain === "monad" ? fleetRecords(null, null, null, null, { fleets: groups }) : fleetRecords(null, null, null, { fleets: groups }));
+  const recordsOf = (groups: ReturnType<typeof group>[]) => (chain === "base" ? fleetRecords(null, null, { fleets: groups }) : chain === "gnosis" ? fleetRecords(null, null, null, null, null, { fleets: groups }) : chain === "monad" ? fleetRecords(null, null, null, null, { fleets: groups }) : fleetRecords(null, null, null, { fleets: groups }));
   const noOthers = { fleets: [], groups: 0, registrations: null, asOf: null, solana: { fleets: [], groups: 0, asOf: null }, robinhood: { fleets: [], groups: 0, asOf: null, listed: null } };
   const bnb = (id: string, count: number) => ({ id, kind: "platform_host" as const, chain: "bnb" as const, name: "host.example", wallet: null, registry: null, count, wallets: null });
   const dots = Array.from({ length: 60 }, (_, index) => ({ agentId: `dot-${index}`, displayName: `Dot ${index}`, handle: `@d${index}`, protocols: '["a2a"]', evidenceTier: "tier_2" }));
@@ -930,18 +944,18 @@ describe.each([
     const nodes = layoutNodes([...dots.slice(0, 3), ...fleetRecords({ ...noOthers, fleets: [bnb("bsc-fleet-a", 100)] }), ...recordsOf([group("fleet-a", 1_000), group("fleet-b", 868, "platform_host")])], 2);
     const summary = constellationSummary(nodes);
     expect(summary).toContain("Also 1 large circle: each is a group of BNB Chain registrations");
-    expect(summary).toContain(`Also 2 large ${shapes}: each is a group of ${label} registrations that share one wallet, host or profile link, with its count. A ${shape} is a group, not an agent, and no single ${label} registration is drawn.`);
+    expect(summary).toContain(`Also 2 large ${shapes}: each is a group of ${label} registrations that share one wallet, host or profile link, with its count. ${/^[aeiou]/.test(shape) ? "An" : "A"} ${shape} is a group, not an agent, and no single ${label} registration is drawn.`);
     expect(constellationSummary(layoutNodes(dots.slice(0, 3), 2))).not.toContain(shape);
   });
 });
 
-describe("the Arc, Base, Ethereum and Monad lights together", () => {
-  const light = (id: string, chain: "bnb" | "arc" | "base" | "ethereum" | "monad") => ({ id, kind: "platform_host" as const, chain, name: "host.example", wallet: null, registry: null, count: 100, wallets: null });
+describe("the Arc, Base, Ethereum, Monad and Gnosis lights together", () => {
+  const light = (id: string, chain: "bnb" | "arc" | "base" | "ethereum" | "monad" | "gnosis") => ({ id, kind: "platform_host" as const, chain, name: "host.example", wallet: null, registry: null, count: 100, wallets: null });
   const noOthers = { fleets: [], groups: 0, registrations: null, asOf: null, solana: { fleets: [], groups: 0, asOf: null }, robinhood: { fleets: [], groups: 0, asOf: null, listed: null } };
 
-  it("come after the other chains' lights, Arc's first, then Base's, Ethereum's and Monad's", () => {
-    const all = fleetRecords({ ...noOthers, fleets: [light("bsc-fleet-a", "bnb")] }, { fleets: [light("arc-fleet-a", "arc")] }, { fleets: [light("base-fleet-a", "base")] }, { fleets: [light("eth-fleet-a", "ethereum")] }, { fleets: [light("monad-fleet-a", "monad")] });
-    expect(all.map(candidate => candidate.agentId)).toEqual(["bsc-fleet-a", "arc-fleet-a", "base-fleet-a", "eth-fleet-a", "monad-fleet-a"]);
-    expect(all.map(candidate => recordChain(candidate.protocols))).toEqual(["bnb", "arc", "base", "ethereum", "monad"]);
+  it("come after the other chains' lights, Arc's first, then Base's, Ethereum's, Monad's and Gnosis's", () => {
+    const all = fleetRecords({ ...noOthers, fleets: [light("bsc-fleet-a", "bnb")] }, { fleets: [light("arc-fleet-a", "arc")] }, { fleets: [light("base-fleet-a", "base")] }, { fleets: [light("eth-fleet-a", "ethereum")] }, { fleets: [light("monad-fleet-a", "monad")] }, { fleets: [light("gnosis-fleet-a", "gnosis")] });
+    expect(all.map(candidate => candidate.agentId)).toEqual(["bsc-fleet-a", "arc-fleet-a", "base-fleet-a", "eth-fleet-a", "monad-fleet-a", "gnosis-fleet-a"]);
+    expect(all.map(candidate => recordChain(candidate.protocols))).toEqual(["bnb", "arc", "base", "ethereum", "monad", "gnosis"]);
   });
 });

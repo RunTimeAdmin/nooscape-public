@@ -48,7 +48,7 @@ export const EXACT_CLIENT_ROUTES = [
 
 /**
  * The routes behind a switch, by the feature that turns each on. A feature that is a section of a page and not a route (`claims`) has none,
- * Arc's page and its census report are behind `chain_arc`, Base's page and its census report are behind `chain_base`, Ethereum's page and its census report are behind `chain_ethereum`, and Monad's page (it has no census report yet) is behind `chain_monad`.
+ * Arc's page and its census report are behind `chain_arc`, Base's page and its census report are behind `chain_base`, Ethereum's page and its census report are behind `chain_ethereum`, Monad's page and its census report are behind `chain_monad`, and Gnosis's page and its census report are behind `chain_gnosis`.
  */
 export const FLAGGED_CLIENT_ROUTES: Partial<Record<Feature, readonly string[]>> = {
   watch: ["/watch"],
@@ -57,6 +57,7 @@ export const FLAGGED_CLIENT_ROUTES: Partial<Record<Feature, readonly string[]>> 
   chain_base: ["/chains/base", "/field/base-registry-2026-10-21"],
   chain_ethereum: ["/chains/ethereum", "/field/ethereum-registry-2026-10-28"],
   chain_monad: ["/chains/monad", "/field/monad-registry-2026-11-01"],
+  chain_gnosis: ["/chains/gnosis", "/field/gnosis-registry-2026-11-06"],
 };
 
 export function isClientRoutePath(pathname: string, features: string | undefined = process.env.VITE_FEATURES): boolean {

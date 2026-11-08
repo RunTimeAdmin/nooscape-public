@@ -43,7 +43,7 @@ describe("the extra chains' model", () => {
       expect(EXTRA_CHAIN_SWITCH[key]).toBe(chain.feature);
       expect(FEATURES).toContain(chain.feature);
     }
-    expect(EXTRA_CHAIN_LABEL).toEqual({ ethereum: "Ethereum", base: "Base", arc: "Arc", monad: "Monad" });
+    expect(EXTRA_CHAIN_LABEL).toEqual({ ethereum: "Ethereum", base: "Base", arc: "Arc", monad: "Monad", gnosis: "Gnosis" });
   });
 
   it("leaves BNB Chain, the chain of the pass with no switch, where it was", () => {
@@ -81,15 +81,16 @@ describe("the extra chains' model", () => {
   });
 
   it("names the protocols to leave out of every public read: those of the chains whose switch is off", () => {
-    expect(protocolsOfChainsOff(undefined).sort()).toEqual(["erc8004_arc", "erc8004_base", "erc8004_eth", "erc8004_monad"]);
+    expect(protocolsOfChainsOff(undefined).sort()).toEqual(["erc8004_arc", "erc8004_base", "erc8004_eth", "erc8004_gnosis", "erc8004_monad"]);
     expect(protocolsOfChainsOff("claims")).toEqual(protocolsOfChainsOff(undefined));
-    expect(protocolsOfChainsOff("chain_base").sort()).toEqual(["erc8004_arc", "erc8004_eth", "erc8004_monad"]);
-    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc")).toEqual(["erc8004_monad"]);
-    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc,chain_monad")).toEqual([]);
+    expect(protocolsOfChainsOff("chain_base").sort()).toEqual(["erc8004_arc", "erc8004_eth", "erc8004_gnosis", "erc8004_monad"]);
+    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc")).toEqual(["erc8004_monad", "erc8004_gnosis"]);
+    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc,chain_monad")).toEqual(["erc8004_gnosis"]);
+    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis")).toEqual([]);
   });
 
   it("names every listed chain", () => {
-    expect([...CHAINS, ...EXTRA_CHAINS].map(listedChainLabel)).toEqual(["Robinhood Chain", "Solana", "BNB Chain", "Ethereum", "Base", "Arc", "Monad"]);
+    expect([...CHAINS, ...EXTRA_CHAINS].map(listedChainLabel)).toEqual(["Robinhood Chain", "Solana", "BNB Chain", "Ethereum", "Base", "Arc", "Monad", "Gnosis"]);
   });
 });
 

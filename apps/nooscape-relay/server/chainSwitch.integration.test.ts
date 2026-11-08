@@ -28,7 +28,7 @@ const dbReachable = await (async () => {
   }
 })();
 
-const ALL_ON = "chain_ethereum,chain_base,chain_arc,chain_monad";
+const ALL_ON = "chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis";
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 const wallet = (n: number) => `0x${n.toString(16).padStart(40, "0")}`;
 const baseKey = (id: string) => `eip155:${BASE_CHAIN.chainId}:${BASE_CHAIN.identityRegistry}:${id}`;
@@ -147,17 +147,17 @@ describe.skipIf(!dbReachable)("the chain switches on the public reads, against a
     expect(await db.findVisibleDirectoryEntriesByKey(["erc8004_base"], baseKey("1"))).toEqual([]);
     const stats = await chainStats();
     expect(JSON.stringify({ chains: stats.chains })).toBe(before.stats);
-    // The tabs for the four chains are there and read "not indexed": no source for them has been staged.
-    expect(stats.extras!.map(row => row.chain)).toEqual(["ethereum", "base", "arc", "monad"]);
+    // The tabs for the five chains are there and read "not indexed": no source for them has been staged.
+    expect(stats.extras!.map(row => row.chain)).toEqual(["ethereum", "base", "arc", "monad", "gnosis"]);
     for (const row of stats.extras!) expect(row).toMatchObject({ indexed: false, acknowledged: null, reviewed: null, feedbackEvents: null, registries: [], asOf: null, registry: null });
   });
 
-  describe("after the manual migrations (0046, 0051 and 0053)", () => {
+  describe("after the manual migrations (0046, 0051, 0053 and 0057)", () => {
     beforeAll(async () => {
       const { splitMigrationStatements } = await import("./dbMigrations");
       const owner = await createConnection(process.env.DATABASE_URL!);
-      // In the order production had them: 0046 adds the first three protocols, 0053 (which restates 0051's list) adds Monad's.
-      for (const file of ["0046_multichain_erc8004_protocols.sql", "0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql"]) {
+      // In the order production had them: 0046 adds the first three protocols, 0053 (which restates 0051's list) adds Monad's and 0057 Gnosis's.
+      for (const file of ["0046_multichain_erc8004_protocols.sql", "0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql", "0057_gnosis_erc8004_protocol.sql"]) {
         for (const statement of splitMigrationStatements(await readFile(`drizzle/${file}`, "utf8"))) await owner.query(statement);
       }
       await owner.end();
@@ -168,6 +168,8 @@ describe.skipIf(!dbReachable)("the chain switches on the public reads, against a
       await entries("src-arc", "arc", 3, "erc8004_arc");
       await source("src-monad", "erc8004_monad");
       await entries("src-monad", "monad", 2, "erc8004_monad");
+      await source("src-gnosis", "erc8004_gnosis");
+      await entries("src-gnosis", "gnosis", 4, "erc8004_gnosis");
       // Base goes through the real path: seven registrations recorded, five of them listed and published as entries.
       const [row] = await writer.select().from(schema.ingestionSources).where(eq(schema.ingestionSources.id, "src-base"));
       baseSource = row!;
@@ -256,6 +258,7 @@ describe.skipIf(!dbReachable)("the chain switches on the public reads, against a
       expect(await searched()).not.toContain("erc8004_eth");
       expect(await searched()).not.toContain("erc8004_arc");
       expect(await searched()).not.toContain("erc8004_monad");
+      expect(await searched()).not.toContain("erc8004_gnosis");
       const found = await db.findVisibleDirectoryEntriesByKey(["erc8004_base"], baseKey("1"));
       expect(found).toHaveLength(1);
       // Read as an entry, with the look-alike count taken over the whole registry: the held-out registration by the same wallet is counted.
@@ -277,13 +280,25 @@ describe.skipIf(!dbReachable)("the chain switches on the public reads, against a
       expect(await sourceProtocols()).toEqual(["erc8004", "erc8004_bsc", "erc8004_monad"]);
       expect(await db.countAgentDirectoryEntries()).toBe(before.count + 2);
       expect((await searched()).filter(protocol => protocol === "erc8004_monad")).toHaveLength(2);
-      for (const hidden of ["erc8004_eth", "erc8004_base", "erc8004_arc"]) expect(await searched()).not.toContain(hidden);
+      for (const hidden of ["erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_gnosis"]) expect(await searched()).not.toContain(hidden);
       const stats = await chainStats();
       expect(JSON.stringify({ chains: stats.chains })).toBe(before.stats);
       expect(stats.extras!.map(row => [row.chain, row.indexed, row.acknowledged, row.registry])).toEqual([["monad", true, 2, null]]);
     });
 
-    it("keeps each other chain hidden while its own switch is off, and shows them in the order Ethereum, Base, Arc, Monad when all are on", async () => {
+    it("shows Gnosis alone when only its switch is on: its source and its entries, and none of the other chains'", async () => {
+      features("chain_gnosis");
+      expect(await protocolsInBreakdown()).toEqual([...before.breakdown, "erc8004_gnosis:4"].sort());
+      expect(await sourceProtocols()).toEqual(["erc8004", "erc8004_bsc", "erc8004_gnosis"]);
+      expect(await db.countAgentDirectoryEntries()).toBe(before.count + 4);
+      expect((await searched()).filter(protocol => protocol === "erc8004_gnosis")).toHaveLength(4);
+      for (const hidden of ["erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_monad"]) expect(await searched()).not.toContain(hidden);
+      const stats = await chainStats();
+      expect(JSON.stringify({ chains: stats.chains })).toBe(before.stats);
+      expect(stats.extras!.map(row => [row.chain, row.indexed, row.acknowledged, row.registry])).toEqual([["gnosis", true, 4, null]]);
+    });
+
+    it("keeps each other chain hidden while its own switch is off, and shows them in the order Ethereum, Base, Arc, Monad, Gnosis when all are on", async () => {
       features("chain_ethereum,chain_arc");
       expect(await protocolsInBreakdown()).toEqual([...before.breakdown, "erc8004_arc:3"].sort());
       expect(await db.findVisibleDirectoryEntriesByKey(["erc8004_base"], baseKey("1"))).toEqual([]);
@@ -293,10 +308,10 @@ describe.skipIf(!dbReachable)("the chain switches on the public reads, against a
       expect(stats.extras!.map(row => [row.chain, row.indexed, row.acknowledged, row.registry])).toEqual([["ethereum", true, 0, null], ["arc", true, 3, null]]);
 
       features(ALL_ON);
-      expect(await db.countAgentDirectoryEntries()).toBe(before.count + 10);
-      expect(await sourceProtocols()).toEqual(["erc8004", "erc8004_arc", "erc8004_base", "erc8004_bsc", "erc8004_eth", "erc8004_monad"]);
+      expect(await db.countAgentDirectoryEntries()).toBe(before.count + 14);
+      expect(await sourceProtocols()).toEqual(["erc8004", "erc8004_arc", "erc8004_base", "erc8004_bsc", "erc8004_eth", "erc8004_gnosis", "erc8004_monad"]);
       stats = await chainStats();
-      expect(stats.extras!.map(row => [row.chain, row.acknowledged])).toEqual([["ethereum", 0], ["base", 5], ["arc", 3], ["monad", 2]]);
+      expect(stats.extras!.map(row => [row.chain, row.acknowledged])).toEqual([["ethereum", 0], ["base", 5], ["arc", 3], ["monad", 2], ["gnosis", 4]]);
     });
 
     it("goes back to what it was when the switches are turned off again", async () => {

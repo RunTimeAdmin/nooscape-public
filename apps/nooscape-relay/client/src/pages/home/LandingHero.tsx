@@ -9,7 +9,7 @@ import { acknowledgedLegendEntries, acknowledgedRecords, CHAIN_STYLE, currentSel
 import { sweepLine } from "@/components/home/sweepModel";
 import { setOwlFacts } from "@/components/owl/owlFacts";
 import { useOwl } from "@/contexts/OwlContext";
-import { arcLightsCaption, baseLightsCaption, ethereumLightsCaption, fleetShape, fleetsCaption, monadLightsCaption, robinhoodLightsCaption, solanaLightsCaption, type MapFleets, type RegistryFleets } from "@shared/mapFleets";
+import { arcLightsCaption, baseLightsCaption, ethereumLightsCaption, fleetShape, fleetsCaption, gnosisLightsCaption, monadLightsCaption, robinhoodLightsCaption, solanaLightsCaption, type MapFleets, type RegistryFleets } from "@shared/mapFleets";
 import { tierExplanations } from "@/lib/evidenceExplain";
 import { trpc } from "@/lib/trpc";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
@@ -29,6 +29,8 @@ type Props = {
   ethereumFleets?: RegistryFleets | null;
   /** The same for Monad, while its switch is on: each of the largest is drawn as one large star with its count. */
   monadFleets?: RegistryFleets | null;
+  /** The same for Gnosis, while its switch is on: each of the largest is drawn as one large octagon with its count. */
+  gnosisFleets?: RegistryFleets | null;
   /** The agent a link named (?agent=): pinned on the map once, when the map has it. */
   linkedAgentId?: string | null;
 };
@@ -45,10 +47,10 @@ type EnvelopeFacts = {
  * The only other dots are the hollow ones: entries from `liveData.mapAcknowledged` that the directory lists and Nooscape has
  * not reviewed. Nothing else is drawn.
  */
-export default function LandingHero({ records, status, acknowledged = null, fleets = null, arcFleets = null, baseFleets = null, ethereumFleets = null, monadFleets = null, linkedAgentId = null }: Props) {
+export default function LandingHero({ records, status, acknowledged = null, fleets = null, arcFleets = null, baseFleets = null, ethereumFleets = null, monadFleets = null, gnosisFleets = null, linkedAgentId = null }: Props) {
   const { enabled: owlOn } = useOwl();
   const entries = useMemo(() => acknowledgedRecords(acknowledged), [acknowledged]);
-  const lights = useMemo(() => fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets, monadFleets), [fleets, arcFleets, baseFleets, ethereumFleets, monadFleets]);
+  const lights = useMemo(() => fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets, monadFleets, gnosisFleets), [fleets, arcFleets, baseFleets, ethereumFleets, monadFleets, gnosisFleets]);
   // An entry that is also a reviewed record is drawn once, as the record.
   const everything = useMemo(() => {
     const reviewed = new Set(records.map(candidate => candidate.agentId));
@@ -80,6 +82,7 @@ export default function LandingHero({ records, status, acknowledged = null, flee
   const baseLightCount = useMemo(() => nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "cross").length, [nodes]);
   const ethereumLightCount = useMemo(() => nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "pentagon").length, [nodes]);
   const monadLightCount = useMemo(() => nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "star").length, [nodes]);
+  const gnosisLightCount = useMemo(() => nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "octagon").length, [nodes]);
   const fleetNote = fleets ? fleetsCaption(fleets) : null;
   const solanaNote = fleets?.solana ? solanaLightsCaption(fleets.solana) : null;
   const robinhoodNote = fleets?.robinhood ? robinhoodLightsCaption(fleets.robinhood) : null;
@@ -89,6 +92,7 @@ export default function LandingHero({ records, status, acknowledged = null, flee
   const baseNote = baseFleets ? baseLightsCaption(baseFleets, baseLightCount) : null;
   const ethereumNote = ethereumFleets ? ethereumLightsCaption(ethereumFleets, ethereumLightCount) : null;
   const monadNote = monadFleets ? monadLightsCaption(monadFleets, monadLightCount) : null;
+  const gnosisNote = gnosisFleets ? gnosisLightsCaption(gnosisFleets, gnosisLightCount) : null;
 
   // The evidence is read only for the record on the card, and only once the selection has settled on it.
   const settledId = useDebouncedValue(shownId, 150);
@@ -234,6 +238,15 @@ export default function LandingHero({ records, status, acknowledged = null, flee
                   {CHAIN_STYLE.monad.label} groups · {monadLightCount} of {Math.max(monadFleets.groups, monadLightCount).toLocaleString("en-US")} drawn
                 </li>
               )}
+              {gnosisLightCount > 0 && gnosisFleets && (
+                <li className="flex items-center gap-2">
+                  <svg aria-hidden="true" viewBox="-6 -6 12 12" className="size-3.5 shrink-0">
+                    <path d="M-2.5 -6L2.5 -6L6 -2.5L6 2.5L2.5 6L-2.5 6L-6 2.5L-6 -2.5Z" fill="rgba(45,212,191,0.14)" stroke={CHAIN_STYLE.gnosis.color} strokeWidth="1.1" />
+                    <path d="M-0.7 -1.7L0.7 -1.7L1.7 -0.7L1.7 0.7L0.7 1.7L-0.7 1.7L-1.7 0.7L-1.7 -0.7Z" fill={CHAIN_STYLE.gnosis.color} />
+                  </svg>
+                  {CHAIN_STYLE.gnosis.label} groups · {gnosisLightCount} of {Math.max(gnosisFleets.groups, gnosisLightCount).toLocaleString("en-US")} drawn
+                </li>
+              )}
               <li className="flex items-center gap-2">
                 <span aria-hidden="true" className="inline-block size-3 shrink-0 rounded-full shadow-[0_0_0_2px_var(--ns-radar)]" />
                 Ring: the record on the card
@@ -246,6 +259,7 @@ export default function LandingHero({ records, status, acknowledged = null, flee
             {baseNote && <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">{baseNote}</p>}
             {ethereumNote && <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">{ethereumNote}</p>}
             {monadNote && <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">{monadNote}</p>}
+            {gnosisNote && <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">{gnosisNote}</p>}
             {fleetNote && (
               <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">
                 Two reports, both dated 16 October 2026: the <Link href="/field/bnb-registry-2026-10-16" className="underline underline-offset-4 hover:text-ns-ink">BNB Chain registry census</Link> and the <Link href="/field/bnb-ratings-2026-10-16" className="underline underline-offset-4 hover:text-ns-ink">BNB Chain rating census</Link>.
@@ -279,6 +293,11 @@ export default function LandingHero({ records, status, acknowledged = null, flee
             {monadNote && (
               <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">
                 One report, dated 1 November 2026: the <Link href="/field/monad-registry-2026-11-01" className="underline underline-offset-4 hover:text-ns-ink">Monad registry census</Link>.
+              </p>
+            )}
+            {gnosisNote && (
+              <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">
+                One report, dated 6 November 2026: the <Link href="/field/gnosis-registry-2026-11-06" className="underline underline-offset-4 hover:text-ns-ink">Gnosis registry census</Link>.
               </p>
             )}
             <p data-owl-avoid="" className="text-xs leading-5 text-ns-ink-dim">

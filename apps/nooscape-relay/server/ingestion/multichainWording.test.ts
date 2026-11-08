@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { chainSourcePreset } from "./chainPresets";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, type Erc8004Chain } from "./erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, type Erc8004Chain } from "./erc8004Chains";
 import { resolveRpcUrl } from "./erc8004Rpc";
 
 /**
@@ -84,12 +84,12 @@ describe("the strings of the new code", () => {
     for (const line of lines) expect(line).not.toMatch(FORBIDDEN);
   });
 
-  const chains: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN];
+  const chains: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, GNOSIS_CHAIN];
 
   it("say none of the four words in what a chain is called, what its notes say about a link, or what its source is called", () => {
     vi.stubEnv("X402_RPC", "https://arc-node.example/v1/x");
     for (const chain of chains) {
-      const preset = chainSourcePreset(chain, "chain_ethereum,chain_base,chain_arc,chain_monad");
+      const preset = chainSourcePreset(chain, "chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis");
       for (const text of [chain.label, chain.chainLabel, chain.fetchSentence, preset.label, preset.sourceKey]) expect(text, chain.protocol).not.toMatch(FORBIDDEN);
     }
   });

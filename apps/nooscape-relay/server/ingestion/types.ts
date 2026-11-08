@@ -1,4 +1,4 @@
-export const INGESTION_PROTOCOLS = ["a2a", "anp", "agntcy", "erc8004", "erc8004_reputation", "catalog", "census", "solana_registry", "solana_8004", "usdg_settlement", "solana_said", "erc8004_bsc", "erc8004_base", "erc8004_eth", "erc8004_arc", "solana_agenc", "erc8004_monad"] as const;
+export const INGESTION_PROTOCOLS = ["a2a", "anp", "agntcy", "erc8004", "erc8004_reputation", "catalog", "census", "solana_registry", "solana_8004", "usdg_settlement", "solana_said", "erc8004_bsc", "erc8004_base", "erc8004_eth", "erc8004_arc", "solana_agenc", "erc8004_monad", "erc8004_gnosis"] as const;
 export type IngestionProtocol = (typeof INGESTION_PROTOCOLS)[number];
 
 export type A2aNormalizedCandidate = {

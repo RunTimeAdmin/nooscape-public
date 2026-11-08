@@ -20,8 +20,8 @@ import { ENTRY_PLACEHOLDER_PATTERN, entryNameNote, entryUriFacts, NAME_RETRY_AFT
 import { stepIntervalGateMs } from "./stepInterval";
 
 /**
- * The Base, Arc, Ethereum and Monad name step of the worker (docs/approvals/2026-10-26-base-arc-names.md, extended to Ethereum on 2026-10-27
- * and to Monad on 2026-11-01).
+ * The Base, Arc, Ethereum, Monad and Gnosis name step of the worker (docs/approvals/2026-10-26-base-arc-names.md, extended to Ethereum on
+ * 2026-10-27, to Monad on 2026-11-01 and to Gnosis on 2026-11-06).
  * A registration on these chains whose link is a web address or an ipfs address carries no name on the chain, so its directory
  * entry is called "Agent #<n>". The step finds the name in the file the link names, in the same three parts as the Robinhood entry
  * names (docs/approvals/2026-10-17-robinhood-entry-names.md), and takes one chain a run in turn:

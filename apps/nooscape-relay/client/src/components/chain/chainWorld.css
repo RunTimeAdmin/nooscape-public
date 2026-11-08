@@ -1196,6 +1196,14 @@
     repeating-linear-gradient(0deg, color-mix(in srgb, var(--cw-secondary) 7%, transparent) 0 1px, transparent 1px 26px),
     repeating-linear-gradient(90deg, color-mix(in srgb, var(--cw-secondary) 7%, transparent) 0 1px, transparent 1px 26px);
 }
+.cw-theater[data-chain="gnosis"] .cw-zone {
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--cw-secondary) 26%, transparent);
+  background:
+    radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--cw-accent) 17%, transparent), transparent 70%),
+    repeating-linear-gradient(45deg, color-mix(in srgb, var(--cw-secondary) 7%, transparent) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--cw-secondary) 7%, transparent) 0 1px, transparent 1px 24px);
+}
 .cw-theater[data-chain="bnb"] .cw-zone {
   border-radius: 8px;
   border-top: 3px solid color-mix(in srgb, var(--cw-accent) 55%, transparent);

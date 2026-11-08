@@ -264,4 +264,11 @@ describe("the share of the registrations the registering wallets are recorded ag
     expect(markup).not.toMatch(/BNB|Base|Arc|census|Select an entry/);
     expect(markup).toContain("Monad");
   });
+
+  it("words the Gnosis event rail's missing feed as Gnosis's, with no census to point at and no entry to select", () => {
+    const markup = renderToStaticMarkup(createElement(ChainEventRail, { chain: "gnosis", events: [], activeId: null, playing: false, onSelect: noop, onTogglePlayback: noop, motionReduced: false, status: "unsupported", coverage: "Global feed not published" }));
+    expect(markup).toContain("No global Gnosis activity feed is published. No event is shown in its place.");
+    expect(markup).not.toMatch(/BNB|Base|Arc|Monad|census|Select an entry/);
+    expect(markup).toContain("Gnosis");
+  });
 });

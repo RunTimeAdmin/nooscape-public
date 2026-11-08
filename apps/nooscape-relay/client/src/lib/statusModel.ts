@@ -16,6 +16,7 @@ export const FRESHNESS_HOURS: Readonly<Record<string, number>> = {
   erc8004_arc: 12,
   erc8004_eth: 36,
   erc8004_monad: 36,
+  erc8004_gnosis: 36,
 };
 
 export type SourceReading = {

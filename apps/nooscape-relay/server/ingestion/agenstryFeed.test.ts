@@ -26,7 +26,15 @@ vi.mock("../storage", () => ({
   storagePut: mocks.storagePut,
 }));
 
-import { fetchAgenstryCatalog, AgenstryValidationError } from "./agenstry";
+import {
+  AGENSTRY_EVIDENCE_WINDOW_LINES,
+  AGENSTRY_MAX_ACCEPTED_RECORDS,
+  AGENSTRY_MAX_COMPRESSED_BYTES,
+  AGENSTRY_MAX_DIRECTORY_ENTRIES,
+  AGENSTRY_MAX_WALK_LINES,
+  fetchAgenstryCatalog,
+  AgenstryValidationError,
+} from "./agenstry";
 
 function catalogSource(): IngestionSource {
   return {
@@ -67,6 +75,20 @@ const MCP_LINE = JSON.stringify({
   url: "https://smithery.ai/servers/mcp-1",
 });
 const FEED = gzipSync(Buffer.from(`${A2A_LINE}\n${MCP_LINE}\n`));
+/** A signal-bearing a2a_agent record with a provider host of its own. */
+const a2aLine = (n: number) =>
+  JSON.stringify({
+    kind: "a2a_agent",
+    id: `rec-${n}`,
+    name: `Agent ${n}`,
+    url: `https://agent${n}.example.org/.well-known/agent-card.json`,
+    provider_url: `https://provider${n}.example.org/`,
+    signed: true,
+  });
+/** A line the evidence intake rejects and the directory does not acknowledge (a skill is authored content). */
+const skillLine = (n: number) => `{"kind":"skill","id":"s${n}","name":"Skill ${n}"}`;
+const mcpLine = (n: number) => `{"kind":"mcp","id":"m${n}","name":"Mcp ${n}","url":"https://m${n}.example.org/"}`;
+const feedOf = (lines: string[]) => gzipSync(Buffer.from(`${lines.join("\n")}\n`));
 
 function gzipResponse(body: Buffer) {
   return {
@@ -113,20 +135,99 @@ describe("fetchAgenstryCatalog stream guards", () => {
   });
 
   it("cuts the connection at the compressed cap and reports the violation", async () => {
-    // Incompressible payload above the 24 MiB ceiling: the data handler
-    // destroys the source the moment the cap is crossed, and the verdict is
-    // the cap violation — never a truncated success.
-    const oversized = gzipSync(randomBytes(25 * 1024 * 1024));
-    vi.stubGlobal("fetch", vi.fn(async () => gzipResponse(oversized)));
+    // Incompressible payload well above the 48 MiB ceiling, served in 1 MiB
+    // pieces: the data handler destroys the source the moment the cap is
+    // crossed, which cancels the body, and the verdict is the cap violation,
+    // never a truncated success. The check after the read would give the same
+    // verdict once the whole body had been downloaded, so the cancel and the
+    // pieces served are what pin the cut.
+    const piece = 1024 * 1024;
+    const oversized = gzipSync(randomBytes(AGENSTRY_MAX_COMPRESSED_BYTES + 16 * piece), { level: 0 });
+    let served = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (served >= oversized.length) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(oversized.subarray(served, served + piece));
+        served += piece;
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            headers: { get: (name: string) => (name.toLowerCase() === "content-type" ? "application/gzip" : null) },
+            body,
+          }) as unknown as Response
+      )
+    );
 
     await expect(fetchAgenstryCatalog(catalogSource())).rejects.toThrow(
       "Agenstry catalog exceeded the compressed response limit."
     );
+    expect(cancelled).toBe(true);
+    // The couple of pieces read ahead when the cap is crossed are served; the rest are not.
+    expect(served).toBeLessThanOrEqual(AGENSTRY_MAX_COMPRESSED_BYTES + 8 * piece);
     expect(mocks.storagePut).not.toHaveBeenCalled();
+  }, 60_000);
+
+  it("reads a signal-bearing record at the last line of the evidence window and none past it, though the directory walk still acknowledges the one past it", async () => {
+    // A record past the window is dropped from the reviewed intake and nothing fails, so the line the window ends on is pinned from both sides.
+    const lines = Array.from({ length: AGENSTRY_EVIDENCE_WINDOW_LINES + 1 }, (_, index) => skillLine(index + 1));
+    lines[AGENSTRY_EVIDENCE_WINDOW_LINES - 1] = a2aLine(1);
+    lines[AGENSTRY_EVIDENCE_WINDOW_LINES] = a2aLine(2);
+    vi.stubGlobal("fetch", vi.fn(async () => gzipResponse(feedOf(lines))));
+
+    const snapshot = await fetchAgenstryCatalog(catalogSource());
+
+    expect(snapshot.discoveredCount).toBe(AGENSTRY_EVIDENCE_WINDOW_LINES + 1);
+    expect(snapshot.candidates.map(entry => entry.candidate.externalRecordId)).toEqual(["rec-1"]);
+    expect(snapshot.directory.map(entry => entry.externalKey).sort()).toEqual(["rec-1", "rec-2"]);
+  }, 60_000);
+
+  it("accepts at most the intake ceiling of records with a provider host each, and drops the rest without a failure", async () => {
+    const lines = Array.from({ length: AGENSTRY_MAX_ACCEPTED_RECORDS + 3 }, (_, index) => a2aLine(index + 1));
+    vi.stubGlobal("fetch", vi.fn(async () => gzipResponse(feedOf(lines))));
+
+    const snapshot = await fetchAgenstryCatalog(catalogSource());
+
+    expect(snapshot.candidates).toHaveLength(AGENSTRY_MAX_ACCEPTED_RECORDS);
+    expect(snapshot.candidates.at(-1)!.candidate.externalRecordId).toBe(`rec-${AGENSTRY_MAX_ACCEPTED_RECORDS}`);
+    expect(snapshot.observations).toHaveLength(AGENSTRY_MAX_ACCEPTED_RECORDS);
+    expect(mocks.storagePut).toHaveBeenCalledTimes(AGENSTRY_MAX_ACCEPTED_RECORDS);
+    // The three over the ceiling are not rejected either: they are simply not taken.
+    expect(snapshot.rejectedCount).toBe(0);
+    expect(snapshot.discoveredCount).toBe(AGENSTRY_MAX_ACCEPTED_RECORDS + 3);
   });
 
+  it("stops the directory walk at the line bound and holds the directory at its ceiling, dropping the rest without a failure", async () => {
+    // More acknowledged lines than the directory ceiling, and more lines than the walk bound: the walk ends at the bound, nothing past it is read,
+    // and the directory holds exactly its ceiling of the lines it reached.
+    const total = AGENSTRY_MAX_WALK_LINES + 5;
+    const lines = Array.from({ length: total }, (_, index) => (index < AGENSTRY_MAX_DIRECTORY_ENTRIES + 5 ? mcpLine(index + 1) : skillLine(index + 1)));
+    vi.stubGlobal("fetch", vi.fn(async () => gzipResponse(feedOf(lines))));
+
+    const snapshot = await fetchAgenstryCatalog(catalogSource());
+
+    expect(snapshot.discoveredCount).toBe(AGENSTRY_MAX_WALK_LINES);
+    expect(snapshot.directory).toHaveLength(AGENSTRY_MAX_DIRECTORY_ENTRIES);
+    // The first mcp lines were kept and the last five of the mcp block, past the directory ceiling, were dropped.
+    expect(snapshot.directory.some(entry => entry.externalKey === "mcp:m1")).toBe(true);
+    expect(snapshot.directory.some(entry => entry.externalKey === `mcp:m${AGENSTRY_MAX_DIRECTORY_ENTRIES}`)).toBe(true);
+    expect(snapshot.directory.some(entry => entry.externalKey === `mcp:m${AGENSTRY_MAX_DIRECTORY_ENTRIES + 5}`)).toBe(false);
+  }, 120_000);
+
   it("cuts the connection at the decompressed cap and reports the violation", async () => {
-    // The gzip bomb: the wire body stays far under the 24 MiB compressed
+    // The gzip bomb: the wire body stays far under the 48 MiB compressed
     // cap while the expanded stream sails past the decompressed ceiling —
     // only a bound on the gunzip output can see this. The wire body is 513
     // concatenated single-line gzip members (RFC 1952 multi-member gzip),

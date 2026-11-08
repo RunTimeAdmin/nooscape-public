@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { CHAIN, DERIVED as d, MEASURED, PASS_TIME, PREVIOUS, PUBLIC, REGISTRY, RULES, THRESHOLDS, formatPercent as pc } from "@/lib/arcRegistryReport20261106";
 import { InfoPage, headingClass, listClass, textClass } from "@/components/InfoPage";
+import { CensusToday } from "@/components/CensusToday";
 
 /**
  * The census of 2026-11-06 of the ERC-8004 identity registry on Arc as the directory holds it, the second one: the first, of
@@ -46,6 +47,7 @@ export default function ArcRegistryReport20261106() {
         <dt>Counted from</dt>
         <dd className="text-ns-ink">the registry pass that finished at {PASS_TIME}</dd>
       </dl>
+      <CensusToday chain="arc" measuredOn={MEASURED.date} figures={SURFACE} />
 
       <section aria-labelledby="census-method">
         <h2 id="census-method" className={headingClass}>How it was done</h2>

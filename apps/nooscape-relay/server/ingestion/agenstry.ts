@@ -14,48 +14,68 @@ const FEED_HOSTNAME = new URL(FEED_URL).hostname;
  * Compressed-body bound for the full federation feed. A 2026-10-09 snapshot
  * measured 262,024 records at ~17.9 MiB compressed; the reader streams and
  * parses line-by-line so memory stays bounded, and this remains a hard abuse
- * ceiling rather than a scan target.
+ * ceiling rather than a scan target. The run fails loudly when the body crosses
+ * it. On 2026-11-06 the feed was 23,431,777 bytes (22.35 MiB), 93% of the 24 MiB
+ * this was, and it had grown about a quarter in four weeks, so 48 MiB leaves
+ * about three months (docs/agenstry-limits-2026-11-06.md).
  */
-const MAX_COMPRESSED_BYTES = 24 * 1024 * 1024;
+export const AGENSTRY_MAX_COMPRESSED_BYTES = 48 * 1024 * 1024;
 /**
  * Decompressed-body bound for the same feed. Gzip can expand its input up
  * to ~1000:1, so the compressed cap above says nothing about the bytes the
  * reader is asked to buffer: without this ceiling a hostile or compromised
  * feed expands a small wire body into many times the download before the
- * walk notices. The ceiling sits far above what the bounded walk (300,000
+ * walk notices. The ceiling sits far above what the bounded walk (450,000
  * lines) can legitimately consume; growth past it requires a reviewed
- * ceiling change, not a larger silent default.
+ * ceiling change, not a larger silent default. The 2026-11-06 feed expanded to
+ * 127.2 MiB (5.7 times its compressed size), so a compressed feed at its
+ * 48 MiB ceiling would be about 270 MiB: this bound was left as it was.
  */
 const MAX_DECOMPRESSED_BYTES = 512 * 1024 * 1024;
 /**
  * Evidence-window bound for one snapshot. The feed interleaves record kinds
  * (mcp, skill, paid_api, workflow) across ~262k lines; the 2026-10-09 snapshot
  * showed every signal-bearing a2a_agent record (2,846 of them) inside the
- * first 10,000 lines, so a 12,000-line window covers the complete reviewed
- * intake while the master-directory walk below spans the whole feed.
+ * first 10,000 lines, so a 12,000-line window covered the complete reviewed
+ * intake while the master-directory walk below spans the whole feed. A record
+ * past the window is not read and nothing fails. On 2026-11-06 the 3,454
+ * a2a_agent records ended at line 11,375 (95% of that window) and the block
+ * grew about a fifth in four weeks, so the window is 24,000 lines, which leaves
+ * about three months.
  */
-const MAX_RECORDS_SCANNED = 12_000;
+export const AGENSTRY_EVIDENCE_WINDOW_LINES = 24_000;
 /**
  * Whole-feed scan stop for the master-directory walk. The 2026-10-09 snapshot
- * held 262,024 lines; 300,000 bounds the walk with growth headroom.
+ * held 262,024 lines; 300,000 bounded the walk with growth headroom. The walk
+ * ends at this line without a failure and nothing past it is read. On
+ * 2026-11-06 the feed held 299,073 lines (99.7% of that) and grew about 14% a
+ * month, so the stop is 450,000, which leaves about three months.
  */
-const MAX_DIRECTORY_SCAN_LINES = 300_000;
+export const AGENSTRY_MAX_WALK_LINES = 450_000;
 /**
  * Reviewed intake ceiling for one snapshot. A 2026-10-09 feed snapshot held 80
  * unique-provider-host signal-bearing records; the ceiling admits all of them
  * plus headroom for growth while each accepted record must still pass
- * immutable-evidence review before it can be publicly projected.
+ * immutable-evidence review before it can be publicly projected. On 2026-11-06
+ * the feed held 99 and the run accepted 96, the ceiling then, and dropped the
+ * rest without a failure. 128 admits them with room, and sits inside what the
+ * review tooling lists in one run (`MAX_RUN_REVIEW_OBSERVATIONS`). The count
+ * grew about a quarter in four weeks, so this will bind again in five or six
+ * weeks, and raising it again is a decision of its own.
  */
-export const AGENSTRY_MAX_ACCEPTED_RECORDS = 96;
+export const AGENSTRY_MAX_ACCEPTED_RECORDS = 128;
 /**
  * Safety bound on directory acknowledgements retained per run. The 2026-10-09
  * snapshot held 206,019 mcp + 4,691 paid_api + 2,846 a2a_agent records
- * (~213.7k acknowledged kinds); 240,000 admits all of them with headroom.
+ * (~213.7k acknowledged kinds); 240,000 admitted all of them with headroom.
  * skill and workflow records are deliberately not acknowledged: they are
  * authored content, not agents. Growth past this bound requires a reviewed
- * ceiling change, not a larger silent default.
+ * ceiling change, not a larger silent default. Once it is reached further
+ * records are dropped without a failure. On 2026-11-06 the feed held 230,827
+ * (96% of that) and the count grew about 8% a month, so the bound is 300,000,
+ * which leaves about three months.
  */
-export const AGENSTRY_MAX_DIRECTORY_ENTRIES = 240_000;
+export const AGENSTRY_MAX_DIRECTORY_ENTRIES = 300_000;
 const MAX_RECORD_BYTES = 32 * 1024;
 /**
  * Pre-buffer bound on the single line readline is currently assembling.
@@ -71,7 +91,11 @@ const MAX_LINE_BYTES = 1024 * 1024;
 /**
  * The full-feed pull moves ~17.9 MiB compressed; 120 seconds keeps the
  * documented anonymous-feed cadence intact on shared-hosting egress while
- * still bounding the request.
+ * still bounding the request. On the evening of 2026-11-06 the pull took 51
+ * seconds from the production server (22.35 MiB at about 450 KB a second), so
+ * the bound was left as it was. A feed at the compressed bound above takes
+ * about 110 seconds at that rate, so this is the next one to look at, at about
+ * 100 seconds.
  */
 const REQUEST_TIMEOUT_MS = 120_000;
 
@@ -236,7 +260,7 @@ async function readBoundedCatalog(response: Response, downloadSignal: AbortSigna
     compressedBytes += chunk.byteLength;
     // Cut the connection at the cap instead of downloading past it; the
     // catch below reports the violation.
-    if (compressedBytes > MAX_COMPRESSED_BYTES) source.destroy();
+    if (compressedBytes > AGENSTRY_MAX_COMPRESSED_BYTES) source.destroy();
   });
   const gunzip = createGunzip();
   // pipeline — not a bare pipe — forwards a source error (transport cut,
@@ -304,7 +328,7 @@ async function readBoundedCatalog(response: Response, downloadSignal: AbortSigna
         // Evidence intake is bounded to the approved head window: every
         // a2a_agent record sits inside it, so the reviewed snapshot never
         // depends on the full-feed directory walk below.
-        if (discoveredCount <= MAX_RECORDS_SCANNED) {
+        if (discoveredCount <= AGENSTRY_EVIDENCE_WINDOW_LINES) {
           const candidate = normalizeRecord(parsed);
           if (!candidate) {
             rejectedCount += 1;
@@ -324,7 +348,7 @@ async function readBoundedCatalog(response: Response, downloadSignal: AbortSigna
           if (draft && !directorySeen.has(draft.externalKey)) directorySeen.set(draft.externalKey, draft);
         }
       }
-      if (discoveredCount >= MAX_DIRECTORY_SCAN_LINES) {
+      if (discoveredCount >= AGENSTRY_MAX_WALK_LINES) {
         source.destroy();
         break;
       }
@@ -335,7 +359,7 @@ async function readBoundedCatalog(response: Response, downloadSignal: AbortSigna
     if (lineLimitExceeded) {
       throw new AgenstryValidationError("Agenstry catalog exceeded the decompressed line limit.");
     }
-    if (compressedBytes > MAX_COMPRESSED_BYTES) {
+    if (compressedBytes > AGENSTRY_MAX_COMPRESSED_BYTES) {
       throw new AgenstryValidationError("Agenstry catalog exceeded the compressed response limit.");
     }
   } catch (error) {
@@ -350,7 +374,7 @@ async function readBoundedCatalog(response: Response, downloadSignal: AbortSigna
     if (lineLimitExceeded) {
       throw new AgenstryValidationError("Agenstry catalog exceeded the decompressed line limit.");
     }
-    if (compressedBytes > MAX_COMPRESSED_BYTES) {
+    if (compressedBytes > AGENSTRY_MAX_COMPRESSED_BYTES) {
       throw new AgenstryValidationError("Agenstry catalog exceeded the compressed response limit.");
     }
     if (downloadSignal.aborted) throw new AgenstryValidationError("Agenstry catalog download timed out.");

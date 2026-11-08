@@ -40,6 +40,8 @@ const FRESHNESS_HOURS = {
   erc8004_eth: 36,
   // And the Monad identity pass (migration 0054).
   erc8004_monad: 36,
+  // And the Gnosis identity pass (migration 0058).
+  erc8004_gnosis: 36,
 };
 
 const results = [];

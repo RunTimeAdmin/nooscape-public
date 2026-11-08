@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   recheckClaims: vi.fn(async () => ({ checked: 0, revoked: 0, unavailable: 0, stoppedBy: "done" as const })),
   runApprovedA2aSource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
   runApprovedAgenstrySource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
+  runApprovedA2aRegistrySource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
   runApprovedAgentEconomySource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
   runApproved8004SolanaSource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
   runApprovedMetaplexRegistrySource: vi.fn(async (_source: unknown, _trigger: string, _mode: string) => ({})),
@@ -53,6 +54,7 @@ vi.mock("../chainNames", () => ({ runChainNames: mocks.runChainNames }));
 vi.mock("../claims", () => ({ recheckClaims: mocks.recheckClaims }));
 vi.mock("./runA2a", () => ({ runApprovedA2aSource: mocks.runApprovedA2aSource }));
 vi.mock("./runAgenstry", () => ({ runApprovedAgenstrySource: mocks.runApprovedAgenstrySource }));
+vi.mock("./runA2aRegistry", () => ({ runApprovedA2aRegistrySource: mocks.runApprovedA2aRegistrySource }));
 vi.mock("./runAgentEconomy", () => ({ runApprovedAgentEconomySource: mocks.runApprovedAgentEconomySource }));
 vi.mock("./run8004Solana", () => ({ runApproved8004SolanaSource: mocks.runApproved8004SolanaSource }));
 vi.mock("./runMetaplex", () => ({ runApprovedMetaplexRegistrySource: mocks.runApprovedMetaplexRegistrySource }));
@@ -60,8 +62,8 @@ vi.mock("./runRobinhood", () => ({ runApprovedRobinhoodRegistrySource: mocks.run
 
 import { runRateLimitedIngestionTick } from "./worker";
 
-const scheduledSource = (id: string, protocol: string) =>
-  ({ id, protocol, state: "active", executionPolicy: "scheduled" } as unknown as IngestionSource);
+const scheduledSource = (id: string, protocol: string, sourceKey?: string) =>
+  ({ id, protocol, sourceKey, state: "active", executionPolicy: "scheduled" } as unknown as IngestionSource);
 
 describe("runRateLimitedIngestionTick", () => {
   beforeEach(() => {
@@ -82,6 +84,17 @@ describe("runRateLimitedIngestionTick", () => {
       failedSourceIds: [],
       expiredPublisherKeys: 0,
     });
+  });
+
+  it("dispatches a catalog source by its source key: an A2A registry to the registry runner and the Agenstry feed to its own, both with the scheduled trigger", async () => {
+    const registry = scheduledSource("src-registry", "catalog", "a2aregistry-public-api");
+    const feed = scheduledSource("src-feed", "catalog", "agenstry-public-catalog");
+    mocks.claimDueIngestionSources.mockResolvedValueOnce({ config: {}, sources: [registry, feed], reason: "due" });
+    await runRateLimitedIngestionTick();
+    expect(mocks.runApprovedA2aRegistrySource).toHaveBeenCalledTimes(1);
+    expect(mocks.runApprovedA2aRegistrySource).toHaveBeenCalledWith(registry, "scheduled");
+    expect(mocks.runApprovedAgenstrySource).toHaveBeenCalledTimes(1);
+    expect(mocks.runApprovedAgenstrySource).toHaveBeenCalledWith(feed, "scheduled");
   });
 
   it("runs every claimed source even when an earlier one fails, and reports the tick failed", async () => {
@@ -352,7 +365,7 @@ describe("runRateLimitedIngestionTick", () => {
     }
   });
 
-  it("runs the Base, Arc, Ethereum and Monad name step after the SAID names, on a tick that claimed sources, never on a paused or held-back one, and never lets it fail the tick or be stopped by the steps before it", async () => {
+  it("runs the Base, Arc, Ethereum, Monad and Gnosis name step after the SAID names, on a tick that claimed sources, never on a paused or held-back one, and never lets it fail the tick or be stopped by the steps before it", async () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const s8004 = scheduledSource("src-8004", "solana_8004");
