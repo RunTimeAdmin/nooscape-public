@@ -203,10 +203,10 @@ export default function DeveloperKeys() {
           >
             <div>
               <label htmlFor="key-lookup" className="eyebrow">Key</label>
-              <input id="key-lookup" className={`${input} font-mono`} type="password" autoComplete="off" spellCheck={false} value={lookup} onChange={event => setLookup(event.target.value)} aria-describedby="key-lookup-hint" disabled={looking} />
+              <input id="key-lookup" className={`${input} font-mono`} type="password" autoComplete="off" spellCheck={false} value={lookup} onChange={event => setLookup(event.target.value)} aria-describedby="key-lookup-hint" disabled={looking || revoke.isPending} />
               <p id="key-lookup-hint" className="mt-1 text-xs text-ns-ink-dim">{USAGE_COUNTS_LINE}</p>
             </div>
-            <button type="submit" className={pill} disabled={looking || lookup.trim().length === 0}>
+            <button type="submit" className={pill} disabled={looking || revoke.isPending || lookup.trim().length === 0}>
               {looking ? "Looking…" : "Show its use"}
             </button>
           </form>

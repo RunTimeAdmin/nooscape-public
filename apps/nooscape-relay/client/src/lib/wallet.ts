@@ -14,7 +14,12 @@ export const WALLET_METHODS = ["eth_requestAccounts", "personal_sign"] as const;
 type WalletMethod = (typeof WALLET_METHODS)[number];
 
 /** The part of an EIP-1193 provider this code uses. */
-export type Eip1193Provider = { request(args: { method: string; params?: unknown[] }): Promise<unknown> };
+export type Eip1193Provider = {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+  /** EIP-1193 events, which not every wallet sends. Only "accountsChanged" is listened to. */
+  on?(event: string, listener: (...args: unknown[]) => void): void;
+  removeListener?(event: string, listener: (...args: unknown[]) => void): void;
+};
 
 export type WalletInfo = { id: string; name: string; provider: Eip1193Provider };
 
@@ -51,16 +56,31 @@ export function discoverWallets(win: WalletWindow, waitMs: number = DISCOVERY_WA
 }
 
 /** The only door to a wallet: a method that is not on the list of two is refused before it is sent. */
-async function ask(provider: Eip1193Provider, method: WalletMethod, params: unknown[]): Promise<unknown> {
+/**
+ * How long to wait for the wallet to answer. A visitor reads the message before signing, so the wait is long; it is there for a wallet
+ * that never answers (a popup closed without a refusal, a locked extension), which would otherwise leave the panel waiting for good.
+ */
+export const WALLET_ANSWER_MS = 180_000;
+export const NO_ANSWER = "The wallet did not answer.";
+
+async function ask(provider: Eip1193Provider, method: WalletMethod, params: unknown[], waitMs: number): Promise<unknown> {
   if (!(WALLET_METHODS as readonly string[]).includes(method)) throw new Error("This code does not ask a wallet for that.");
-  return provider.request({ method, params });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const silence = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(NO_ANSWER)), waitMs);
+  });
+  try {
+    return await Promise.race([provider.request({ method, params }), silence]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 /** The account the wallet shares when the visitor allows it: the first one, as an address. */
-export async function requestAddress(provider: Eip1193Provider): Promise<string> {
-  const accounts = await ask(provider, "eth_requestAccounts", []);
+export async function requestAddress(provider: Eip1193Provider, waitMs: number = WALLET_ANSWER_MS): Promise<string> {
+  const accounts = await ask(provider, "eth_requestAccounts", [], waitMs);
   const first = Array.isArray(accounts) ? accounts[0] : undefined;
   if (typeof first !== "string" || !ADDRESS.test(first)) throw new Error("The wallet did not share an account.");
   return first;
@@ -72,11 +92,25 @@ export function utf8Hex(text: string): string {
 }
 
 /** Asks the wallet to sign the message with the account. The wallet shows the whole message and the visitor decides. */
-export async function signMessage(provider: Eip1193Provider, message: string, address: string): Promise<string> {
+export async function signMessage(provider: Eip1193Provider, message: string, address: string, waitMs: number = WALLET_ANSWER_MS): Promise<string> {
   if (!ADDRESS.test(address)) throw new Error("That is not an account.");
-  const signature = await ask(provider, "personal_sign", [utf8Hex(message), address]);
+  const signature = await ask(provider, "personal_sign", [utf8Hex(message), address], waitMs);
   if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) throw new Error("The wallet did not return a signature.");
   return signature;
+}
+
+/**
+ * Calls back when the wallet stops sharing the connected account (the visitor switched account, or disconnected the site). It only
+ * listens: it asks the wallet nothing. A wallet that sends no events gets a stop that does nothing, and the panel works as before.
+ */
+export function watchAccount(provider: Eip1193Provider, address: string, onChange: () => void): () => void {
+  if (typeof provider.on !== "function") return () => {};
+  const listener = (accounts: unknown) => {
+    const first = Array.isArray(accounts) ? accounts[0] : undefined;
+    if (typeof first !== "string" || first.toLowerCase() !== address.toLowerCase()) onChange();
+  };
+  provider.on("accountsChanged", listener);
+  return () => provider.removeListener?.("accountsChanged", listener);
 }
 
 /** What to tell a visitor when the wallet refuses or fails, in plain words and never the wallet's own text. */
@@ -84,6 +118,7 @@ export function walletErrorMessage(error: unknown): string {
   const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
   if (code === 4001 || code === "ACTION_REJECTED") return "You declined in your wallet. Nothing was signed.";
   if (code === -32002) return "Your wallet already has a request open. Open it and answer it.";
+  if (error instanceof Error && error.message === NO_ANSWER) return "Your wallet did not answer. Nothing was signed. Open it and try again.";
   if (error instanceof Error && /did not share an account|did not return a signature|not an account/.test(error.message)) return error.message;
   return "Your wallet could not do that. Nothing was signed.";
 }

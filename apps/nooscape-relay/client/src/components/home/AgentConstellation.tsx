@@ -12,7 +12,6 @@ import {
   fleetReach,
   isAcknowledged,
   isFleet,
-  layoutNodes,
   layoutSignature,
   markerPath,
   nearestLinks,
@@ -24,6 +23,7 @@ import {
   type Direction,
   type MarkerShape,
 } from "./constellationModel";
+import { useConstellationLayout } from "./useConstellationLayout";
 
 type Props = {
   records: readonly ConstellationRecord[];
@@ -39,6 +39,7 @@ type Props = {
 
 /** How close the scan point has to be to a dot, in pixels. */
 const SCAN_RADIUS = { fine: 44, coarse: 56 } as const;
+const NO_NODES: ConstellationNode[] = [];
 /** The map is drawn at most 30 times a second: its dots only twinkle by a few percent of their opacity, and 60 doubled the work for nothing the eye can tell. */
 const FRAME_MS = 1000 / 30;
 /** The brand accent, for the ring on the selected record. It is the same colour as --ns-radar in index.css. */
@@ -153,14 +154,17 @@ export function AgentConstellation({ records, scannedId, onScan, pinnedId, onPin
   // The latest of everything the loop reads, so the loop itself never restarts for a re-render.
   // Laid out for the shape the canvas actually has, so dots keep their spacing on a phone as well as a wide screen.
   const [aspect, setAspect] = useState(2);
-  // Keyed on what the layout reads, not on the list: the page hands over a new list on every poll, and placing the lights costs 30 to 400 ms each time.
+  // The layout waits for the canvas's own shape, so it runs once for the shape it is drawn at, not first for a guess.
+  const [measured, setMeasured] = useState(false);
+  // Keyed on what the layout reads, not on the list: the page hands over a new list on every poll, and placing the lights took 2.5 s with the records of 22 November 2026.
   const signature = layoutSignature(records);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `signature` stands for `records`
-  const nodes = useMemo(() => layoutNodes(records, aspect), [signature, aspect]);
+  // Worked out off the page's thread (useConstellationLayout.ts). Until it is placed, the canvas draws nothing and the list below still lists every node.
+  const { nodes, placed } = useConstellationLayout(records, signature, aspect, measured);
   // The faint links join the dots only. The fleet lights come after the dots in `nodes`, so the indices still match.
-  const links = useMemo(() => nearestLinks(nodes.filter(node => !isFleet(node)), aspect), [nodes, aspect]);
-  const live = useRef({ nodes, links, scannedId, pinnedId, selectedId, onScan, onPin, owlOn: owlEnabled, coarse, reducedMotion });
-  live.current = { nodes, links, scannedId, pinnedId, selectedId, onScan, onPin, owlOn: owlEnabled, coarse, reducedMotion };
+  const links = useMemo(() => (placed ? nearestLinks(nodes.filter(node => !isFleet(node)), aspect) : []), [nodes, placed, aspect]);
+  const drawn = placed ? nodes : NO_NODES;
+  const live = useRef({ nodes: drawn, links, scannedId, pinnedId, selectedId, onScan, onPin, owlOn: owlEnabled, coarse, reducedMotion });
+  live.current = { nodes: drawn, links, scannedId, pinnedId, selectedId, onScan, onPin, owlOn: owlEnabled, coarse, reducedMotion };
   const [focusId, setFocusId] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const focusableId = focusId !== null && nodes.some(node => node.id === focusId) ? focusId : (nodes[0]?.id ?? null);
@@ -201,7 +205,10 @@ export function AgentConstellation({ records, scannedId, onScan, pinnedId, onPin
       ratio = Math.min(window.devicePixelRatio || 1, 2);
       width = box.width;
       height = box.height;
-      if (width > 0 && height > 0) setAspect(Math.min(3, Math.max(0.75, Math.round((width / height) * 4) / 4)));
+      if (width > 0 && height > 0) {
+        setAspect(Math.min(3, Math.max(0.75, Math.round((width / height) * 4) / 4)));
+        setMeasured(true);
+      }
       canvas.width = Math.max(1, Math.round(width * ratio));
       canvas.height = Math.max(1, Math.round(height * ratio));
       context.setTransform(ratio, 0, 0, ratio, 0, 0);

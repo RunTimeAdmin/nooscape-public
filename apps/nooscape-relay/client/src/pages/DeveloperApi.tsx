@@ -226,7 +226,7 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
     <main className="developer-page min-h-screen bg-[#06070B] text-[#EAF7EE]">
       <div className="developer-grid" />
       <header className="developer-header">
-        <a href="/" className="developer-brand" aria-label="Return to Nooscape Atlas">
+        <a href="/" className="developer-brand">
           <span className="developer-mark"><Network size={17} /></span>
           <span><strong>NOOSCAPE</strong><em>Developer surface</em></span>
         </a>

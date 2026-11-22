@@ -58,10 +58,22 @@ function Rows({ rows, onClose, closing }: { rows: PaymentRow[]; onClose?: (row: 
   );
 }
 
-/** A line at the top of the operator page when any payment has been unresolved for over an hour. Nothing when there is none. */
+export const PAYMENTS_UNREAD_LINE = "Whether any payment is unsettled could not be read.";
+
+/**
+ * A line at the top of the operator page when any payment has been unresolved for over an hour. Nothing when there is none. A read that
+ * failed says so: hiding it looked the same as "nothing unresolved".
+ */
 export function PaymentsAlert() {
   const status = trpc.apiPayments.status.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
   const data = status.data;
+  if (status.isError && !data) {
+    return (
+      <div className="source-ops-notice" role="alert">
+        {PAYMENTS_UNREAD_LINE} <button type="button" className="underline" disabled={status.isFetching} onClick={() => void status.refetch()}>Try again</button>
+      </div>
+    );
+  }
   const stale = data && "stale" in data ? data.stale : 0;
   if (stale === 0) return null;
   return (

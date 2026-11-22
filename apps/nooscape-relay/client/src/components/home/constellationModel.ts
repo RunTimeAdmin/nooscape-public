@@ -259,7 +259,7 @@ const MARGIN_Y = 0.08;
  */
 export function layoutNodes(records: readonly ConstellationRecord[], aspect = 1.6, options: { place?: boolean } = {}): ConstellationNode[] {
   // `place: false` is for a caller that needs the nodes (which ones, in which order, their kind, tier and chain) and never their positions:
-  // every node stays at the spot its id hashes to, and the pushing apart, which costs 30 to 400 ms with the real records, is skipped.
+  // every node stays at the spot its id hashes to, and the pushing apart is skipped. That took about 2.5 s with the records of 22 November 2026 (302 records, 54 lights), so the map runs it in a worker (useConstellationLayout.ts).
   const place = options.place !== false;
   const plain = layoutPlainNodes(records.filter(record => record.kind !== "fleet"), aspect, place);
   const fleets = records.filter(record => record.kind === "fleet");

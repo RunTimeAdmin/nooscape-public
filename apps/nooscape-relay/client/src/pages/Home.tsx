@@ -16,6 +16,7 @@ import { buildProtocolPopulation, extraChainTotals, listingRulesSentence, review
 import { evidenceGroup, evidenceRank, type PublisherState } from "@/lib/evidenceReadout";
 import { recordsWithIsoDates } from "./home/liveRecords";
 import { type AtlasAgent, type BnbRegistryProfile, type DirectoryBreakdown, type DirectoryFunnel, type DirectoryUsdgSettlements, type DirectoryWalletCensus, EVIDENCE_POLL, type EvidenceEnvelope, type IngestionEvent, type LiveAtlasCoverage, type LiveAtlasRecord, type TrustFilter, ingressMatchesFramework, mapLiveRecord, positionForLiveAgent, protocolsForLiveAgent, withPublisherState, withTrustedOnly } from "./home/atlasModel";
+import { DEFAULT_FILTERS, filtersFromSearch, liveFramework, searchWithFilters, searchWithout, type SortMode } from "./home/homeFilters";
 
 // The scan map loads after the first paint, so the Atlas below it does not wait on it.
 const LandingHero = lazy(() => import("./home/LandingHero"));
@@ -47,16 +48,18 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
   const registryFleetsData = registryFleetsQueries.map(query => query.data);
   // One answer per extra chain, always the same number of them, so the list of answers is a fixed-length dependency.
   const registryFleets = useMemo(() => Object.fromEntries(EXTRA_CHAIN_LIGHTS.map(({ chain }, index) => [chain, registryFleetsData[index] ?? null])), registryFleetsData);
-  const [query, setQuery] = useState("");
+  // The filters start from the address (a refresh, a shared link, Back) and are written back to it as they change (home/homeFilters.ts).
+  const [fromAddress] = useState(() => (typeof window === "undefined" ? DEFAULT_FILTERS : filtersFromSearch(window.location.search)));
+  const [query, setQuery] = useState(fromAddress.query);
   const [selectedId, setSelectedId] = useState("");
   const [linkedAgentId, setLinkedAgentId] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
   const [deepSpace, setDeepSpace] = useState(false);
-  const [frameworkFilter, setFrameworkFilter] = useState("All protocols");
-  const [trustFilter, setTrustFilter] = useState<TrustFilter>("all");
-  const [trustedOnly, setTrustedOnly] = useState(false);
-  const [publisherStateFilter, setPublisherStateFilter] = useState<PublisherState | "all">("all");
-  const [sortMode, setSortMode] = useState<"network" | "evidence" | "name">("network");
+  const [frameworkFilter, setFrameworkFilter] = useState(fromAddress.framework);
+  const [trustFilter, setTrustFilter] = useState<TrustFilter>(fromAddress.evidence);
+  const [trustedOnly, setTrustedOnly] = useState(fromAddress.trustedOnly);
+  const [publisherStateFilter, setPublisherStateFilter] = useState<PublisherState | "all">(fromAddress.publisherState);
+  const [sortMode, setSortMode] = useState<SortMode>(fromAddress.sort);
   const [shareState, setShareState] = useState<"idle" | "copied">("idle");
   const [agentSearch, setAgentSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -254,6 +257,61 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
     // any narrower overlay-only publisher-state choice to avoid a hidden empty map.
     setTrustedOnly(false);
     setPublisherStateFilter("all");
+  };
+
+  // Written in place (no new history entry per keystroke); the agent, a comparison and the hash stay as they are.
+  useEffect(() => {
+    const search = searchWithFilters(window.location.search, { query, framework: frameworkFilter, evidence: trustFilter, sort: sortMode, trustedOnly, publisherState: publisherStateFilter });
+    if (search === window.location.search) return;
+    const url = new URL(window.location.href);
+    url.search = search;
+    window.history.replaceState(window.history.state, "", url);
+    // `deepSpace` too: Back out of Deep Space lands on the entry from before it opened, which may hold older filters.
+  }, [query, frameworkFilter, trustFilter, sortMode, trustedOnly, publisherStateFilter, deepSpace]);
+
+  // A protocol the records no longer carry (a link from before, or a poll that dropped it) would leave an empty map: back to all protocols.
+  useEffect(() => {
+    const live = liveFramework(frameworkFilter, frameworks, agents.length > 0);
+    if (live !== frameworkFilter) setFrameworkFilter(live);
+  }, [agents.length, frameworkFilter, frameworks]);
+
+  // Deep Space is a step in the browser's history: opening it adds an entry, so Back closes it instead of leaving the page, and
+  // Forward opens it again. It comes before the effect below, which writes the agent into the entry this one adds.
+  const pushedDeepSpace = useRef(false);
+  useEffect(() => {
+    if (!deepSpace || window.location.hash === "#deep-space") return;
+    const url = new URL(window.location.href);
+    url.hash = "deep-space";
+    window.history.pushState({ nooscapeDeepSpace: true }, "", url);
+    pushedDeepSpace.current = true;
+  }, [deepSpace]);
+  useEffect(() => {
+    const onPop = () => {
+      const open = window.location.hash === "#deep-space";
+      if (!open) {
+        pushedDeepSpace.current = false;
+        setDrawerOpen(false);
+        setSearchOpen(false);
+      }
+      setDeepSpace(open);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  // Close goes back over the entry opening added, so the address is the one from before (without the agent Deep Space wrote). Opened from a
+  // link with #deep-space there is no entry of ours to go back over: the hash and the agent are taken out in place.
+  const closeDeepSpace = () => {
+    setDrawerOpen(false);
+    setSearchOpen(false);
+    if (pushedDeepSpace.current) {
+      window.history.back();
+      return;
+    }
+    setDeepSpace(false);
+    const url = new URL(window.location.href);
+    url.hash = "";
+    url.search = searchWithout(url.search, "agent");
+    window.history.replaceState(window.history.state, "", url);
   };
 
   useEffect(() => {
@@ -460,7 +518,7 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
 
       {deepSpaceOpen && (
         <Suspense fallback={<DeepSpaceOpening />}>
-          <DeepSpaceMap opener={deepSpaceOpener} agents={deepVisibleAgents} allAgents={visibleAgents} selected={deepSelected} onSelect={setSelectedId} onClose={() => { setDrawerOpen(false); setSearchOpen(false); setDeepSpace(false); const url = new URL(window.location.href); url.hash = ""; window.history.replaceState({}, "", url); }} zoom={zoom} pan={pan} onZoom={setZoom} onPan={setPan} onReset={resetView} ingress={verifiedIngress} showIngress={showIngress && !trustedOnly && publisherStateFilter === "all"} evidence={activeEvidence} evidenceLoading={evidenceQuery.isLoading} evidenceAsOf={evidenceStaleSince} frameworks={frameworks} frameworkFilter={frameworkFilter} onFrameworkFilter={setFrameworkFilter} sortMode={sortMode} onSortMode={setSortMode} onShare={shareSelectedAgent} shareState={shareState} agentSearch={agentSearch} onAgentSearch={setAgentSearch} searchOpen={searchOpen} onSearchOpen={setSearchOpen} searchRef={agentSearchRef} suggestions={agentSuggestions.filter(agent => deepVisibleAgents.some(visible => visible.id === agent.id))} onLocateAgent={locateAgent} drawerOpen={drawerOpen} onCloseDrawer={() => { setDrawerOpen(false); setSpotlight(null); }} pinned={compareIds.includes(selected.id)} onPin={() => toggleAgentPin(selected.id)} onOpenComparison={() => setComparisonOpen(true)} compareCount={compareIds.length} onDownloadEvidence={downloadEvidence} directoryTotal={directoryAckTotal} directoryHits={directorySearchQuery.data ?? undefined} directoryWallets={directoryWalletCensus} pinPulseId={pinPulseId} comparisonPulse={comparisonPulse} pinnedIds={compareIds} spotlight={spotlight} trustedOnly={trustedOnly} onTrustedOnly={setMapTrustedOnly} publisherStateFilter={publisherStateFilter} onPublisherStateFilter={setMapPublisherState}>
+          <DeepSpaceMap opener={deepSpaceOpener} agents={deepVisibleAgents} allAgents={visibleAgents} selected={deepSelected} onSelect={setSelectedId} onClose={closeDeepSpace} zoom={zoom} pan={pan} onZoom={setZoom} onPan={setPan} onReset={resetView} ingress={verifiedIngress} showIngress={showIngress && !trustedOnly && publisherStateFilter === "all"} evidence={activeEvidence} evidenceLoading={evidenceQuery.isLoading} evidenceAsOf={evidenceStaleSince} frameworks={frameworks} frameworkFilter={frameworkFilter} onFrameworkFilter={setFrameworkFilter} sortMode={sortMode} onSortMode={setSortMode} onShare={shareSelectedAgent} shareState={shareState} agentSearch={agentSearch} onAgentSearch={setAgentSearch} searchOpen={searchOpen} onSearchOpen={setSearchOpen} searchRef={agentSearchRef} suggestions={agentSuggestions.filter(agent => deepVisibleAgents.some(visible => visible.id === agent.id))} onLocateAgent={locateAgent} drawerOpen={drawerOpen} onCloseDrawer={() => { setDrawerOpen(false); setSpotlight(null); }} pinned={compareIds.includes(selected.id)} onPin={() => toggleAgentPin(selected.id)} onOpenComparison={() => setComparisonOpen(true)} compareCount={compareIds.length} onDownloadEvidence={downloadEvidence} directoryTotal={directoryAckTotal} directoryHits={directorySearchQuery.data ?? undefined} directoryWallets={directoryWalletCensus} pinPulseId={pinPulseId} comparisonPulse={comparisonPulse} pinnedIds={compareIds} spotlight={spotlight} trustedOnly={trustedOnly} onTrustedOnly={setMapTrustedOnly} publisherStateFilter={publisherStateFilter} onPublisherStateFilter={setMapPublisherState}>
             {comparisonOpen && <Suspense fallback={null}><AgentComparisonPanel agents={comparedAgents} onRemove={id => setCompareIds(current => current.filter(agentId => agentId !== id))} onClose={() => setComparisonOpen(false)} onSelect={locateAgent} onShare={shareComparison} shareState={comparisonShareState} comparisonPulse={comparisonPulse} /></Suspense>}
           </DeepSpaceMap>
         </Suspense>

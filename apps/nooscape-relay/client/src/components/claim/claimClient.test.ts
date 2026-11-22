@@ -106,7 +106,9 @@ describe("what the panel does when the server refuses a request", () => {
 
   it("keeps the panel when a later read of the claim fails, and starts afresh for each entry", () => {
     // A failed refetch keeps the data, so hiding the panel on `isError` made it vanish, with its success notice, after a claim went through.
-    expect(panel).not.toContain("stateQuery.isError");
+    // The error counts only when there is no answer at all (the first read failed), and then the panel says so instead of vanishing.
+    expect(panel.match(/stateQuery\.isError/g)).toHaveLength(1);
+    expect(panel).toContain("claimViewOf(state, connected?.address ?? null, stateQuery.isError && !stateQuery.data)");
     // Moving between two entries on the same page would otherwise keep a prepared message, and its nonce, from the first.
     expect(read(join(client, "pages", "DirectoryAgent.tsx"))).toContain("<ClaimPanel key={entry.id} entryId={entry.id} ");
   });

@@ -16,8 +16,16 @@ type KeyRow = { id: string; prefix: string; ownerEmail: string; tier: string; cr
 const when = (value: Date | null) => (value ? new Date(value).toLocaleString() : "never");
 
 function KeyCard({ row, onChanged }: { row: KeyRow; onChanged: (message: string) => void }) {
-  const [tier, setTier] = useState<ApiTier>(API_TIER_NAMES.includes(row.tier as ApiTier) ? (row.tier as ApiTier) : "free");
-  const setTierMutation = trpc.apiKeys.setTier.useMutation({ onSuccess: result => onChanged(`${row.prefix}… is now ${result.tier}.`), onError: error => onChanged(error.message) });
+  const savedTier: ApiTier = API_TIER_NAMES.includes(row.tier as ApiTier) ? (row.tier as ApiTier) : "free";
+  const [tier, setTier] = useState<ApiTier>(savedTier);
+  // A refused change puts the menu back on the tier the key has, so the menu and the label agree.
+  const setTierMutation = trpc.apiKeys.setTier.useMutation({
+    onSuccess: result => onChanged(`${row.prefix}… is now ${result.tier}.`),
+    onError: error => {
+      setTier(savedTier);
+      onChanged(error.message);
+    },
+  });
   const end = trpc.apiKeys.revokeById.useMutation({ onSuccess: () => onChanged(`${row.prefix}… was ended.`), onError: error => onChanged(error.message) });
   const busy = setTierMutation.isPending || end.isPending;
   const live = row.revokedAt === null;
@@ -68,7 +76,10 @@ export function OperatorKeys() {
   const lookUp = (event: FormEvent) => {
     event.preventDefault();
     setNotice(null);
-    setAsked({ email: email.trim() });
+    const next = email.trim();
+    // The same question again is a fresh read: an unchanged key would otherwise show the list already held.
+    if (asked && asked.email === next) void keys.refetch();
+    else setAsked({ email: next });
   };
   const changed = (message: string) => {
     setNotice(message);

@@ -16,11 +16,12 @@ import {
 const originalToken = process.env.NOOSCAPE_OPERATOR_TOKEN;
 
 /** Minimal Express-shaped request: the lockout must key on the socket address alone. */
-function fakeRequest(socketAddress: string, headers: Record<string, string> = {}) {
+function fakeRequest(socketAddress: string, headers: Record<string, string> = {}, secure = false) {
   return {
     headers,
     socket: { remoteAddress: socketAddress },
     ip: socketAddress,
+    secure,
   } as unknown as Request;
 }
 
@@ -46,8 +47,8 @@ type EstablishedSession = { socket: string; cookieName: string; sessionId: strin
 const established: EstablishedSession[] = [];
 
 /** Establishes a session through the real code path and records it for cleanup. */
-function establish(socket: string, headers: Record<string, string> = {}) {
-  const req = fakeRequest(socket, headers);
+function establish(socket: string, headers: Record<string, string> = {}, secure = false) {
+  const req = fakeRequest(socket, headers, secure);
   const res = fakeResponse();
   establishOperatorSession(req, res as unknown as Response);
   const cookieName = res.cookies.has("__Host-nooscape_operator")
@@ -236,10 +237,17 @@ describe("operator session cookies", () => {
 
   it("sets the __Host- cookie with secure flags on https requests", () => {
     process.env.NOOSCAPE_OPERATOR_TOKEN = "h".repeat(48);
-    const { cookieName, sessionId } = establish("10.1.0.5", { "x-forwarded-proto": "https" });
+    // req.secure: Express's reading of the trusted proxy hop.
+    const { cookieName, sessionId } = establish("10.1.0.5", {}, true);
     expect(cookieName).toBe("__Host-nooscape_operator");
     expect(
       hasValidOperatorSession(fakeRequest("10.1.0.5", { cookie: `__Host-nooscape_operator=${sessionId}` }))
     ).toBe(true);
+  });
+
+  it("ignores an X-Forwarded-Proto the trusted hop did not vouch for", () => {
+    process.env.NOOSCAPE_OPERATOR_TOKEN = "x".repeat(48);
+    const { cookieName } = establish("10.1.0.6", { "x-forwarded-proto": "https" });
+    expect(cookieName).toBe("nooscape_operator");
   });
 });

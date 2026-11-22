@@ -51,19 +51,25 @@ export default function VerifyEvidence() {
   const [packet, setPacket] = useState<EvidencePacket | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const verifyEvidence = trpc.atlas.verifyEvidence.useMutation();
+  // Counts the files picked. Reading a file takes a moment, so a file picked after it can be read first: only the newest one is checked.
+  const picked = useRef(0);
 
   const selectFile = () => inputRef.current?.click();
   const handleFile = async (file?: File) => {
     if (!file) return;
+    const mine = (picked.current += 1);
     setFileName(file.name);
     setParseError(null);
     verifyEvidence.reset();
     try {
       if (file.size > 256_000) throw new Error("Packet exceeds the 256 KB review limit.");
       const parsed = JSON.parse(await file.text()) as EvidencePacket;
+      // Another file was picked while this one was read: its name is on screen, so this one's verdict must not be.
+      if (picked.current !== mine) return;
       setPacket(parsed);
       verifyEvidence.mutate({ packet: parsed });
     } catch (error) {
+      if (picked.current !== mine) return;
       setPacket(null);
       setParseError(error instanceof Error ? error.message : "The selected file is not a valid JSON evidence packet.");
     }

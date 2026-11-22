@@ -16,7 +16,7 @@ export type ClaimStateView = {
   claim: { status: "active" | "frozen"; wallet: string; claimedAt: Date | string; lastOwnerCheckAt: Date | string; profile: ClaimProfile } | null;
 };
 
-type ClaimPanelView = "loading" | "hidden" | "open" | "claimed" | "yours" | "held";
+type ClaimPanelView = "loading" | "unavailable" | "hidden" | "open" | "claimed" | "yours" | "held";
 
 /**
  * The chain name for an entry that can be claimed, or null for any other protocol. The server holds the same (`CLAIM_CHAINS`) and decides.
@@ -33,10 +33,12 @@ const sameWallet = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
 /**
  * Which view of the panel to show. Nothing at all until the server has answered, and nothing when claims are not available or the
- * entry cannot be claimed. A claim on hold is only on hold. The edit form is for the wallet that holds the claim, and nobody else.
+ * entry cannot be claimed. A first read that failed says so, rather than leaving the panel out as if the entry could not be claimed;
+ * a later read that fails keeps the answer the panel already has. A claim on hold is only on hold. The edit form is for the wallet
+ * that holds the claim, and nobody else.
  */
-export function claimViewOf(state: ClaimStateView | undefined, connected: string | null): ClaimPanelView {
-  if (!state) return "loading";
+export function claimViewOf(state: ClaimStateView | undefined, connected: string | null, readFailed = false): ClaimPanelView {
+  if (!state) return readFailed ? "unavailable" : "loading";
   if (!state.available || !state.claimable) return "hidden";
   if (!state.claim) return "open";
   if (state.claim.status === "frozen") return "held";
@@ -91,6 +93,8 @@ export function editFromForm(form: ClaimForm, profile: ClaimProfile): FormResult
 // ---------------------------------------------------------------- the words
 
 export const CLAIM_HEADING = "Claim this agent";
+export const ACCOUNT_CHANGED_LINE = "Your wallet switched to another account. Connect again to use it.";
+export const CLAIM_UNAVAILABLE_LINE = "Whether this agent is claimed could not be read just now. Nothing was changed.";
 
 export const claimIntro = (chainLabel: string) =>
   `If you own this agent's registration on ${chainLabel}, you can claim it. Claiming asks your wallet for one signature, which proves you control the wallet the registry records as the owner.`;

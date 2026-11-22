@@ -1,4 +1,6 @@
 import { trpc } from "@/lib/trpc";
+import { endOperatorView, isOperatorRead, isUnauthorized } from "@/lib/operatorSession";
+import { QUERY_DEFAULTS } from "@/lib/queryDefaults";
 import { apiLinks } from "@/lib/trpcLinks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
@@ -13,17 +15,21 @@ import "@fontsource/dm-mono/500.css";
 import App from "./App";
 import "./index.css";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({ defaultOptions: QUERY_DEFAULTS });
 
+// A read or an action refused as unauthorized means the operator's session ended (signed out in another tab, or expired): drop what it
+// read and show the sign-in (lib/operatorSession.ts).
 queryClient.getQueryCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     console.error("[API Query Error]", event.query.state.error);
+    if (isUnauthorized(event.query.state.error) && isOperatorRead(event.query.queryKey)) endOperatorView(queryClient);
   }
 });
 
 queryClient.getMutationCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     console.error("[API Mutation Error]", event.mutation.state.error);
+    if (isUnauthorized(event.mutation.state.error)) endOperatorView(queryClient);
   }
 });
 
