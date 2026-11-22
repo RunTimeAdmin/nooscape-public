@@ -421,6 +421,20 @@
       "when": 1794106280089,
       "tag": "0059_catalog_party_host",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "5",
+      "when": 1795194592351,
+      "tag": "0060_celo_erc8004_protocol",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "5",
+      "when": 1795200004352,
+      "tag": "0061_celo_scheduled_flip",
+      "breakpoints": true
     }
   ]
 }

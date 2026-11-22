@@ -136,6 +136,13 @@ describe("the chain a claim can be made on", () => {
     expect(claimChainLabel("erc8004_monad", "chain_gnosis,claims_gnosis")).toBeNull();
   });
 
+  it("names Celo only while Celo and its claims are both on in the build, and no other chain's switches open it", () => {
+    expect(claimChainLabel("erc8004_celo", "chain_celo,claims_celo")).toBe("Celo");
+    expect(claimChainLabel("erc8004_celo", " Claims , CLAIMS_CELO , Chain_Celo ")).toBe("Celo");
+    for (const features of [undefined, "", "claims", "chain_celo", "claims_celo", "claims,chain_celo", "chain_base,claims_base,chain_ethereum,claims_ethereum,chain_arc,claims_arc,chain_monad,claims_monad,chain_gnosis,claims_gnosis"]) expect(claimChainLabel("erc8004_celo", features), String(features)).toBeNull();
+    expect(claimChainLabel("erc8004_gnosis", "chain_celo,claims_celo")).toBeNull();
+  });
+
   it("reads the build's own list when none is given, which is none in a test", () => {
     expect(claimChainLabel("erc8004_arc")).toBeNull();
     expect(claimChainLabel("erc8004")).toBe("Robinhood Chain");

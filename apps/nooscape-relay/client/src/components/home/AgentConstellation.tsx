@@ -55,6 +55,7 @@ const MARKERS: Record<MarkerShape, Path2D> = {
   pentagon: new Path2D(markerPath("pentagon")),
   star: new Path2D(markerPath("star")),
   octagon: new Path2D(markerPath("octagon")),
+  arrow: new Path2D(markerPath("arrow")),
 };
 
 const ARROWS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
@@ -62,7 +63,7 @@ const ARROWS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "righ
 /** The red, green and blue of a #RRGGBB colour, for the translucent fills of a light. */
 const rgbOf = (hex: string): [number, number, number] => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 
-/** The outline of a light centred on a point: a circle, a diamond, a hexagon, a dome, a cross, a pentagon, a star or an octagon, whose points are `reach` away. It leaves the path ready to fill or stroke. */
+/** The outline of a light centred on a point: a circle, a diamond, a hexagon, a dome, a cross, a pentagon, a star, an octagon or an arrowhead, whose points are `reach` away. It leaves the path ready to fill or stroke. */
 function lightOutline(context: CanvasRenderingContext2D, x: number, y: number, reach: number, shape: FleetShape) {
   context.beginPath();
   if (shape === "circle") {
@@ -98,6 +99,14 @@ function lightOutline(context: CanvasRenderingContext2D, x: number, y: number, r
       if (corner === 0) context.moveTo(x + reach * Math.cos(angle), y + reach * Math.sin(angle));
       else context.lineTo(x + reach * Math.cos(angle), y + reach * Math.sin(angle));
     }
+    context.closePath();
+    return;
+  }
+  if (shape === "arrow") {
+    // An arrowhead pointing up with a notch in its base, as on the Celo tab's icon: its tip is `reach` above the centre, and the unit is the icon's 1.3.
+    const unit = reach / 1.3;
+    const outline = [[0, -reach], [1.25 * unit, 1.1 * unit], [0, 0.45 * unit], [-1.25 * unit, 1.1 * unit]];
+    outline.forEach(([dx, dy], index) => (index === 0 ? context.moveTo(x + dx!, y + dy!) : context.lineTo(x + dx!, y + dy!)));
     context.closePath();
     return;
   }

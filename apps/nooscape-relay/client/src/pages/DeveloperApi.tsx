@@ -265,6 +265,7 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
               <li><strong>Look an agent up.</strong><span><code>GET /api/v1/agents/{"{chain}"}/{"{id}"}</code> takes no key.</span></li>
               <li><strong>Search for one.</strong><span><code>GET /api/v1/agents/search?q=</code> by name, host or wallet, no key.</span></li>
               <li><strong>Check before you pay.</strong><span><code>POST /api/v1/check</code> with an agent, a wallet or a url. With no key the answer is a 402 that says how to pay: $0.01 in USDC over x402, or send a Pro key.</span></li>
+              <li><strong>Take the whole directory.</strong><span><code>GET /api/v1/exports/agents/latest</code> gives the signed manifest of the newest daily export: every listed agent in one gzip file, free, no key. <a href="#rest">The fields</a> are below.</span></li>
             </ol>
             <p className="developer-start-note">Each call has an example below. The <a href="/skill.md">skill file</a> shows an AI agent how to call the API and read its answers.</p>
             <div className="developer-hero-meta">
@@ -345,6 +346,18 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
               ["issues", "array of strings", "Each reason the packet is not valid, in words."],
             ]} />
 
+            <EndpointCard method="GET" path="/api/v1/exports/agents/latest" label="Public · 30 a minute" />
+            <p className="developer-body-copy">The whole directory in one file. Once a day Nooscape writes every agent it lists on a chain this API serves to a gzip file of JSON lines, one agent a line, under CC BY 4.0. <code>latest</code> answers the newest day&rsquo;s manifest, <code>/api/v1/exports/agents/{"{date}"}</code> answers a given day&rsquo;s, and <code>/api/v1/exports/agents/{"{date}"}/data</code> is that day&rsquo;s file. Days are UTC, as <code>YYYY-MM-DD</code>, and each is kept for 30 days. The manifest gives the file&rsquo;s name, size and SHA-256, the rows on each chain and when each chain was last read, and it is signed with Ed25519 over the exact text of its <code>signed_payload</code>, by a key in <a className="underline underline-offset-4" href="/.well-known/nooscape-keys.json">the published key list</a>. Check the file&rsquo;s SHA-256 against it. Free, with no key. A line holds the facts the agent&rsquo;s own answer gives, read by the same rules: no activity or rating timeline, only the count of ratings.</p>
+            <SchemaPanel title="A line of the export" rows={[
+              ["chain, agent_id, registry", "string", "The chain, the agent's id on it (the token id, or the address on Solana) and the registry that lists it."],
+              ["nooscape_id, page_url", "string", "Nooscape's id for the entry and its page on the site."],
+              ["name, registrant, locator_host", "string | null", "As the registrant published them, cleaned of control and invisible characters."],
+              ["first_seen_at, last_seen_at", "ISO 8601 | null", "When Nooscape first and last saw the entry at its source."],
+              ["listed_because", "rules | operator_pin", "Listed under the published rules, or pinned by the operator."],
+              ["evidence_level", "string | null", "On BNB Smart Chain, checked_unproven or not_checked, as in an agent's answer. null on the other chains."],
+              ["feedback_count", "integer | null", "Ratings recorded for the agent, where they are counted. Not a score."],
+            ]} />
+
             <EndpointCard method="POST" path="/api/v1/agents/batch" label="Key · counts as one request" />
             <p className="developer-body-copy">Up to 25 agents in one request. The body is JSON with an <code>agents</code> list of <code>chain</code> and <code>id</code> (and <code>registry</code> on Solana). Each agent gets its own result and status, in the order asked, so one that is not listed does not spoil the rest. A hidden or withdrawn record is a 404 here too.</p>
             <SnippetTabs curl={restBatchCurl} javascript={restBatchJs} />
@@ -356,7 +369,7 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
             <p className="developer-body-copy">What the key has used today against its day, and the last 30 days by endpoint. Counts reach it within about half a minute.</p>
 
             <EndpointCard method="POST" path="/api/v1/check" label="Pro key, or pay per call · a key's call counts as one request" />
-            <p className="developer-body-copy">Facts about a listing before you rely on it. Give one of <code>agent</code> (<code>chain</code> and <code>id</code>), <code>wallet</code> or <code>url</code>. A url is matched by its host alone and nothing is fetched. For each listing it returns the evidence level, four dated flags and the sources they were read from. There is no score and no verdict: a flag that is present is a fact to weigh and not a finding. A wallet or a url answers for the listings it matches exactly, newest first, up to 10. A Free or Builder key is refused with 403 <code>tier_required</code>. With no key, where pay per call is on, the check can be paid for as it is made: see Pay per call (x402) below.</p>
+            <p className="developer-body-copy">Facts about a listing before you rely on it. Give one of <code>agent</code> (<code>chain</code> and <code>id</code>), <code>wallet</code> or <code>url</code>. A url is matched by its host alone and nothing is fetched. For each listing it returns the evidence level, four dated flags and the sources they were read from. There is no score and no verdict: a flag that is present is a fact to weigh and not a finding. A wallet or a url answers for the listings it matches exactly, newest first, up to 10. An agent may also carry <code>pay_to</code>, described below. A Free or Builder key is refused with 403 <code>tier_required</code>. With no key, where pay per call is on, the check can be paid for as it is made: see Pay per call (x402) below.</p>
             <SnippetTabs curl={restCheckCurl} javascript={restCheckJs} />
             <SchemaPanel title="The four flags" rows={[
               ["present", "true | false | null", "true: Nooscape has recorded one. false: it has recorded none. null: not measured for this agent, which is not the same as none. A fact about Nooscape's records, never a finding."],
@@ -364,6 +377,13 @@ console.log(verdict.valid, verdict.hashValid, verdict.signatureValid);`;
               ["ownership_changes", "object", "Transfers Nooscape recorded, apart from the platform hand-outs made just after a mint. EVM registries are placed by block, because the ledger holds blocks and not clocks, with the distance from the ledger's head. Robinhood Chain adds block days (864,000 blocks, a proxy). Solana is dated by when Nooscape recorded the transfer, which is no later than the transfer."],
               ["revoked_feedback", "object", "Ratings recorded against the agent and how many the rater later revoked, as a share. Robinhood Chain only. It does not say whether a rating was fair."],
               ["fleet", "object", "What one wallet registered, this agent included (the listings Nooscape shows or, on a chain whose whole registry Nooscape reads, every registration it holds, listed or not), and the other agents that share its host and name, whoever registered them. A fleet means identities registered by one wallet, and nothing more."],
+            ]} />
+            <SchemaPanel title="pay_to, for an agent" rows={[
+              ["pay_to", "address", "An address, such as the payTo of a payment requirement. It is set against the wallet the agent's registry holds, which Nooscape reads from the agent's own chain when the request is made (one getAgentWallet call). It goes with an agent only, not a wallet or a url, and not for Solana. The result gets a pay_to block with the address, the outcome, the wallet read, when it was read and a basis."],
+              ["matches_agent_wallet", "outcome", "The registry holds a wallet for the agent, and it is this address."],
+              ["differs_from_agent_wallet", "outcome", "The registry holds a wallet for the agent, and it is another address."],
+              ["no_agent_wallet", "outcome", "The registry holds none: none was set, or it was cleared when the agent changed hands. That is common on some chains, and it does not show that the address is not the agent's."],
+              ["not_read", "outcome", "The registry could not be read, so nothing is said either way. A call that is paid for is answered 503 and not charged when this happens."],
             ]} />
 
             <SchemaPanel title="Keys" rows={[

@@ -1,5 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { isExtraChainKey } from "../../../../shared/chains";
+import { EXTRA_CHAIN_LIGHTS, extraChainLights, extraLightsCaption } from "../../../../shared/mapFleets";
+import { CHAIN_GROUP_REPORT } from "../../lib/chainExplorerModel";
 
 /**
  * The scan map draws the records Nooscape has reviewed, and beside them one other thing: a fixed sample of the
@@ -177,7 +180,7 @@ describe("the BNB fleet lights on the scan map", () => {
   it("reads the groups from the one endpoint that returns them, waits for them with the rest, and does not retry", () => {
     expect(home).toContain("trpc.liveData.mapFleets.useQuery(undefined, { enabled: view === \"home\", retry: false,");
     expect(home).toContain("fleets={mapFleetsQuery.data ?? null}");
-    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets, monadFleets, gnosisFleets)");
+    expect(hero).toContain("fleetRecords(fleets, registryFleets)");
     expect(hero).toContain("...lights");
   });
 
@@ -226,7 +229,7 @@ describe("the Solana owner-wallet lights on the scan map", () => {
 
   it("come from the same endpoint and the same node kind, so they ask for no evidence and tell the owl nothing", () => {
     expect(read("../../components/home/constellationModel.ts")).toContain("...(sample?.solana?.fleets ?? [])");
-    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets, monadFleets, gnosisFleets)");
+    expect(hero).toContain("fleetRecords(fleets, registryFleets)");
     expect(hero).toContain("if (node && (isAcknowledged(node) || isFleet(node))) return { status: \"idle\" };");
   });
 
@@ -238,7 +241,7 @@ describe("the Solana owner-wallet lights on the scan map", () => {
 
   it("say on the card that the wallet is the owner a registry records today, with what that does not show", () => {
     expect(fleetCard).toContain("fleetKindLabel(fleet)");
-    expect(fleetCard).toContain('fleet.chain === "solana" ? "Owner wallet" : fleet.chain === "robinhood" || fleet.chain === "arc" || fleet.chain === "base" || fleet.chain === "ethereum" || fleet.chain === "monad" || fleet.chain === "gnosis" ? "Registering wallet" : "Wallet"');
+    expect(fleetCard).toContain('fleet.chain === "solana" ? "Owner wallet" : fleet.chain === "robinhood" || isExtraChainKey(fleet.chain) ? "Registering wallet" : "Wallet"');
     expect(fleetCard).toContain("fleetOverlapNote(fleet)");
     expect(fleetCard).not.toMatch(/scam|fraud|fake|spam|sybil|malicious|suspicious|score|rank|trust/i);
   });
@@ -261,7 +264,7 @@ describe("the Robinhood Chain registering-wallet lights on the scan map", () => 
 
   it("come from the same endpoint and the same node kind, so they ask for no evidence and tell the owl nothing", () => {
     expect(read("../../components/home/constellationModel.ts")).toContain("...(sample?.robinhood?.fleets ?? [])");
-    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets, monadFleets, gnosisFleets)");
+    expect(hero).toContain("fleetRecords(fleets, registryFleets)");
   });
 
   it("are drawn as a hexagon in the chain's colour, so a circle is BNB Chain, a diamond is Solana and a hexagon is Robinhood Chain", () => {
@@ -290,16 +293,21 @@ describe("the Arc lights on the scan map", () => {
   const cardSource = card.replace(/\/\*[\s\S]*?\*\//g, "");
   const fleetCard = cardSource.slice(cardSource.indexOf("function FleetCard"));
 
+  const CHAIN = "arc" as const;
+
   it("are read only while Arc's switch is on in the build, are not waited for and are not retried, so a failed read leaves the map as it was", () => {
-    expect(home).toContain('trpc.liveData.registryFleets.useQuery({ chain: "arc" }, { enabled: view === "home" && featureOn("chain_arc", import.meta.env.VITE_FEATURES), retry: false,');
-    expect(home).toContain("arcFleets={arcFleetsQuery.data ?? null}");
+    // One query per extra chain, made from the shared table (shared/mapFleets.ts), each behind that chain's own switch.
+    expect(home).toContain("trpc.useQueries(t =>");
+    expect(home).toContain('t.liveData.registryFleets({ chain }, { enabled: view === "home" && featureOn(EXTRA_CHAIN_SWITCH[chain], import.meta.env.VITE_FEATURES), retry: false,');
+    expect(EXTRA_CHAIN_LIGHTS.map(lights => lights.chain)).toContain(CHAIN);
+    expect(home).toContain("registryFleets={registryFleets}");
     const status = home.slice(home.indexOf("<LandingHero"), home.indexOf("/>", home.indexOf("<LandingHero")));
-    expect(status).not.toContain("arcFleetsQuery.isLoading");
+    expect(status).not.toContain("registryFleetsQueries");
   });
 
   it("come from the same node kind as the other lights, so they ask for no evidence and tell the owl nothing", () => {
-    expect(read("../../components/home/constellationModel.ts")).toContain("...arcLights(arc)");
-    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets, monadFleets, gnosisFleets)");
+    expect(read("../../components/home/constellationModel.ts")).toContain("EXTRA_CHAIN_LIGHTS.flatMap(lights => registryLights(lights.chain, registries[lights.chain]))");
+    expect(hero).toContain("fleetRecords(fleets, registryFleets)");
     expect(hero).toContain("...lights");
   });
 
@@ -312,42 +320,49 @@ describe("the Arc lights on the scan map", () => {
   it("say on the card that the wallet is the registering wallet, with what that does not show, and link the Arc page", () => {
     expect(fleetCard).toContain("fleetNotProved(fleet)");
     expect(fleetCard).toContain('fleet?.chain === "arc" ? <path d={markerPath("dome")}');
-    expect(fleetCard).toContain('fleet.chain === "robinhood" || fleet.chain === "arc" || fleet.chain === "base" || fleet.chain === "ethereum" || fleet.chain === "monad" || fleet.chain === "gnosis" ? "Registering wallet"');
+    expect(fleetCard).toContain('fleet.chain === "robinhood" || isExtraChainKey(fleet.chain) ? "Registering wallet"');
     expect(fleetCard).toContain("href={`/chains/${fleet.chain}`}");
   });
 
   it("have a key entry and a caption of their own, drawn only when there are domes", () => {
-    expect(hero).toContain("arcLightCount > 0 && arcFleets");
-    expect(hero).toContain("groups · {arcLightCount} of");
-    expect(hero).toContain("arcLightsCaption(arcFleets, arcLightCount)");
-    expect(hero).toContain("{arcNote && <p");
+    // One key entry and one caption per extra chain, from the shared table, each drawn only when the chain has lights on the map.
+    expect(hero).toContain("drawn > 0 && groups ? (");
+    expect(hero).toContain("groups · {drawn} of");
+    expect(hero).toContain("extraLightsCaption(lights.chain, groups, drawn)");
+    expect(hero).toContain("note && <p key={chain}");
+    expect(extraLightsCaption(CHAIN, { groups: 9 }, 2)).toContain(`${extraChainLights(CHAIN).many} are`);
   });
 });
 
 /**
- * The Base, Ethereum, Monad and Gnosis lights (docs/base-ethereum-lights-2026-10-28.md, docs/monad-lights-2026-11-01.md and docs/gnosis-lights-2026-11-06.md): one large cross for each of the largest groups of the Base page and
- * one large pentagon for each of the largest groups of the Ethereum page, one large star for each of the Monad page's and one large octagon for each of the Gnosis page's, from the registry rows, while the chain's switch is on. This guards
+ * The Base, Ethereum, Monad, Gnosis and Celo lights (docs/base-ethereum-lights-2026-10-28.md, docs/monad-lights-2026-11-01.md, docs/gnosis-lights-2026-11-06.md and docs/celo-lights-2026-11-20.md): one large cross for each of the largest groups of the Base page and
+ * one large pentagon for each of the largest groups of the Ethereum page, one large star for each of the Monad page's, one large octagon for each of the Gnosis page's and one large arrowhead for each of the Celo page's, from the registry rows, while the chain's switch is on. This guards
  * where they come from and what they are allowed to say; their placement and wording are in constellationModel.test.ts and server/mapFleets.test.ts.
  */
 describe.each([
-  { chain: "base", label: "Base", shape: "cross", query: "baseFleets", count: "baseLightCount", note: "baseLightsCaption(baseFleets, baseLightCount)", lights: "...baseLights(base)" },
-  { chain: "ethereum", label: "Ethereum", shape: "pentagon", query: "ethereumFleets", count: "ethereumLightCount", note: "ethereumLightsCaption(ethereumFleets, ethereumLightCount)", lights: "...ethereumLights(ethereum)" },
-  { chain: "monad", label: "Monad", shape: "star", query: "monadFleets", count: "monadLightCount", note: "monadLightsCaption(monadFleets, monadLightCount)", lights: "...monadLights(monad)" },
-  { chain: "gnosis", label: "Gnosis", shape: "octagon", query: "gnosisFleets", count: "gnosisLightCount", note: "gnosisLightsCaption(gnosisFleets, gnosisLightCount)", lights: "...gnosisLights(gnosis)" },
-])("the $label lights on the scan map", ({ chain, label, shape, query, count, note, lights }) => {
+  { chain: "base", label: "Base", shape: "cross" },
+  { chain: "ethereum", label: "Ethereum", shape: "pentagon" },
+  { chain: "monad", label: "Monad", shape: "star" },
+  { chain: "gnosis", label: "Gnosis", shape: "octagon" },
+  { chain: "celo", label: "Celo", shape: "arrow" },
+])("the $label lights on the scan map", ({ chain, label, shape }) => {
+  const CHAIN = chain as "base" | "ethereum" | "monad" | "gnosis" | "celo";
   const cardSource = card.replace(/\/\*[\s\S]*?\*\//g, "");
   const fleetCard = cardSource.slice(cardSource.indexOf("function FleetCard"));
 
   it(`are read only while ${label}'s switch is on in the build, are not waited for and are not retried, so a failed read leaves the map as it was`, () => {
-    expect(home).toContain(`trpc.liveData.registryFleets.useQuery({ chain: "${chain}" }, { enabled: view === "home" && featureOn("chain_${chain}", import.meta.env.VITE_FEATURES), retry: false,`);
-    expect(home).toContain(`${query}={${query}Query.data ?? null}`);
+    // One query per extra chain, made from the shared table (shared/mapFleets.ts), each behind that chain's own switch.
+    expect(home).toContain("trpc.useQueries(t =>");
+    expect(home).toContain('t.liveData.registryFleets({ chain }, { enabled: view === "home" && featureOn(EXTRA_CHAIN_SWITCH[chain], import.meta.env.VITE_FEATURES), retry: false,');
+    expect(EXTRA_CHAIN_LIGHTS.map(lights => lights.chain)).toContain(CHAIN);
+    expect(home).toContain("registryFleets={registryFleets}");
     const status = home.slice(home.indexOf("<LandingHero"), home.indexOf("/>", home.indexOf("<LandingHero")));
-    expect(status).not.toContain(`${query}Query.isLoading`);
+    expect(status).not.toContain("registryFleetsQueries");
   });
 
   it("come from the same node kind as the other lights, so they ask for no evidence and tell the owl nothing", () => {
-    expect(read("../../components/home/constellationModel.ts")).toContain(lights);
-    expect(hero).toContain("fleetRecords(fleets, arcFleets, baseFleets, ethereumFleets, monadFleets, gnosisFleets)");
+    expect(read("../../components/home/constellationModel.ts")).toContain("EXTRA_CHAIN_LIGHTS.flatMap(lights => registryLights(lights.chain, registries[lights.chain]))");
+    expect(hero).toContain("fleetRecords(fleets, registryFleets)");
     expect(hero).toContain("...lights");
   });
 
@@ -360,25 +375,33 @@ describe.each([
   it(`say on the card that the wallet is the registering wallet, show the ${shape} and link the ${label} page`, () => {
     expect(fleetCard).toContain("fleetNotProved(fleet)");
     expect(fleetCard).toContain(`fleet?.chain === "${chain}" ? <path d={markerPath("${shape}")}`);
-    expect(fleetCard).toContain(`fleet.chain === "${chain}"`);
+    // Every extra chain's group names a registering wallet (shared/chains.ts says which chains are extra).
+    expect(fleetCard).toContain('isExtraChainKey(fleet.chain) ? "Registering wallet"');
+    expect(isExtraChainKey(chain)).toBe(true);
     expect(fleetCard).toContain("href={`/chains/${fleet.chain}`}");
   });
 
   it(`have a key entry and a caption of their own, drawn only when there are ${shape}s`, () => {
-    expect(hero).toContain(`${count} > 0 && ${query}`);
-    expect(hero).toContain(`groups · {${count}} of`);
-    expect(hero).toContain(note);
-    expect(hero).toContain(`{${chain}Note && <p`);
+    // One key entry and one caption per extra chain, from the shared table, each drawn only when the chain has lights on the map.
+    expect(hero).toContain("drawn > 0 && groups ? (");
+    expect(hero).toContain("groups · {drawn} of");
+    expect(hero).toContain("extraLightsCaption(lights.chain, groups, drawn)");
+    expect(hero).toContain("note && <p key={chain}");
+    expect(extraLightsCaption(CHAIN, { groups: 9 }, 2)).toContain(`${extraChainLights(CHAIN).many} are`);
   });
 });
 
-it("links the Base, Ethereum, Monad and Gnosis censuses under their own captions", () => {
-  expect(hero).toContain('{baseNote && (');
-  expect(hero).toContain('href="/field/base-registry-2026-10-21"');
-  expect(hero).toContain('{ethereumNote && (');
-  expect(hero).toContain('href="/field/ethereum-registry-2026-10-28"');
-  expect(hero).toContain('{monadNote && (');
-  expect(hero).toContain('href="/field/monad-registry-2026-11-01"');
-  expect(hero).toContain('{gnosisNote && (');
-  expect(hero).toContain('href="/field/gnosis-registry-2026-11-06"');
+it("links the Base, Ethereum, Monad, Gnosis and Celo censuses under their own captions", () => {
+  // Each caption's report is the chain page's own (CHAIN_GROUP_REPORT), named and dated from its label.
+  expect(hero).toContain("report: CHAIN_GROUP_REPORT[lights.chain]");
+  expect(hero).toContain("One report, dated {report.label.slice(cut + 2)}: the <Link href={report.href}");
+  expect(EXTRA_CHAIN_LIGHTS.map(lights => CHAIN_GROUP_REPORT[lights.chain]?.href)).toEqual([
+    "/field/arc-registry-2026-11-06",
+    "/field/base-registry-2026-10-21",
+    "/field/ethereum-registry-2026-10-28",
+    "/field/monad-registry-2026-11-01",
+    "/field/gnosis-registry-2026-11-06",
+    "/field/celo-registry-2026-11-20",
+  ]);
+  expect(CHAIN_GROUP_REPORT.celo!.label).toBe("Celo registry census, 20 November 2026");
 });

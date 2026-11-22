@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { STEP_LABEL } from "../../lib/claimFlow";
 
 /**
  * What "Claim this agent" promises about the browser (docs/claims-2026-10-18.md), held to the client's source: the wallet is asked
@@ -91,6 +92,26 @@ describe("where the panel is", () => {
 
   it("is off in a build that does not name it", () => {
     const features = read(join(client, "..", "..", "shared", "features.ts"));
-    expect(features).toContain('export const FEATURES = ["watch", "patrols", "claims", "chain_base", "chain_ethereum", "chain_arc", "claims_arc", "claims_base", "claims_ethereum", "chain_monad", "claims_monad", "chain_gnosis", "claims_gnosis"] as const;');
+    expect(features).toContain('export const FEATURES = ["watch", "patrols", "claims", "chain_base", "chain_ethereum", "chain_arc", "claims_arc", "claims_base", "claims_ethereum", "chain_monad", "claims_monad", "chain_gnosis", "claims_gnosis", "chain_celo", "claims_celo"] as const;');
+  });
+});
+
+describe("what the panel does when the server refuses a request", () => {
+  const panel = sources.find(source => source.file === "components/claim/ClaimPanel.tsx")!.text;
+
+  it("reads the claim again after a refused message request and after a refused signature check, because the claim may have changed", () => {
+    // Another wallet may have claimed the agent meanwhile, or the operator may have put the claim on hold. The view used to stay as it was until a reload.
+    expect(panel.match(/setError\(messageOf\(failure\)\);\s*(?:\/\/[^\n]*\n\s*)?void utils\.claim\.state\.invalidate\(\{ entryId \}\);/g)).toHaveLength(2);
+  });
+
+  it("keeps the panel when a later read of the claim fails, and starts afresh for each entry", () => {
+    // A failed refetch keeps the data, so hiding the panel on `isError` made it vanish, with its success notice, after a claim went through.
+    expect(panel).not.toContain("stateQuery.isError");
+    // Moving between two entries on the same page would otherwise keep a prepared message, and its nonce, from the first.
+    expect(read(join(client, "pages", "DirectoryAgent.tsx"))).toContain("<ClaimPanel key={entry.id} entryId={entry.id} ");
+  });
+
+  it("has only steps that something sets", () => {
+    for (const step of Object.keys(STEP_LABEL).filter(name => name !== "idle")) expect(panel, step).toContain(`setStep("${step}")`);
   });
 });

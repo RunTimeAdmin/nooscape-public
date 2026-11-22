@@ -195,6 +195,9 @@ export function registerSecurityHeaders(app: Express) {
 export function registerApiCachePolicy(app: Express) {
   app.use("/api", (_req, res, next) => {
     res.set("Cache-Control", "no-store");
+    // robots.txt lets a search engine fetch /api/trpc/ so it can render the pages that read from it. The answers themselves
+    // are data, not pages, and are kept out of search.
+    res.set("X-Robots-Tag", "noindex");
     next();
   });
 }

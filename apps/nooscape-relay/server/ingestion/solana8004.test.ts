@@ -26,6 +26,7 @@ import {
   SOLANA_8004_CHAIN_SOURCE_KEY,
   SOLANA_8004_EVENT_TX_FETCH_CAP,
   SOLANA_8004_FETCH_BUDGET_PER_PASS,
+  SOLANA_8004_METADATA_MAX_ACCOUNTS,
   SOLANA_8004_PROGRAM,
   successfulSignatureList,
 } from "./solana8004";
@@ -1772,6 +1773,37 @@ describe("8004 Solana chain adapter", () => {
       await expect(
         fetchSolana8004ChainState({ source: approvedSource, seed: true, prior: new Map(), rpcUrl: "https://rpc.test" })
       ).rejects.toThrow(/ceiling/);
+    });
+
+    it.each([
+      { name: "at the ceiling", extra: 0 },
+      { name: "past the ceiling", extra: 50 },
+    ])("reads the metadata entries $name without failing the pass, and counts the ones it left out", async ({ extra }) => {
+      // Anyone who can call the program's metadata instruction can add entries, and they are optional enrichment: a flood of them must not
+      // stop the pass that records the agents.
+      const entries = Array.from({ length: SOLANA_8004_METADATA_MAX_ACCOUNTS + extra }, (_value, index) => {
+        const pubkey = new Uint8Array(32);
+        pubkey[0] = 1;
+        new DataView(pubkey.buffer).setUint32(28, index + 1);
+        return { pubkey: encodeBase58(pubkey), account: { data: [b64(metadataAccountData(ownerBytes(9), `k${index}`, "v")), "base64"] } };
+      });
+      stubRpc({
+        getSlot: () => 4242,
+        getProgramAccounts: () => [
+          { pubkey: ACCOUNT_PDA, account: { data: [b64(agentAccountData({ owner: ownerBytes(1), asset: ownerBytes(7) })), "base64"] } },
+          ...entries,
+        ],
+      });
+      const snapshot = await fetchSolana8004ChainState({
+        source: approvedSource,
+        seed: true,
+        prior: new Map(),
+        rpcUrl: "https://rpc.test",
+        fetchName: async () => ({ status: "resolved", name: "Fetched Name" }),
+      });
+      expect(snapshot.drafts).toHaveLength(1);
+      expect(snapshot.metadataCount).toBe(SOLANA_8004_METADATA_MAX_ACCOUNTS);
+      expect(snapshot.metadataLeftOutCount).toBe(extra);
     });
 
     it("decodes metadata, enriches only placeholders, builds chain links, and emits no events", async () => {

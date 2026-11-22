@@ -63,7 +63,7 @@ describe("the Today block's read", { timeout: 30_000 }, () => {
   });
 
   it("refuses a chain that has no census report", async () => {
-    await expect((await caller()).liveData.censusToday({ chain: "solana" as never })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect((await caller()).liveData.censusToday({ chain: "solana_agenc" as never })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(mocks.readCensusToday).not.toHaveBeenCalled();
   });
 

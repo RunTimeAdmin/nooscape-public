@@ -622,12 +622,13 @@ describe.skipIf(!dbReachable)("the Owl's Catch against a real database", { timeo
       }
     });
 
-    it("sends the ordinary page when the table cannot be read, rather than an error", async () => {
+    it("answers 503 when the table cannot be read, so a crawler comes back instead of recording an empty page", async () => {
       const probe = await createConnection(process.env.DATABASE_URL!);
       await probe.query("RENAME TABLE `owls_catch` TO `owls_catch_away`");
       try {
         const sent = await page(`/catch/${day(0)}`);
-        expect(sent).toEqual({ status: 200, body: "FALLBACK" });
+        expect(sent.status).toBe(503);
+        expect(sent.body).toMatch(/<meta name="robots" content="noindex, follow"/);
       } finally {
         await probe.query("RENAME TABLE `owls_catch_away` TO `owls_catch`");
         await probe.end();

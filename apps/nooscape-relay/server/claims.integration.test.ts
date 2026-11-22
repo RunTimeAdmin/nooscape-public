@@ -40,6 +40,8 @@ const BOB = testWallet("0x111111111111111111111111111111111111111111111111111111
 const CAROL = testWallet("0x2222222222222222222222222222222222222222222222222222222222222222");
 const FLEETER = testWallet("0x3333333333333333333333333333333333333333333333333333333333333333");
 const SIGNER = testWallet("0x4444444444444444444444444444444444444444444444444444444444444444");
+/** A wallet no other test uses, so that it is never a fleet: the new owner in the test of a claim that changed under the write that ends it. */
+const DAN = testWallet("0x5555555555555555555555555555555555555555555555555555555555555555");
 /** A contract wallet (a Safe, say): an address with code, whose own signer is SIGNER. */
 const SAFE = "0x5afe5afe5afe5afe5afe5afe5afe5afe5afe5afe";
 const MAGIC = `0x1626ba7e${"0".repeat(56)}`;
@@ -118,7 +120,7 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     await writer.insert(schema.ingestionSources).values({ id, sourceKey: `claims-${id}`, label: id, protocol, rootUrl: "https://claims.example/feed", allowedHostname: "claims.example", state, createdByUserId: operatorUserId });
   }
   /** An entry on a registry with an owner on the fake chain, and the wallet the directory recorded for it. */
-  async function entry(sourceId: string, protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis" | "solana_8004", chainId: number, token: number, owner: string | null, registrant: string | null = owner, extra: Partial<typeof schema.agentDirectoryEntries.$inferInsert> = {}) {
+  async function entry(sourceId: string, protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis" | "erc8004_celo" | "solana_8004", chainId: number, token: number, owner: string | null, registrant: string | null = owner, extra: Partial<typeof schema.agentDirectoryEntries.$inferInsert> = {}) {
     n += 1;
     const id = `claim-entry-${n}`;
     const externalKey = protocol === "solana_8004" ? `solana-asset-${n}` : `eip155:${chainId}:${REGISTRY}:${token}`;
@@ -164,6 +166,58 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     return total;
   }
 
+  /**
+   * Runs `write` (code that reads a claim and then updates it) while another connection holds that claim's row. The write has read the row
+   * and waits at its update; `change` is then run on the row from the other connection, which commits. That is a hold or an end landing
+   * between the write's read and its update, which nothing else in this file can arrange. Fails if the write finishes without waiting.
+   */
+  async function whileRowIsHeld<T>(claimId: string, change: string, write: () => Promise<T>): Promise<T> {
+    const other = await createConnection(`${BASE_URL}/${TEST_DB}`);
+    try {
+      await other.beginTransaction();
+      await other.query("SELECT id FROM agent_claims WHERE id = ? FOR UPDATE", [claimId]);
+      let settled = false;
+      const pending = write().finally(() => {
+        settled = true;
+      });
+      pending.catch(() => undefined);
+      let waiting = false;
+      for (let tries = 0; tries < 200 && !waiting && !settled; tries += 1) {
+        waiting = await lockWaitSeen(other);
+        // Nothing else keeps one of these writes going for long. If the server's own views do not show the wait (the GitHub runner's MySQL showed
+        // none, though the write was held), a write that is still going after three seconds is waiting on the row.
+        if (!waiting && tries >= 60 && !settled) waiting = true;
+        if (!waiting) await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      if (!waiting) {
+        // The write finished with the row held, so it never waited. Say what the server was doing, and let the write end before the test
+        // fails, so that nothing goes on in the background into the next test.
+        const [connections] = (await other.query("SHOW FULL PROCESSLIST")) as [Array<Record<string, unknown>>, unknown];
+        await other.rollback();
+        await pending.catch(() => undefined);
+        const seen = connections.map(row => ({ id: row.Id, state: row.State, info: String(row.Info ?? "").slice(0, 60) }));
+        expect(waiting, `the write finished without waiting on the row it was to find held. The server's connections: ${JSON.stringify(seen)}`).toBe(true);
+      }
+      await other.query(change, [claimId]);
+      await other.commit();
+      return await pending;
+    } finally {
+      await other.end();
+    }
+  }
+
+  /** Whether the server shows a lock request waiting: a transaction in the LOCK WAIT state, or a waiting row in the performance schema. */
+  async function lockWaitSeen(connection: Awaited<ReturnType<typeof createConnection>>): Promise<boolean> {
+    const [trx] = (await connection.query("SELECT COUNT(*) AS n FROM information_schema.innodb_trx WHERE trx_state = 'LOCK WAIT'")) as [Array<{ n: number | string }>, unknown];
+    if (Number(trx[0]?.n) > 0) return true;
+    try {
+      const [waits] = (await connection.query("SELECT COUNT(*) AS n FROM performance_schema.data_lock_waits")) as [Array<{ n: number | string }>, unknown];
+      return Number(waits[0]?.n) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   let robinhoodEntry: string;
   let bnbEntry: string;
 
@@ -183,8 +237,8 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     // Migration 0046 is manual too: it adds Arc's protocol to the four tables.
     const arcMigration = await createConnection(process.env.DATABASE_URL);
     for (const statement of splitMigrationStatements(await readFile("drizzle/0046_multichain_erc8004_protocols.sql", "utf8"))) await arcMigration.query(statement);
-    // And 0051, 0053 and 0057, the last of which adds Gnosis's protocol, in the order production had them.
-    for (const migrationFile of ["0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql", "0057_gnosis_erc8004_protocol.sql"]) {
+    // And 0051, 0053, 0057 and 0060, the last of which adds Celo's protocol, in the order production had them.
+    for (const migrationFile of ["0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql", "0057_gnosis_erc8004_protocol.sql", "0060_celo_erc8004_protocol.sql"]) {
       for (const statement of splitMigrationStatements(await readFile(`drizzle/${migrationFile}`, "utf8"))) await arcMigration.query(statement);
     }
     await arcMigration.end();
@@ -608,6 +662,61 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     expect(await code_(() => request(entryId, ALICE.address, "edit", { name: "x" }))).toBe("ok");
     expect((await history(entryId)).map(row => row.kind)).toEqual(["claim", "freeze", "unfreeze"]);
     expect(await code_(() => claims.setClaimHeld("no-such-claim", true))).toBe("NO_CLAIM");
+  });
+
+  it("does not put a claim on hold when it was ended between the hold's read and its write, so status and the entry in force never disagree", async () => {
+    const entryId = await entry("src-rh", "erc8004", 4663, 150, ALICE.address);
+    await claimAs(ALICE, entryId);
+    const claim = (await claimOf(entryId))!;
+    const answer = await whileRowIsHeld(claim.id, "UPDATE agent_claims SET status = 'revoked', inForceEntryId = NULL WHERE id = ?", () => code_(() => claims.setClaimHeld(claim.id, true, clock)));
+    expect(answer).toBe("NO_CLAIM");
+    // It used to write `frozen` over the ended claim: a claim on hold with nothing in force, which the daily check then asked about at every run.
+    expect(await claimOf(entryId, "frozen")).toBeUndefined();
+    expect(await claimOf(entryId, "revoked")).toMatchObject({ inForceEntryId: null });
+    expect((await history(entryId)).map(row => row.kind)).toEqual(["claim"]);
+  });
+
+  it("leaves a claim alone when the operator's hold lands between an edit's read of the claim and the end it was about to write, and the daily check ends it, text withheld", async () => {
+    const entryId = await entry("src-bnb", "erc8004_bsc", 56, 151, BOB.address);
+    await claimAs(BOB, entryId);
+    await editAs(BOB, entryId, { name: "Bob Agent" });
+    const made = (await claimOf(entryId))!;
+    // The agent has changed hands, so an edit by its old owner ends the claim: the registry is asked and says someone else.
+    owners.set("56:151", ALICE.address);
+    const edit = { name: "Bob Again" };
+    const issued = await request(entryId, BOB.address, "edit", edit);
+    later(11);
+    const answer = await whileRowIsHeld(made.id, "UPDATE agent_claims SET status = 'frozen' WHERE id = ?", () =>
+      code_(() => claims.verifyAndEdit({ nonce: issued.nonce, message: issued.message, signature: BOB.sign(issued.message), edit }, { ...deps(), now: () => new Date(clock.getTime() - 10 * 60_000) }))
+    );
+    expect(answer).toBe("OWNER_CHANGED");
+    // The end was to be written on a status the hold had made out of date, and its redaction was decided by that status: it used to be written,
+    // and the text the hold was withholding was published. Now nothing is written, and the claim is on hold, in force, with its text.
+    expect(await claimOf(entryId, "frozen")).toMatchObject({ name: "Bob Agent", inForceEntryId: entryId });
+    expect(await claimOf(entryId, "revoked")).toBeUndefined();
+    expect((await history(entryId)).map(row => row.kind)).toEqual(["claim", "edit"]);
+    // The daily check reads the claim as it is, ends it, and redacts what the hold was withholding.
+    clock = new Date(clock.getTime() + 24 * 3_600_000);
+    await daily();
+    expect(await claimOf(entryId, "revoked")).toMatchObject({ name: null, inForceEntryId: null });
+    expect((await claims.readClaimHistory(entryId)).items.filter(item => item.kind === "redact").map(item => item.field).sort()).toEqual(["description", "links", "name", "website"]);
+  });
+
+  it("refuses a new owner's claim, and keeps its nonce, when the old claim went on hold between the read and the end of it, and answers the same message for the claim as it is", async () => {
+    const entryId = await entry("src-rh", "erc8004", 4663, 152, ALICE.address);
+    await claimAs(ALICE, entryId);
+    const old = (await claimOf(entryId))!;
+    owners.set("4663:152", DAN.address);
+    const issued = await request(entryId, DAN.address);
+    const signed = { nonce: issued.nonce, message: issued.message, signature: DAN.sign(issued.message) };
+    const answer = await whileRowIsHeld(old.id, "UPDATE agent_claims SET status = 'frozen' WHERE id = ?", () => code_(() => claims.verifyAndClaim(signed, deps())));
+    expect(answer).toBe("ALREADY_CLAIMED");
+    expect(await claimOf(entryId, "frozen")).toMatchObject({ wallet: ALICE.address, inForceEntryId: entryId });
+    expect(await claimOf(entryId, "revoked")).toBeUndefined();
+    // Nothing was written, the nonce was not used, and the same signed message is answered for the claim as it is now.
+    expect(await code_(() => claims.verifyAndClaim(signed, deps()))).toBe("FROZEN");
+    // Put back what the other tests expect of the registry: this agent is its holder's again.
+    owners.set("4663:152", ALICE.address);
   });
 
   it("treats two messages for the same owner, signed one after the other, as one claim, and still stops an edit when the hold came after the message was issued", async () => {
@@ -1188,7 +1297,8 @@ describe.skipIf(!dbReachable)("claim this agent against a real database", { time
     { label: "Ethereum", protocol: "erc8004_eth" as const, chainId: 1, chain: "chain_ethereum", claimsSwitch: "claims_ethereum", sourceId: "src-eth", tokenBase: 5000, key: `0x${"9".repeat(64)}`, otherKey: `0x${"b".repeat(64)}` },
     { label: "Monad", protocol: "erc8004_monad" as const, chainId: 143, chain: "chain_monad", claimsSwitch: "claims_monad", sourceId: "src-monad", tokenBase: 6000, key: `0x${"c".repeat(64)}`, otherKey: `0x${"d".repeat(64)}` },
     { label: "Gnosis", protocol: "erc8004_gnosis" as const, chainId: 100, chain: "chain_gnosis", claimsSwitch: "claims_gnosis", sourceId: "src-gnosis", tokenBase: 7000, key: `0x${"e".repeat(64)}`, otherKey: `0x${"6".repeat(64)}` },
-  ])("an agent on $label (docs/base-ethereum-claims-2026-10-28.md, docs/monad-claims-2026-11-01.md and docs/gnosis-claims-2026-11-06.md)", ({ label, protocol, chainId, chain, claimsSwitch, sourceId, tokenBase, key, otherKey }) => {
+    { label: "Celo", protocol: "erc8004_celo" as const, chainId: 42220, chain: "chain_celo", claimsSwitch: "claims_celo", sourceId: "src-celo", tokenBase: 8000, key: `0x${"ab".repeat(32)}`, otherKey: `0x${"cd".repeat(32)}` },
+  ])("an agent on $label (docs/base-ethereum-claims-2026-10-28.md, docs/monad-claims-2026-11-01.md, docs/gnosis-claims-2026-11-06.md and docs/celo-claims-2026-11-20.md)", ({ label, protocol, chainId, chain, claimsSwitch, sourceId, tokenBase, key, otherKey }) => {
     const ON = `${chain},${claimsSwitch}`;
     /** A wallet no other test has used, so it holds no claims and is no fleet. */
     const FRANK = testWallet(key);

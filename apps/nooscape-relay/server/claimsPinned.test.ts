@@ -4,7 +4,18 @@ const mocks = vi.hoisted(() => ({ assertPublicHostname: vi.fn(async (_host: stri
 vi.mock("./ingestion/a2a", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/a2a")>()), assertPublicHostname: mocks.assertPublicHostname }));
 
 import { ENV } from "./_core/env";
-import { callBaseRpcOnce, callEthereumRpcOnce, callGnosisRpcOnce, callMonadRpcOnce, forgetCheckedPinnedNodes } from "./claimsPinned";
+import { callPinnedRpcOnce, forgetCheckedPinnedNodes, PINNED_CLAIM_CHAIN_IDS } from "./claimsPinned";
+
+// One call on each chain's node, by its chain id. Every extra chain but Arc has one (Arc reads the operator's own node, claimsArc.ts).
+it("has a pinned node for Ethereum, Base, Monad, Gnosis and Celo, and none for Arc or BNB Smart Chain", () => {
+  expect(PINNED_CLAIM_CHAIN_IDS).toEqual([1, 8453, 143, 100, 42220]);
+});
+
+const callBaseRpcOnce = (method: string, params: unknown[]) => callPinnedRpcOnce(8453, method, params);
+const callEthereumRpcOnce = (method: string, params: unknown[]) => callPinnedRpcOnce(1, method, params);
+const callMonadRpcOnce = (method: string, params: unknown[]) => callPinnedRpcOnce(143, method, params);
+const callGnosisRpcOnce = (method: string, params: unknown[]) => callPinnedRpcOnce(100, method, params);
+const callCeloRpcOnce = (method: string, params: unknown[]) => callPinnedRpcOnce(42220, method, params);
 import { Erc8004RpcError, Erc8004RpcHttpError } from "./ingestion/erc8004Rpc";
 
 /**
@@ -32,7 +43,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let sent: Sent[];
 /** What the stand-in node says: its chain id, how old its latest block is, and the answer to anything else. */
 let node: { chainId: unknown; headAgeSeconds: number | null; answer: () => Response };
-const SAVED = { base: ENV.baseRpcUrl, ethereum: ENV.ethRpcUrl, monad: ENV.monadRpcUrl };
+const SAVED = { base: ENV.baseRpcUrl, ethereum: ENV.ethRpcUrl, monad: ENV.monadRpcUrl, celo: ENV.celoRpcUrl };
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -59,6 +70,7 @@ afterEach(() => {
   ENV.baseRpcUrl = SAVED.base;
   ENV.ethRpcUrl = SAVED.ethereum;
   ENV.monadRpcUrl = SAVED.monad;
+  ENV.celoRpcUrl = SAVED.celo;
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -105,6 +117,17 @@ describe.each([
     chainId: "0x64",
     otherChainId: "0x1",
     variable: "GNOSIS_RPC_URL",
+  },
+  {
+    label: "Celo",
+    read: callCeloRpcOnce,
+    set: (value: string) => (ENV.celoRpcUrl = value),
+    host: "forno.celo.org",
+    // Celo's public node takes no key. The path stands for any secret an address set in the variable could carry: only the host is pinned.
+    path: `/${KEY}`,
+    chainId: "0xa4ec",
+    otherChainId: "0x1",
+    variable: "CELO_RPC_URL",
   },
 ])("a read on $label's node", ({ label, read, set, host, path, chainId, otherChainId, variable }) => {
   const NODE = `https://${host}${path}`;
@@ -317,6 +340,19 @@ describe("the nodes are separate", () => {
     expect(methods()).toEqual(["eth_chainId"]);
   });
 
+
+  it("Celo's has its own address and its own checks: Gnosis's being right says nothing of Celo's", async () => {
+    ENV.gnosisRpcUrl = `https://gnosis-mainnet.g.alchemy.com/v2/${KEY}`;
+    ENV.celoRpcUrl = "";
+    node.chainId = "0x64";
+    expect(await callGnosisRpcOnce("eth_call", [])).toBe("0xabc");
+    expect((await thrown(callCeloRpcOnce("eth_call", []))).message).toBe("Celo's node is not configured.");
+    // Gnosis's chain id answer is not kept for Celo, which asks for its own.
+    ENV.celoRpcUrl = "https://forno.celo.org";
+    sent.length = 0;
+    expect((await thrown(callCeloRpcOnce("eth_call", []))).message).toBe("Celo's node did not answer as Celo.");
+    expect(methods()).toEqual(["eth_chainId"]);
+  });
 
   it("each has its own address and its own checks: Base's being right says nothing of Ethereum's", async () => {
     ENV.baseRpcUrl = `https://base-mainnet.g.alchemy.com/v2/${KEY}`;

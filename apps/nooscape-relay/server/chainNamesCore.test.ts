@@ -1,24 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { agentIdOfKey, NAME_CHAINS, newestKeyFirst, usableName } from "./chainNamesCore";
 import { directoryDraft } from "./ingestion/erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, BSC_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, BSC_CHAIN, CELO_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN } from "./ingestion/erc8004Chains";
 import { ENTRY_PLACEHOLDER_PATTERN } from "./robinhoodNamesCore";
 
 /**
- * The pure rules of the Base, Arc, Ethereum, Monad and Gnosis name step (docs/approvals/2026-10-26-base-arc-names.md): which chains it names, how it reads the
+ * The pure rules of the Base, Arc, Ethereum, Monad, Gnosis and Celo name step (docs/approvals/2026-10-26-base-arc-names.md): which chains it names, how it reads the
  * agent id out of a directory key, which registration it takes first, and which names it will not show. The step itself is held by
  * chainNames.integration.test.ts and the chain read by chainNamesRead.test.ts.
  */
 const registration = (agentId: string) => ({ agentId, owner: "0x00000000000000000000000000000000000000aa", uri: "ipfs://x", blockNumber: 1, transactionHash: "0x", logIndex: 0 });
 
 describe("the chains the step names", () => {
-  it("are Base, Arc, Ethereum, Monad and Gnosis, in that order, and neither Robinhood Chain nor BNB Chain, whose reads keep their own rules", () => {
-    expect(NAME_CHAINS.map(chain => chain.chainKey)).toEqual(["base", "arc", "ethereum", "monad", "gnosis"]);
+  it("are Base, Arc, Ethereum, Monad, Gnosis and Celo, in that order, and neither Robinhood Chain nor BNB Chain, whose reads keep their own rules", () => {
+    expect(NAME_CHAINS.map(chain => chain.chainKey)).toEqual(["base", "arc", "ethereum", "monad", "gnosis", "celo"]);
     expect(NAME_CHAINS).toContain(BASE_CHAIN);
     expect(NAME_CHAINS).toContain(ARC_CHAIN);
     expect(NAME_CHAINS).toContain(ETHEREUM_CHAIN);
     expect(NAME_CHAINS).toContain(MONAD_CHAIN);
     expect(NAME_CHAINS).toContain(GNOSIS_CHAIN);
+    expect(NAME_CHAINS).toContain(CELO_CHAIN);
     expect(NAME_CHAINS).not.toContain(BSC_CHAIN);
   });
 
@@ -35,8 +36,8 @@ describe("the agent id of a directory key", () => {
     }
   });
 
-  it("reads agent id 0, which is the first registration on Monad and on Gnosis, and puts it last among the newest first", () => {
-    for (const chain of [MONAD_CHAIN, GNOSIS_CHAIN]) {
+  it("reads agent id 0, which is the first registration on Monad, Gnosis and Celo, and puts it last among the newest first", () => {
+    for (const chain of [MONAD_CHAIN, GNOSIS_CHAIN, CELO_CHAIN]) {
       const first = directoryDraft(chain, registration("0")).externalKey;
       expect(agentIdOfKey(chain, first), chain.chainKey).toBe("0");
     }

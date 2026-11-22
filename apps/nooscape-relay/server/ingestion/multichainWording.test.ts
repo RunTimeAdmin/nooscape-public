@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { chainSourcePreset } from "./chainPresets";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, type Erc8004Chain } from "./erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, CELO_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, type Erc8004Chain } from "./erc8004Chains";
 import { resolveRpcUrl } from "./erc8004Rpc";
+import { EXTRA_CHAIN_SPECS } from "@shared/chains";
+import { protocolLabel } from "../../client/src/lib/sourceOperationsModel";
 
 /**
  * The words of the extra chains. Say what was recorded and when; never write that anything is verified, safe, trusted or
@@ -78,18 +80,22 @@ describe("the strings of the new code", () => {
   });
 
   it("say none of the four words in the buttons and labels of the operator's page for the new chains", () => {
-    const page = read("client", "src", "pages", "SourceOperations.tsx");
-    const lines = page.split("\n").filter(line => /Stage (Ethereum|Base|Arc) ERC-8004|erc8004_(eth|base|arc)"\) return/.test(line));
-    expect(lines.length).toBeGreaterThanOrEqual(6);
-    for (const line of lines) expect(line).not.toMatch(FORBIDDEN);
+    // The words the console shows for each extra chain: its source's name and its staging button, from one line each.
+    for (const spec of EXTRA_CHAIN_SPECS) {
+      expect(protocolLabel(spec.protocol), spec.key).not.toMatch(FORBIDDEN);
+      expect(`Stage ${spec.label} ERC-8004 registry · manual only`, spec.key).not.toMatch(FORBIDDEN);
+    }
+    const button = read("client", "src", "pages", "SourceOperations.tsx").split(String.fromCharCode(10)).find(line => line.includes("Stage {spec.label} ERC-8004 registry"));
+    expect(button).toBeDefined();
+    expect(button).not.toMatch(FORBIDDEN);
   });
 
-  const chains: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, GNOSIS_CHAIN];
+  const chains: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, GNOSIS_CHAIN, CELO_CHAIN];
 
   it("say none of the four words in what a chain is called, what its notes say about a link, or what its source is called", () => {
     vi.stubEnv("X402_RPC", "https://arc-node.example/v1/x");
     for (const chain of chains) {
-      const preset = chainSourcePreset(chain, "chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis");
+      const preset = chainSourcePreset(chain, "chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis,chain_celo");
       for (const text of [chain.label, chain.chainLabel, chain.fetchSentence, preset.label, preset.sourceKey]) expect(text, chain.protocol).not.toMatch(FORBIDDEN);
     }
   });

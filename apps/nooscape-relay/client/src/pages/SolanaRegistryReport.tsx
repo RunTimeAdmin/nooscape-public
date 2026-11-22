@@ -1,6 +1,9 @@
 import { Link } from "wouter";
 import { DERIVED as d, MEASURED, PASS_WINDOW, REGISTRIES, REGISTRY_LABEL, SAID_REGISTRATION_MONTHS, registry } from "@/lib/solanaRegistryReport";
 import { InfoPage, headingClass, linkClass, listClass, textClass } from "@/components/InfoPage";
+import { CensusToday } from "@/components/CensusToday";
+import type { CensusTodayFigure } from "@/lib/censusTodayModel";
+import { solanaFigureKey } from "@shared/censusToday";
 
 /**
  * A dated census of the three Solana registries as the directory holds them. It is a report, not a directory: it lists no
@@ -21,6 +24,22 @@ const metaplex = registry("solana_registry");
 const WALLET_BUCKETS = MEASURED.q2.filter(row => row[0] === "solana_8004").map(row => row[1]);
 const bucketRow = (protocol: "solana_8004" | "solana_registry", bucket: string) => MEASURED.q2.find(row => row[0] === protocol && row[1] === bucket)!;
 
+/**
+ * The counts of the first table, registry by registry, for the Today block: each registry's line of query 1, with the words of the
+ * table's columns. The Metaplex registry records no link, so it has no line for links.
+ */
+const TODAY: CensusTodayFigure[] = REGISTRIES.flatMap(key => {
+  const [, entries, wallets, , , distinctLinks, withHttpsHost, hosts] = MEASURED.q1.find(row => row[0] === key)!;
+  const label = REGISTRY_LABEL[key];
+  return [
+    [`${label}: Entries`, entries, solanaFigureKey(key, "entries")],
+    [`${label}: Wallets`, wallets, solanaFigureKey(key, "wallets")],
+    ...(key === "solana_registry" ? [] : [[`${label}: Distinct links`, distinctLinks, solanaFigureKey(key, "distinctLinks")] as const]),
+    [`${label}: With an https link`, withHttpsHost, solanaFigureKey(key, "withHttpsHost")],
+    [`${label}: Host names`, hosts, solanaFigureKey(key, "hosts")],
+  ] as CensusTodayFigure[];
+});
+
 export default function SolanaRegistryReport() {
   return (
     <InfoPage title="Solana registry census, 2026-10-18" eyebrow="Field report" heading="Solana registry census">
@@ -30,6 +49,7 @@ export default function SolanaRegistryReport() {
         <dt>Counted from</dt>
         <dd className="text-ns-ink">the passes that finished between {PASS_WINDOW}</dd>
       </dl>
+      <CensusToday chain="solana" measuredOn={MEASURED.date} figures={TODAY} asOfWords="the earliest of the three registry passes, which finished at" />
 
       <section aria-labelledby="census-method">
         <h2 id="census-method" className={headingClass}>How it was done</h2>

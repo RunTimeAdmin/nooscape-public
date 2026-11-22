@@ -601,7 +601,8 @@ describe("the address", () => {
     expect(head).toContain('title: "Arc registry census, 2026-11-06"');
     // The home tab, the map's caption, the Arc page's share note and the card of a selected group all link to the newest census.
     expect(read("..", "components", "home", "ChainTabs.tsx")).toContain(`<Link href="${ROUTE}"`);
-    expect(read("home", "LandingHero.tsx")).toContain(`<Link href="${ROUTE}"`);
+    // The home map links the report from the same entry, under the chain's caption.
+    expect(read("home", "LandingHero.tsx")).toContain("report: CHAIN_GROUP_REPORT[lights.chain]");
     expect(CHAIN_GROUP_REPORT.arc).toEqual({ href: ROUTE, label: "Arc registry census, 6 November 2026" });
     expect(read("..", "components", "chain", "RegistrationShare.tsx")).toContain("CHAIN_GROUP_REPORT.arc");
   });

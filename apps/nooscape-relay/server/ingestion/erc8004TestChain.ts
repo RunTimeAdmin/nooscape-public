@@ -8,7 +8,8 @@ import { BSC_FIXTURE_MINTS, BSC_FIXTURE_REGISTERED, BSC_FIXTURE_URI_UPDATES } fr
  */
 export const DEMO_CHAIN: PinnedErc8004Chain = {
   ...BSC_CHAIN,
-  protocol: "erc8004_demo",
+  // A protocol no source has: the type admits only the real chains' values, so this one is cast.
+  protocol: "erc8004_demo" as PinnedErc8004Chain["protocol"],
   chainKey: "demo",
   chainId: 7777,
   chainIdHex: "0x1e61",

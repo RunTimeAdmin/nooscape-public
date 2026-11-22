@@ -670,12 +670,31 @@ const checkResult = {
         registration_read_at: nullableDateTime,
       },
     },
+    pay_to: {
+      type: "object",
+      description:
+        "Only when the request carried pay_to: that address set against the wallet the agent's registry returned for getAgentWallet when the check ran. A read that was not made is not_read, and is never taken for a registry that holds none.",
+      required: ["address", "outcome", "agent_wallet", "read_at", "reason", "basis"],
+      additionalProperties: false,
+      properties: {
+        address: { type: "string", description: "The address that was asked about, in lower case." },
+        outcome: {
+          enum: ["matches_agent_wallet", "differs_from_agent_wallet", "no_agent_wallet", "not_read"],
+          description:
+            "matches_agent_wallet: the registry holds a wallet and it is this address. differs_from_agent_wallet: it holds a wallet and it is another address. no_agent_wallet: it holds none (none was set, or it was cleared when the agent changed hands). not_read: the registry could not be read, so nothing is said either way.",
+        },
+        agent_wallet: nullable("string", { description: "The wallet the registry holds for the agent, in lower case. null when it holds none, and when it was not read." }),
+        read_at: nullableDateTime,
+        reason: nullable("string", { description: "Why the registry was not read. null when it was." }),
+        basis: { type: "string", description: "What was compared, and what a match does not show." },
+      },
+    },
   },
 };
 
 const checkRequest = {
   type: "object",
-  description: "Give exactly one of agent, wallet or url. chain narrows a wallet or a url.",
+  description: "Give exactly one of agent, wallet or url. chain narrows a wallet or a url. pay_to goes with an agent.",
   additionalProperties: false,
   properties: {
     agent: {
@@ -687,6 +706,7 @@ const checkRequest = {
     wallet: { type: "string", description: "A wallet address. The check answers for the listings it registered." },
     url: { type: "string", description: "An endpoint address. Only its host is used, to find listings that registered that host. Nothing is fetched." },
     chain: { enum: CHAINS },
+    pay_to: { type: "string", description: "Only with agent, and not for Solana: an address, such as the payTo of a payment requirement. It is set against the wallet the agent's registry holds, which is read from the agent's chain when the request is made." },
   },
 };
 
@@ -1106,6 +1126,52 @@ const paymentRequiredResponse = (description: string) => ({
 });
 
 /** An endpoint the public tier may call, and a key may call with a higher allowance. */
+/** The daily export's manifest, as server/exportAgents.ts writes it. The signature covers signed_payload, the exact text of payload. */
+const exportManifest = {
+  type: "object",
+  required: ["format", "payload", "signed_payload", "signature"],
+  properties: {
+    format: { const: "nooscape-export-v1" },
+    payload: {
+      type: "object",
+      required: ["format", "dataset", "date", "generated_at", "file", "rows", "rows_by_chain", "chains_last_pass", "fields", "statement", "license"],
+      properties: {
+        format: { const: "nooscape-export-v1" },
+        dataset: { const: "agents" },
+        date: { type: "string", format: "date", description: "The UTC day the export is for." },
+        generated_at: { type: "string", format: "date-time" },
+        file: {
+          type: "object",
+          required: ["name", "bytes", "sha256"],
+          properties: { name: { type: "string", description: "agents-YYYY-MM-DD.jsonl.gz" }, bytes: { type: "integer" }, sha256: { type: "string", description: "SHA-256 of the gzip file as served, in hex." } },
+        },
+        rows: { type: "integer" },
+        rows_by_chain: { type: "object", additionalProperties: { type: "integer" } },
+        chains_last_pass: { type: "object", additionalProperties: { type: ["string", "null"], format: "date-time" }, description: "When each chain's sources last finished a pass, or null." },
+        fields: { type: "array", items: { type: "string" }, description: "The fields of each line, in order: chain, agent_id, registry, nooscape_id, page_url, name, registrant, locator_host, first_seen_at, last_seen_at, listed_because, evidence_level, feedback_count." },
+        statement: { type: "string" },
+        license: { type: "object" },
+      },
+    },
+    signed_payload: { type: "string", description: "The exact text that was signed. Parsed, it is payload." },
+    signature: {
+      type: "object",
+      required: ["algorithm", "value", "payload_sha256", "key_id", "public_key_pem", "key_list"],
+      properties: {
+        algorithm: { const: "Ed25519" },
+        value: { type: "string", description: "Base64 Ed25519 signature over the UTF-8 bytes of signed_payload." },
+        payload_sha256: { type: "string" },
+        key_id: { type: "string" },
+        public_key_pem: { type: "string" },
+        key_list: { type: "string", format: "uri", description: "Where the site publishes its keys, to check key_id against." },
+      },
+    },
+  },
+};
+
+const exportDateParameter = { name: "date", in: "path", required: true, description: "The UTC day, as YYYY-MM-DD.", schema: { type: "string", format: "date" } };
+const exportManifestResponse = (description: string) => ({ "200": { ...json("ExportManifest", description), headers: keyedHeaders } });
+
 const optionalKey = [{}, { bearerAuth: [] }];
 const needsKey = [{ bearerAuth: [] }];
 
@@ -1141,7 +1207,7 @@ export const API_V1_SPEC = {
         operationId: "check",
         summary: "Pre-flight facts for an agent, a wallet or an endpoint URL.",
         description:
-          "Needs a Pro key, or a payment for the call (x402): with no key the answer is 402 with the price, and a request that carries a payment is answered like one that carries a Pro key. A payment is charged only for an answer that was built and delivered. Give exactly one of agent, wallet or url. For each listing: the evidence level, four dated flags (first seen, ownership changes, revoked feedback share, fleet size) and the sources they were read from. Facts only: there is no score and no verdict, and a flag that is present is a fact to weigh and not a finding. A wallet or a url answers for the listings it matches exactly, newest first, up to 10. Nothing is fetched from the endpoint. The request counts once against the key's limits.",
+          "Needs a Pro key, or a payment for the call (x402): with no key the answer is 402 with the price, and a request that carries a payment is answered like one that carries a Pro key. A payment is charged only for an answer that was built and delivered. Give exactly one of agent, wallet or url. For each listing: the evidence level, four dated flags (first seen, ownership changes, revoked feedback share, fleet size) and the sources they were read from. Facts only: there is no score and no verdict, and a flag that is present is a fact to weigh and not a finding. A wallet or a url answers for the listings it matches exactly, newest first, up to 10. Nothing is fetched from the endpoint. An agent may also carry pay_to, an address that is set against the wallet the agent's registry holds: the result then has a pay_to block that says whether they match, differ or the registry holds none, and that is one read of the agent's chain made when the request is made. The request counts once against the key's limits.",
         security: [{ bearerAuth: [] }, {}],
         parameters: [payParameter],
         requestBody: { required: true, content: { "application/json": { schema: ref("CheckRequest") } } },
@@ -1160,6 +1226,36 @@ export const API_V1_SPEC = {
           "Free, and needs no key. The body is a packet as the site's Export signed JSON button saves it. The answer says whether the SHA-256 digest and the Ed25519 signature hold, whether the displayed fields are the signed ones, and which key signed it and where that key stands in /.well-known/nooscape-keys.json. It says nothing about the agent the packet is about. The same check runs offline in the nooscape-verify package, which reads that key list from a file you keep.",
         requestBody: { required: true, content: { "application/json": { schema: ref("EvidencePacket") } } },
         responses: { "200": { ...json("VerifyResponse", "The result of the check."), headers: keyedHeaders }, ...errors(400, 401, 413, 429, 503) },
+      },
+    },
+    "/api/v1/exports/agents/latest": {
+      get: {
+        operationId: "getLatestAgentsExport",
+        summary: "The newest daily export's manifest.",
+        description:
+          "Free, and needs no key. Once a day Nooscape writes every agent it lists on a chain this API serves to one gzip file of JSON lines, with the fields the agent's own answer gives (no activity or rating timeline, only the count of ratings), under CC BY 4.0. This answers that day's manifest: the file's name, size and SHA-256, the row counts, when each chain was last read, and an Ed25519 signature over the exact text of the payload, by a key listed at /.well-known/nooscape-keys.json. Fetch the file from /api/v1/exports/agents/{date}/data with the manifest's date.",
+        responses: { ...exportManifestResponse("The newest manifest."), ...errors(401, 404, 429, 503) },
+      },
+    },
+    "/api/v1/exports/agents/{date}": {
+      get: {
+        operationId: "getAgentsExport",
+        summary: "One day's export manifest.",
+        description: "Free, and needs no key. The manifest of the export for that UTC day. Exports are kept for 30 days.",
+        parameters: [exportDateParameter],
+        responses: { ...exportManifestResponse("That day's manifest."), ...errors(400, 401, 404, 429, 503) },
+      },
+    },
+    "/api/v1/exports/agents/{date}/data": {
+      get: {
+        operationId: "getAgentsExportData",
+        summary: "One day's export file.",
+        description: "Free, and needs no key. The gzip file the day's manifest names: one JSON object a line, its fields in the order the manifest lists them. Check its SHA-256 against the manifest.",
+        parameters: [exportDateParameter],
+        responses: {
+          "200": { description: "The gzip file of JSON lines.", headers: keyedHeaders, content: { "application/gzip": { schema: { type: "string", format: "binary" } } } },
+          ...errors(400, 401, 404, 429, 503),
+        },
       },
     },
     "/api/v1/watches": {
@@ -1323,6 +1419,7 @@ export const API_V1_SPEC = {
       WebhookResponse: webhookResponse,
       WebhookRemoveResponse: webhookRemoveResponse,
       WebhookDeliveries: webhookDeliveries,
+      ExportManifest: exportManifest,
       Error: errorResponse,
     },
     securitySchemes: {

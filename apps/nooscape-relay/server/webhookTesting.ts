@@ -1,5 +1,6 @@
 import type { ClaimEditFact, EventSource, Found, RatingFact, TransferFact, WatchedEntry } from "./webhookEvents";
 import type { DeliveryRow, LiveWatch, WatchRow, WebhookRow, WebhookStore } from "./webhookStore";
+import { readPage } from "./webhookPaging";
 
 /**
  * Test support for webhooks (docs/data-access-2026-10-19.md, stage D5): a store and an event source that live in memory and answer the way
@@ -173,13 +174,20 @@ export type MemoryLedgers = {
 export function memoryEventSource(ledgers: MemoryLedgers, options: { limit?: number; chunk?: number } = {}): EventSource {
   const limit = options.limit ?? 5_000;
   const chunk = options.chunk ?? 200;
-  const read = <T>(asked: string[], rowsFor: (ids: string[]) => T[], position: (row: T) => number, tie: (row: T) => string, forced: boolean | undefined): Found<T> => {
+  const read = async <T>(asked: string[], rowsFor: (ids: string[]) => T[], position: (row: T) => number, tie: (row: T) => string, forced: boolean | undefined, widen = false): Promise<Found<T>> => {
     const rows: T[] = [];
     let through: number | undefined;
     for (let start = 0; start < asked.length; start += chunk) {
       const matching = rowsFor(asked.slice(start, start + chunk)).sort((a, b) => position(a) - position(b) || tie(a).localeCompare(tie(b)));
       if (forced) {
         rows.push(...matching);
+        continue;
+      }
+      if (widen) {
+        // The time ledgers widen a page that is all one second, as the database's reads do.
+        const paged = await readPage(async size => matching.slice(0, size), limit, position);
+        rows.push(...paged.rows);
+        if (paged.through !== undefined) through = Math.min(through ?? Infinity, paged.through);
         continue;
       }
       const page = matching.slice(0, limit);
@@ -195,9 +203,9 @@ export function memoryEventSource(ledgers: MemoryLedgers, options: { limit?: num
     claimEdits: async (afterSeq, entryIds, since) =>
       read(entryIds, ids => ledgers.claims.filter(row => row.seq > afterSeq && row.occurredAt.getTime() >= since.getTime() && ids.includes(row.entryId)), row => row.seq, row => String(row.seq).padStart(12, "0"), ledgers.full?.claims),
     transfers: async (since, entries) =>
-      read(entries.map(entry => entry.id), ids => ledgers.transfers.filter(row => row.createdAt.getTime() >= since.getTime() && ids.includes(row.entryId)), row => row.createdAt.getTime(), row => row.ref, ledgers.full?.transfers),
+      read(entries.map(entry => entry.id), ids => ledgers.transfers.filter(row => row.createdAt.getTime() >= since.getTime() && ids.includes(row.entryId)), row => row.createdAt.getTime(), row => row.ref, ledgers.full?.transfers, true),
     ratings: async (since, entries) =>
-      read(entries.map(entry => entry.id), ids => ledgers.ratings.filter(row => row.createdAt.getTime() >= since.getTime() && ids.includes(row.entryId)), row => row.createdAt.getTime(), row => row.ref, ledgers.full?.ratings),
+      read(entries.map(entry => entry.id), ids => ledgers.ratings.filter(row => row.createdAt.getTime() >= since.getTime() && ids.includes(row.entryId)), row => row.createdAt.getTime(), row => row.ref, ledgers.full?.ratings, true),
   };
 }
 

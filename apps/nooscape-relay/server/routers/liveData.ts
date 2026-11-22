@@ -61,33 +61,22 @@ import {
   unhideDirectoryEntry,
 } from "../db";
 import { readBscRegistryProfile, readRegistryCounts } from "../agentRegistryRows";
-import { extraChainsOn, extraProtocolOf, type ChainStat, type ExtraChainKey, type ExtraChainStat, type RegistryProfile } from "@shared/chains";
+import { EXTRA_CHAINS, extraChainsOn, extraProtocolOf, isExtraChainKey, type ChainStat, type ExtraChainKey, type ExtraChainStat, type RegistryProfile } from "@shared/chains";
 import { readCatchArchive, readCatchForDate, readTodaysCatch, unavailableCatch } from "../owlsCatch";
 import { storagePut, verifyStoredObject } from "../storage";
 import { isCatchDate } from "@shared/owlsCatch";
 import { CENSUS_CHAINS, censusChainOn } from "@shared/censusToday";
 import { readCensusToday } from "../censusToday";
 import { validateA2aSourceRoot } from "../ingestion/a2a";
-import { runApprovedA2aSource } from "../ingestion/runA2a";
-import { runApprovedCatalogSource } from "../ingestion/runCatalog";
-import { runApprovedAgentEconomySource } from "../ingestion/runAgentEconomy";
-import { runApproved8004SolanaSource } from "../ingestion/run8004Solana";
-import { runApprovedSaidSource } from "../ingestion/runSaid";
-import { runApprovedAgencSource } from "../ingestion/runAgenc";
 import { AGENC_CHAIN_SOURCE_KEY } from "../ingestion/agencChain";
-import { runApprovedBscRegistrySource } from "../ingestion/runBsc";
 import { BSC_ALLOWED_HOSTNAME, BSC_ROOT_URL, BSC_SOURCE_KEY, BscRegistryValidationError } from "../ingestion/bscChain";
 import { BscRpcError, BscRpcNotConfiguredError } from "../ingestion/bscRpc";
-import { runApprovedErc8004ChainSource } from "../ingestion/runErc8004Chain";
+import { NoSourceAdapterError, runSource, SourceModeRefusedError } from "../ingestion/runSource";
 import { Erc8004ChainOffError } from "../ingestion/erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, erc8004ChainOfProtocol } from "../ingestion/erc8004Chains";
+import { erc8004ChainOfKey } from "../ingestion/erc8004Chains";
 import { Erc8004RpcNotConfiguredError } from "../ingestion/erc8004Rpc";
 import { chainSourcePreset } from "../ingestion/chainPresets";
-import { runApprovedMetaplexRegistrySource } from "../ingestion/runMetaplex";
 import { METAPLEX_LIST_URL } from "../ingestion/metaplex";
-import { runApprovedRobinhoodRegistrySource } from "../ingestion/runRobinhood";
-import { runApprovedRobinhoodReputationSource } from "../ingestion/runRobinhoodReputation";
-import { runApprovedUsdgSettlementSource } from "../ingestion/runUsdg";
 import { ROBINHOOD_RPC_URL, RobinhoodWalkModeRefusedError } from "../ingestion/robinhood";
 import { runRateLimitedIngestionTick } from "../ingestion/worker";
 import { readPublicChecks, runLivenessChecks } from "../agentChecks";
@@ -274,15 +263,15 @@ const approvedPublicSources = {
 } as const;
 
 /**
- * The chains of the identity pass that have a switch (docs/multichain-erc8004-2026-10-20.md), by the name the staging action gives them.
- * Their sources are made from the chain's entry (ingestion/chainPresets.ts), not from a constant here.
+ * The extra chains of the identity pass (docs/multichain-erc8004-2026-10-20.md) are staged by their key on the site. Their sources are made
+ * from the chain's entry (ingestion/chainPresets.ts), not from a constant here.
  */
-const switchedChains = { ethereum: ETHEREUM_CHAIN, base: BASE_CHAIN, arc: ARC_CHAIN, monad: MONAD_CHAIN, gnosis: GNOSIS_CHAIN } as const;
+const extraChainEnum = EXTRA_CHAINS as unknown as [ExtraChainKey, ...ExtraChainKey[]];
 
 /** The preset for one of them, with the two refusals it can make (switched off; endpoint not set) put to the operator as what they are. */
-function stageableChainSource(name: keyof typeof switchedChains) {
+function stageableChainSource(name: ExtraChainKey) {
   try {
-    return chainSourcePreset(switchedChains[name]);
+    return chainSourcePreset(erc8004ChainOfKey(name)!);
   } catch (error) {
     // Both messages are fixed and name a switch or a variable, never a value.
     if (error instanceof Erc8004ChainOffError || error instanceof Erc8004RpcNotConfiguredError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
@@ -589,7 +578,7 @@ export const liveDataRouter = router({
   // more of its registrations share, from the registry rows (docs/chain-worlds-2026-10-20.md). No registration is returned, only the
   // shared fact. Fails closed to no groups, which is also what it answers while the chain's switch is off or before its first
   // complete pass has published.
-  registryFleets: publicProcedure.input(z.object({ chain: z.enum(["arc", "base", "ethereum", "monad", "gnosis"]) })).query(async ({ input }) => {
+  registryFleets: publicProcedure.input(z.object({ chain: z.enum(extraChainEnum) })).query(async ({ input }) => {
     try {
       if (!extraChainsOn(process.env.VITE_FEATURES).includes(input.chain)) return EMPTY_REGISTRY_FLEETS;
       return await readRegistryFleets(input.chain);
@@ -797,12 +786,12 @@ export const liveDataRouter = router({
       }
     }),
     registerApprovedPublicSource: operatorProcedure
-      .input(z.object({ source: z.enum(["agenstry", "a2aregistry", "a2aRegistryApi", "agentEconomy", "metaplex", "robinhood", "usdgSettlements", "robinhoodReputation", "solana8004", "said", "agenc", "bsc", "ethereum", "base", "arc", "monad", "gnosis"]) }))
+      .input(z.object({ source: z.enum([...(Object.keys(approvedPublicSources) as Array<keyof typeof approvedPublicSources>), ...EXTRA_CHAINS] as [keyof typeof approvedPublicSources | ExtraChainKey, ...Array<keyof typeof approvedPublicSources | ExtraChainKey>]) }))
       .mutation(async ({ ctx, input }) => {
         const candidate =
-          input.source === "ethereum" || input.source === "base" || input.source === "arc" || input.source === "monad" || input.source === "gnosis"
+          isExtraChainKey(input.source)
             ? stageableChainSource(input.source)
-            : approvedPublicSources[input.source];
+            : approvedPublicSources[input.source as keyof typeof approvedPublicSources];
         try {
           const existing = (await listIngestionSources()).find(source => source.sourceKey === candidate.sourceKey);
           if (existing) return { sourceId: existing.id, state: existing.state, created: false } as const;
@@ -814,13 +803,12 @@ export const liveDataRouter = router({
           if (input.source === "agenc" && driverErrorHas(error, "WARN_DATA_TRUNCATED") && describeFailure(error).includes("'protocol'")) {
             throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The database does not have the AgenC protocol value yet. Paste migration 0051 first (docs/agenc-solana-2026-10-26.md), then stage the source again." });
           }
-          // The same for Monad's value (migration 0053).
-          if (input.source === "monad" && driverErrorHas(error, "WARN_DATA_TRUNCATED") && describeFailure(error).includes("'protocol'")) {
-            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The database does not have the Monad protocol value yet. Paste migration 0053 first (docs/monad-erc8004-2026-11-01.md), then stage the source again." });
-          }
-          // The same for Gnosis's value (migration 0057).
-          if (input.source === "gnosis" && driverErrorHas(error, "WARN_DATA_TRUNCATED") && describeFailure(error).includes("'protocol'")) {
-            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The database does not have the Gnosis protocol value yet. Paste migration 0057 first (docs/gnosis-erc8004-2026-11-06.md), then stage the source again." });
+          // The same for an extra chain whose value was added by a migration run by hand (its entry's protocolMigration: Monad's 0053,
+          // Gnosis's 0057, Celo's 0060).
+          const handMigration = isExtraChainKey(input.source) ? erc8004ChainOfKey(input.source) : null;
+          if (handMigration?.protocolMigration && driverErrorHas(error, "WARN_DATA_TRUNCATED") && describeFailure(error).includes("'protocol'")) {
+            const { version, record } = handMigration.protocolMigration;
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: `The database does not have the ${handMigration.chainLabel} protocol value yet. Paste migration ${version} first (${record}), then stage the source again.` });
           }
           return databaseFailure(error);
         }
@@ -1261,90 +1249,12 @@ export const liveDataRouter = router({
               message: "Approve the source before running ingestion.",
             });
           }
-          if (source.protocol === "a2a") return await runApprovedA2aSource(source, "manual");
-          if (source.protocol === "catalog") return await runApprovedCatalogSource(source, "manual");
-          if (source.protocol === "census") return await runApprovedAgentEconomySource(source, "manual");
-          if (source.protocol === "solana_registry") {
-            // The API pilot (observe) and the on-chain chain pass (activity)
-            // are the only Metaplex surfaces; the walk modes have no meaning.
-            if (input.mode === "backfill" || input.mode === "registrants") {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: "The Metaplex Solana registry supports the observe and activity modes only.",
-              });
-            }
-            return await runApprovedMetaplexRegistrySource(source, "manual", input.mode === "activity" ? "activity" : "observe");
-          }
-          if (source.protocol === "solana_8004") {
-            // The 8004 registry has one surface: the on-chain chain pass
-            // (seed inventory until an `s8004:` cursor exists, then diff
-            // passes). Observe and the walk modes have no meaning here.
-            if (input.mode !== "activity") {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: "The 8004 Solana registry supports the chain activity pass only.",
-              });
-            }
-            return await runApproved8004SolanaSource(source, "manual");
-          }
-          if (source.protocol === "solana_said") {
-            // The SAID registry has one surface: the on-chain identity pass
-            // (seed inventory until a `said:` cursor exists, then refresh
-            // passes). Observe and the walk modes have no meaning here.
-            if (input.mode !== "activity") {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: "The SAID Solana registry supports the chain activity pass only.",
-              });
-            }
-            return await runApprovedSaidSource(source, "manual");
-          }
-          if (source.protocol === "solana_agenc") {
-            // The AgenC registry has one surface: the on-chain agent pass (inventory until an `agenc:` cursor exists, then refresh passes).
-            // Observe and the walk modes have no meaning here.
-            if (input.mode !== "activity") {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: "The AgenC Solana registry supports the chain activity pass only.",
-              });
-            }
-            return await runApprovedAgencSource(source, "manual");
-          }
-          if (source.protocol === "erc8004_bsc") {
-            // The BNB Chain registry has one surface: the chain pass (a forward
-            // walk from the deploy block, then the finalized tail). Observe and
-            // the Robinhood walk modes have no meaning here.
-            if (input.mode !== "activity") {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: "The BNB Chain identity registry supports the chain activity pass only.",
-              });
-            }
-            return await runApprovedBscRegistrySource(source, "manual");
-          }
-          const chain = erc8004ChainOfProtocol(source.protocol);
-          if (chain) {
-            // Ethereum, Base and Arc read the same registry the same way (the one chain pass, erc8004Chains.ts): one surface, the chain
-            // pass. The pass itself refuses to run while the chain's switch is off.
-            if (input.mode !== "activity") {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: `The ${chain.chainLabel} identity registry supports the chain activity pass only.`,
-              });
-            }
-            return await runApprovedErc8004ChainSource(chain, source, "manual");
-          }
-          if (source.protocol === "erc8004") return await runApprovedRobinhoodRegistrySource(source, "manual", input.mode);
-          if (source.protocol === "erc8004_reputation") {
-            // The ratings walk has no observe or registrants surface: only the
-            // backward backfill window and the forward ratings fill exist, and
-            // the adapter rejects every position/mode mismatch itself.
-            return await runApprovedRobinhoodReputationSource(source, "manual", input.mode === "activity" ? "activity" : "backfill");
-          }
-          if (source.protocol === "usdg_settlement") return await runApprovedUsdgSettlementSource(source, "manual");
-          throw new TRPCError({ code: "BAD_REQUEST", message: `No bounded adapter is available for ${source.protocol}.` });
+          // One dispatch for the operator's runs and the scheduled worker's (ingestion/runSource.ts): it refuses a mode the adapter does not
+          // have, and a protocol with no adapter, before anything runs.
+          return await runSource(source, "manual", input.mode);
         } catch (error) {
           if (error instanceof TRPCError) throw error;
+          if (error instanceof SourceModeRefusedError || error instanceof NoSourceAdapterError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
           // A walk click the persisted position cannot honor is an operator
           // mistake: say so, instead of the generic storage failure.
           if (error instanceof RobinhoodWalkModeRefusedError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });

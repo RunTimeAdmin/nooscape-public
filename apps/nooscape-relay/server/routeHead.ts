@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { listedChainLabel, listedChainOf } from "@shared/chains";
 import { SITE_ORIGIN, type PageMeta } from "@shared/owlsCatch";
-import { injectHead } from "./catchPage";
+import { injectHead, sendUnavailable } from "./catchPage";
 import { isCircuitOpenError } from "./dbBreaker";
 import { listLiveAtlasRecords, readAgentDirectoryHeadFacts } from "./db";
 import { isClientRoutePath } from "./clientRoutes";
@@ -26,8 +26,13 @@ import { sanitizePublicText } from "./publicText";
  *   entry may not (`noindex, follow`): it is one of a quarter of a million thin pages, acknowledged and never reviewed, and
  *   the sitemap has never listed them. An address with no agent behind it is kept out of search too.
  * - The homepage keeps the shell's own head, which is right for it. A path the app cannot route is the fallback's, with
- *   its real 404. If the agent cannot be read the ordinary shell is sent, because the server cannot tell which it is.
+ *   its real 404. An id with no agent behind it is a 404 too, with the same shell (the page says so).
+ * - If the agent cannot be read the answer is 503 with Retry-After, because the server cannot tell which it is. Before,
+ *   the ordinary shell went out with 200 and the homepage's canonical address, which a search engine read as a copy of
+ *   the homepage or as a page that says "not found" (Search Console, 2026-11-16: soft 404 and "Google chose different
+ *   canonical than user").
  */
+
 
 const INDEXED = "index, follow, max-image-preview:large";
 const NOT_INDEXED = "noindex, follow";
@@ -101,6 +106,14 @@ export const ROUTE_HEADS: Record<string, Head> = {
       alt: `Nooscape, World 08, Gnosis: three platforms, same host, same profile link and same wallet, each with octagon formations, beside the words The teal lantern, A quiet registry, read in groups, the note Illustration, not agent activity, and the line ${PROMISES}`,
     },
   },
+  "/chains/celo": {
+    title: "Celo registry groups",
+    description: "Explore the groups of Celo registrations that share a wallet, a link or a host. A group is not an agent, and a registration is not an endorsement.",
+    image: {
+      file: "nooscape-card-chain-celo.png",
+      alt: `Nooscape, World 09, Celo: three platforms, same host, same profile link and same wallet, each with arrowhead formations, beside the words The jade compass, A crowded registry, read in groups, the note Illustration, not agent activity, and the line ${PROMISES}`,
+    },
+  },
   "/field/arc-registry-2026-10-20": {
     title: "Arc registry census, 2026-10-20",
     description: "A dated count of the ERC-8004 identity registry on Arc as the directory holds it: who registered, what the listing rules held out and what the chain records. Counts only, with no agent, wallet or host named.",
@@ -125,6 +138,10 @@ export const ROUTE_HEADS: Record<string, Head> = {
     title: "Gnosis registry census, 2026-11-06",
     description: "A dated count of the ERC-8004 identity registry on Gnosis as the directory holds it: who registered, what the listing rules held out, what the chain records and when. Counts only, with no agent, wallet or host named.",
   },
+  "/field/celo-registry-2026-11-20": {
+    title: "Celo registry census, 2026-11-20",
+    description: "A dated count of the ERC-8004 identity registry on Celo as the directory holds it: who registered, what the listing rules held out, what the chain records and when. Counts only, with no agent, wallet or host named.",
+  },
   "/chains/bnb": {
     title: "BNB Chain registry groups",
     description: "Explore the groups of BNB Chain registrations that share a wallet, a link, a host or a template. A group is not an agent, and a registration is not an endorsement.",
@@ -148,6 +165,10 @@ export const ROUTE_HEADS: Record<string, Head> = {
   "/field/robinhood-registry-2026-10-20": {
     title: "Robinhood Chain registry census, 2026-10-20",
     description: "A dated census of the ERC-8004 identity registry on Robinhood Chain as the directory holds it: size, registering wallets, host names, names and what the chain records for each entry. Counts over recorded facts, not a score.",
+  },
+  "/field/validation-registry-2026-11-20": {
+    title: "Validation Registry census, 2026-11-20",
+    description: "A dated count of the ERC-8004 Validation Registry on the chains Nooscape asked: requests and responses read from the chains' own logs, and the chains that could not be read. Counts only, with no agent, wallet or validator named.",
   },
   "/developers": {
     title: "Developer API",
@@ -255,14 +276,49 @@ const chainLabelOf = (protocol: string) => {
   return chain ? listedChainLabel(chain) : null;
 };
 
-/** An id is looked up as a directory entry first (one row by its key), then as a reviewed record (the live records, which is the heavier read). */
+const LIVE_RECORDS_CACHE_MS = 60_000;
+
+/**
+ * The reviewed records by agent id, held for a minute and read one at a time. An id that is not a directory entry is looked up
+ * among them, and the read behind them is a join over every reviewed snapshot, so the many ids a crawler (or anyone) asks for
+ * must share one read and not make one each. The cache below is keyed by the id the client chooses, so ids that are all new
+ * always miss it. A failed read is not held. The first record of an id wins, as a find over the list would.
+ */
+export function cachedLiveRecords(
+  read: () => Promise<ReadonlyArray<{ agentId: string; displayName: string }>>,
+  now: () => number = Date.now
+): () => Promise<ReadonlyMap<string, string>> {
+  let held: { until: number; names: ReadonlyMap<string, string> } | null = null;
+  let reading: Promise<ReadonlyMap<string, string>> | null = null;
+  return () => {
+    const at = now();
+    if (held && held.until > at) return Promise.resolve(held.names);
+    if (reading) return reading;
+    const started = read()
+      .then(records => {
+        const names = new Map<string, string>();
+        for (const record of records) if (!names.has(record.agentId)) names.set(record.agentId, record.displayName);
+        held = { until: at + LIVE_RECORDS_CACHE_MS, names };
+        return names as ReadonlyMap<string, string>;
+      })
+      .finally(() => {
+        reading = null;
+      });
+    reading = started;
+    return started;
+  };
+}
+
+const liveRecordNames = cachedLiveRecords(() => listLiveAtlasRecords());
+
+/** An id is looked up as a directory entry first (one row by its key), then as a reviewed record (the live records, shared by every id and held for a minute). */
 async function readAgentFromDatabase(id: string): Promise<AgentHeadFacts | null> {
   if (id.length <= ENTRY_ID_MAX_CHARS) {
     const entry = await readAgentDirectoryHeadFacts(id);
     if (entry) return { name: cleanName(entry.displayName), reviewed: false, chain: chainLabelOf(entry.protocol) };
   }
-  const record = (await listLiveAtlasRecords()).find(item => item.agentId === id);
-  return record ? { name: cleanName(record.displayName), reviewed: true, chain: null } : null;
+  const name = (await liveRecordNames()).get(id);
+  return name === undefined ? null : { name: cleanName(name), reviewed: true, chain: null };
 }
 
 const AGENT_CACHE_MS = 60_000;
@@ -298,8 +354,8 @@ export function routeHeads(distPath: string, deps: RouteHeadDeps = { readAgent: 
   const router = express.Router();
   let shell: string | null = null;
   const readShell = () => (shell ??= fs.readFileSync(path.resolve(distPath, "index.html"), "utf8"));
-  const send = (res: Response, meta: PageMeta) => {
-    res.status(200).set("Cache-Control", "public, max-age=60").send(injectHead(readShell(), meta));
+  const send = (res: Response, meta: PageMeta, status = 200) => {
+    res.status(status).set("Cache-Control", "public, max-age=60").send(injectHead(readShell(), meta));
   };
 
   // `use`, not `get("*")`: Express decodes a wildcard's path itself and answers a malformed percent sequence with an error page,
@@ -322,10 +378,11 @@ export function routeHeads(distPath: string, deps: RouteHeadDeps = { readAgent: 
       try {
         facts = await deps.readAgent(id);
       } catch (error) {
-        if (!isCircuitOpenError(error)) console.warn("[RouteHead] The agent could not be read; sending the ordinary page.");
-        return next();
+        if (!isCircuitOpenError(error)) console.warn("[RouteHead] The agent could not be read; answering 503 so a crawler comes back later.");
+        return sendUnavailable(res, readShell(), `${SITE_ORIGIN}/agents/${encodeURIComponent(id)}`);
       }
-      send(res, agentMeta(id, facts));
+      // An address with no agent behind it is a real 404, not a 200 that says "not found" (a soft 404 to a search engine).
+      send(res, agentMeta(id, facts), facts ? 200 : 404);
     } catch {
       next();
     }

@@ -606,6 +606,36 @@ describe.skipIf(!dbReachable)("the registry rows listing against a real database
       expect(await listingOf(source, 1, 2)).toEqual([GROUPED, GROUPED]);
     });
 
+    it("writes an operator's hide and unhide to the registry row at once, so the groups stop counting the entry, and keeps a suppressed host hidden", async () => {
+      const source = await newSource();
+      await seed(source, [
+        draft(1, { locatorHost: "group.example.com" }),
+        draft(2, { locatorHost: "group.example.com" }),
+        draft(3, { locatorHost: "group.example.com" }),
+        draft(4, { locatorHost: "api.agentrank.info" }),
+      ]);
+      await classify(source);
+      await registry.publishAgentRegistryListing(source.id);
+      const topHosts = async () => (await registry.readAgentRegistryProfile(source.id, RULES)).topHosts;
+      expect(await topHosts()).toEqual([{ host: "group.example.com", registrations: 3 }]);
+
+      const entry = (await entryOf(source, 1))!;
+      await db.hideDirectoryEntry(entry.id);
+      expect((await rowOf(source, 1)).hidden).toBe(true);
+      expect(await topHosts()).toEqual([{ host: "group.example.com", registrations: 2 }]);
+
+      await db.unhideDirectoryEntry(entry.id);
+      expect((await rowOf(source, 1)).hidden).toBe(false);
+      expect(await topHosts()).toEqual([{ host: "group.example.com", registrations: 3 }]);
+
+      // A registration on a suppressed host was inserted hidden, and unhiding its entry does not bring it into a group.
+      const suppressed = (await entryOf(source, 4))!;
+      expect(suppressed.hidden).toBe(true);
+      await db.unhideDirectoryEntry(suppressed.id);
+      expect((await entryOf(source, 4))!.hidden).toBe(false);
+      expect((await rowOf(source, 4)).hidden).toBe(true);
+    });
+
     it("keeps an operator's hide when a registration leaves the listing and comes back", async () => {
       const source = await newSource();
       await seed(source, [draft(1), draft(2)]);
@@ -931,6 +961,32 @@ describe.skipIf(!dbReachable)("the registry rows listing against a real database
       await classify(source);
       expect((await registry.readAgentRegistryProfile(source.id, RULES)).sharedProfileGroups).toEqual([{ label: "pair-profile.example.net", registrations: 2 }]);
       expect((await registry.readAgentRegistryProfile(source.id, { ...RULES, sharedProfileLinkFrom: 3 })).sharedProfileGroups).toEqual([]);
+    });
+
+    it("leaves a hidden or suppressed registration out of the profile's links and hosts, as the groups of the chain's page do", async () => {
+      const source = await newSource();
+      const suppressedLink = sha("link-of-suppressed-hosts");
+      const mixedLink = sha("link-with-one-hidden-member");
+      await seed(source, [
+        // Three registrations on a suppressed domain are inserted hidden, so they are no host and no shared link.
+        draft(1, { profileUriHash: suppressedLink, locatorHost: "api.agentrank.info", displayName: "Suppressed Name" }),
+        draft(2, { profileUriHash: suppressedLink, locatorHost: "api.agentrank.info", displayName: "Suppressed Name" }),
+        draft(3, { profileUriHash: suppressedLink, locatorHost: "api.agentrank.info", displayName: "Suppressed Name" }),
+        // Three on one host and one link, one of them hidden: the other two are counted.
+        draft(4, { profileUriHash: mixedLink, locatorHost: "mixed.example.com" }),
+        draft(5, { profileUriHash: mixedLink, locatorHost: "mixed.example.com" }),
+        draft(6, { profileUriHash: mixedLink, locatorHost: "mixed.example.com" }),
+      ]);
+      await writer
+        .update(schema.agentDirectoryRegistryRows)
+        .set({ hidden: true })
+        .where(and(eq(schema.agentDirectoryRegistryRows.sourceId, source.id), eq(schema.agentDirectoryRegistryRows.externalKey, keyOf(6))));
+      await classify(source);
+      const profile = await registry.readAgentRegistryProfile(source.id, RULES);
+      expect(profile.sharedProfileGroups).toEqual([{ label: "mixed.example.com", registrations: 2 }]);
+      expect(profile.topHosts).toEqual([{ host: "mixed.example.com", registrations: 2 }]);
+      // What the registry holds is unchanged: the hidden ones are stored, and counted as recorded.
+      expect(profile.recorded).toBe(6);
     });
 
     it("cleans a self-asserted name before it labels a shared link on a public surface", async () => {

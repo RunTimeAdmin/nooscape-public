@@ -1,6 +1,10 @@
 # Public pages are discoverable; API and internal operator surfaces are not.
+# /api/trpc/ is allowed because the pages read their data from it in the browser: a search engine that renders a page
+# needs it, or an agent page renders as a failed read (Search Console, 2026-11-16: soft 404). Its answers carry
+# X-Robots-Tag: noindex, so the data itself stays out of search. The longest rule wins, so the rest of /api/ stays closed.
 User-agent: *
 Allow: /
+Allow: /api/trpc/
 Disallow: /api/
 Disallow: /admin/
 

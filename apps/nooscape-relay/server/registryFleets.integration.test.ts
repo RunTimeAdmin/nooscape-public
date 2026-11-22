@@ -8,7 +8,7 @@ import * as schema from "../drizzle/schema";
 import { ARC_CHAIN } from "./ingestion/erc8004Chains";
 
 /**
- * The groups behind the formations on Arc's, Base's, Ethereum's, Monad's and Gnosis's own pages, counted over the registry rows of a real database (docs/chain-worlds-2026-10-20.md,
+ * The groups behind the formations on Arc's, Base's, Ethereum's, Monad's, Gnosis's and Celo's own pages, counted over the registry rows of a real database (docs/chain-worlds-2026-10-20.md,
  * "The Arc world", and docs/base-world-2026-10-21.md): the registering wallets, hosts and profile links that 50 or more registrations share, every registration counted
  * whether it is listed or held out, and a registration that is hidden counted in none. Skips when no database is reachable.
  */
@@ -87,6 +87,8 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
     for (const statement of splitMigrationStatements(await readFile("drizzle/0053_monad_erc8004_protocol.sql", "utf8"))) await owner.query(statement);
     // And 0057, which restates 0053's list and adds Gnosis's protocol, for the Gnosis page's groups.
     for (const statement of splitMigrationStatements(await readFile("drizzle/0057_gnosis_erc8004_protocol.sql", "utf8"))) await owner.query(statement);
+    // And 0060, which restates 0057's list and adds Celo's protocol, for the Celo page's groups.
+    for (const statement of splitMigrationStatements(await readFile("drizzle/0060_celo_erc8004_protocol.sql", "utf8"))) await owner.query(statement);
     await owner.end();
 
     readCache = await import("./readCache");
@@ -454,6 +456,47 @@ describe.skipIf(!dbReachable)("the groups of an extra chain's registry, against 
       expect(ethereum.fleets.map(fleet => fleet.count)).toEqual([90, 60]);
       expect((await caller().liveData.registryFleets({ chain: "gnosis" })).fleets.map(fleet => fleet.count)).toEqual([80, 55]);
       expect(monad.fleets.map(fleet => fleet.count)).toEqual([80, 55]);
+      features(undefined);
+    });
+
+    it("serves Celo's groups the same way, from Celo's own rows and only while its switch is on, and never mixes the chains", async () => {
+      await writer.insert(schema.ingestionSources).values({ id: "src-celo", sourceKey: "fleets-celo", label: "Celo", protocol: "erc8004_celo", rootUrl: "https://forno.celo.org", allowedHostname: "forno.celo.org", state: "active", createdByUserId: operatorUserId });
+      const [row] = await writer.select().from(schema.ingestionSources).where(eq(schema.ingestionSources.id, "src-celo"));
+      const celoSource = row!;
+      // A wallet of 85, a host of 60 and three registrations that stand alone, which the pass publishes.
+      await register(celoSource, 85, { owner: () => wallet(13) });
+      await register(celoSource, 60, { host: "celo-host.example.app" });
+      await register(celoSource, 3);
+      await registry.refreshAgentRegistryListing(celoSource, { classify: true, publish: true });
+
+      features(undefined);
+      expect(await caller().liveData.registryFleets({ chain: "celo" })).toEqual({ fleets: [], groups: 0, walletGroups: 0, recorded: null, counted: 0, asOf: null });
+      features("chain_arc,chain_base,chain_ethereum,chain_monad,chain_gnosis");
+      expect((await caller().liveData.registryFleets({ chain: "celo" })).fleets).toEqual([]);
+      features("chain_celo");
+      const celo = await caller().liveData.registryFleets({ chain: "celo" });
+      expect(celo.fleets.map(fleet => [fleet.chain, fleet.kind, fleet.count])).toEqual([
+        ["celo", "wallet", 85],
+        ["celo", "platform_host", 60],
+      ]);
+      expect(celo.recorded).toBe(148);
+      expect(celo.groups).toBe(2);
+      expect(celo.walletGroups).toBe(1);
+      expect(celo.fleets.every(fleet => /^celo-fleet-[0-9a-f]{16}$/.test(fleet.id))).toBe(true);
+      // The other chains' switches are off, so they answer nothing, and none of their wallets or hosts is among Celo's groups.
+      for (const chain of ["arc", "base", "ethereum", "monad", "gnosis"] as const) expect((await caller().liveData.registryFleets({ chain })).fleets, chain).toEqual([]);
+      expect(celo.fleets.some(fleet => fleet.wallet === wallet(1) || fleet.wallet === wallet(7) || fleet.wallet === wallet(9) || fleet.wallet === wallet(11) || fleet.wallet === wallet(12) || fleet.name === "monad-host.example.app" || fleet.name === "busy.example.app" || fleet.name === "base-host.example.app" || fleet.name === "eth-host.example.app" || fleet.name === "gnosis-host.example.app")).toBe(false);
+      // With all six on, each chain answers from its own rows only.
+      features("chain_arc,chain_base,chain_ethereum,chain_monad,chain_gnosis,chain_celo");
+      for (const chain of ["ethereum", "monad", "gnosis"] as const) {
+        const other = await caller().liveData.registryFleets({ chain });
+        expect(other.fleets.every(fleet => fleet.chain === chain), chain).toBe(true);
+        expect(other.fleets.some(fleet => fleet.wallet === wallet(13) || fleet.name === "celo-host.example.app"), chain).toBe(false);
+      }
+      expect((await caller().liveData.registryFleets({ chain: "base" })).fleets.map(fleet => fleet.count)).toEqual([70, 55]);
+      expect((await caller().liveData.registryFleets({ chain: "ethereum" })).fleets.map(fleet => fleet.count)).toEqual([90, 60]);
+      expect((await caller().liveData.registryFleets({ chain: "gnosis" })).fleets.map(fleet => fleet.count)).toEqual([80, 55]);
+      expect((await caller().liveData.registryFleets({ chain: "celo" })).fleets.map(fleet => fleet.count)).toEqual([85, 60]);
       features(undefined);
     });
   });

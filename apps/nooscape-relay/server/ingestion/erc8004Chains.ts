@@ -1,4 +1,5 @@
 import { featureOn, type Feature } from "@shared/features";
+import type { Erc8004ChainProtocol } from "./types";
 import { ENV } from "../_core/env";
 import type { RegistryListingRules } from "../agentRegistryRows";
 import { arcRpcUrl } from "../arcRpc";
@@ -71,7 +72,7 @@ type Erc8004Provider = { kind: "pinned"; rootUrl: string; allowedHostname: strin
 
 export type Erc8004Chain = {
   /** The directory protocol of the source that reads this chain (the `protocol` value on its rows). */
-  protocol: string;
+  protocol: Erc8004ChainProtocol;
   /** The chain's key on the site. */
   chainKey: string;
   chainId: number;
@@ -122,6 +123,11 @@ export type Erc8004Chain = {
   reputation?: { registry: string; window: number };
   /** The switch that turns the chain on, or null for a chain that is always on. */
   feature: Feature | null;
+  /**
+   * The migration that added the chain's protocol value to the database by hand, when a source staged before it ran is refused by the
+   * database: the operator is then told to paste it first. Absent for a chain whose value came in with the boot-time migrations.
+   */
+  protocolMigration?: { version: string; record: string };
 };
 
 /** A chain whose provider host is named in the code. */
@@ -192,6 +198,7 @@ export const BASE_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom:
 export const ARC_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
 export const MONAD_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
 export const GNOSIS_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
+export const CELO_LISTING_RULES: RegistryListingRules = { sharedProfileLinkFrom: 2, sharedHostFrom: 50, sharedWalletFrom: 10 };
 
 /**
  * The most registry rows one host may hold on the chains added after BNB Chain (docs/flood-host-cap-2026-10-21.md). One platform
@@ -490,6 +497,7 @@ export const MONAD_CHAIN: PinnedErc8004Chain = {
   hostRowCap: FLOOD_HOST_ROW_CAP,
   /** Read from the identity registry's deploy block, where the reputation registry was deployed with it. Window: Alchemy's ceiling is 50,000 blocks, and the registry had 9,432 ratings in all on 2026-11-01. */
   reputation: { registry: ERC8004_REPUTATION_REGISTRY, window: 50_000 },
+  protocolMigration: { version: "0053", record: "docs/monad-erc8004-2026-11-01.md" },
   feature: "chain_monad",
 };
 
@@ -553,15 +561,92 @@ export const GNOSIS_CHAIN: PinnedErc8004Chain = {
   hostRowCap: FLOOD_HOST_ROW_CAP,
   /** Read from the identity registry's deploy block, where the reputation registry was deployed with it (its first rating is six blocks later). Window: Alchemy's ceiling here is 10,000 blocks, and the registry had 4,341 ratings and no revocation in all on 2026-11-06, in 23 of its 465 windows. */
   reputation: { registry: ERC8004_REPUTATION_REGISTRY, window: 10_000 },
+  protocolMigration: { version: "0057", record: "docs/gnosis-erc8004-2026-11-06.md" },
   feature: "chain_gnosis",
 };
 
+/**
+ * Celo mainnet (chain id 42220, `eth_chainId` 0xa4ec). Read through the Celo Foundation's public node, https://forno.celo.org, which needs
+ * no key. Facts measured 2026-11-20 (docs/celo-erc8004-2026-11-20.md):
+ *  - the identity registry is the same 130-byte proxy at the same address, and its implementation (0x7274e874ca62410a93bd8bf61c69d8045e399c02)
+ *    has the same 14,474 bytes of code as Ethereum's, so the decoding is shared.
+ *  - deploy block 58,396,724 (2026-02-05 13:18:02 UTC), found by binary search on `eth_getCode` (empty at 58,396,723, 130 bytes at 58,396,724)
+ *    on two public nodes (forno.celo.org and celo.gateway.tenderly.co), which serve state that far back and agree. 24,896,389 blocks lay
+ *    between it and the head of that day.
+ *  - 1.0000 s per block over the last 100,000 blocks, so an hour is 3,600 blocks.
+ *  - forno.celo.org answers `eth_getLogs` over at most 5,000 blocks and refuses a wider window with JSON-RPC -32602 ("query exceeds range,
+ *    retry smaller (max block range 5000 ...)"), which the client reads as a block-range fault; the pass never asks for one. It put no cap on
+ *    the response: 300 consecutive windows of 5,000 blocks in the densest stretch (11,256 logs, 42 MB) took 79 s three at a time, none was
+ *    refused, and the median was 643 ms. The public Tenderly gateway answers up to about 3,000,000 blocks and refuses 10,000,000, but it is
+ *    not the chain's own node. The operator's Alchemy account does not have Celo enabled.
+ *  - the whole history, read through the Tenderly gateway: 30,323 logs of the three kinds the pass asks for (10,078 Registered, 10,154
+ *    Transfer, 10,091 URIUpdated), about 3.8 kB each as JSON because 89 percent of the links are inline `data:` documents. The registry holds
+ *    10,078 tokens, ids 0 to 10,077. Counted from the deploy block, the busiest window of 5,000 blocks holds 471 of those events and the
+ *    largest is 0.44 MiB (461,070 bytes, 263 events).
+ *  - almost nothing is new: 94 registrations in the 30 days to 2026-11-20, against 5,847 in March 2026. One wallet registered 6,934 of the
+ *    10,078.
+ *  - the reputation registry is there too, deployed within six blocks of the identity registry (no code at 58,396,724, 130 bytes at
+ *    58,396,730). It holds 30,162 `NewFeedback` events and no revocation, on 7,798 agents, in 1,879 of the 4,981 windows of 5,000 blocks
+ *    counted from the deploy block. The busiest window holds 653 events (1.09 MB), well inside the response cap
+ *    (docs/celo-ratings-2026-11-20.md).
+ */
+export const CELO_CHAIN: PinnedErc8004Chain = {
+  protocol: "erc8004_celo",
+  chainKey: "celo",
+  chainId: 42220,
+  chainIdHex: "0xa4ec",
+  label: "Celo",
+  chainLabel: "Celo",
+  identityRegistry: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+  deployBlock: 58_396_724,
+  maxLogRange: 5_000,
+  /** 4.2 times the busiest window measured (471 events). A read that comes back holding more is a provider fault. */
+  maxWindowLogs: 2_000,
+  handoutBlockWindow: 3_600,
+  sourceKey: "celo-erc8004-identity-registry",
+  provider: { kind: "pinned", rootUrl: "https://forno.celo.org", allowedHostname: "forno.celo.org" },
+  rpcEnvVar: "CELO_RPC_URL",
+  readRpcUrl: () => ENV.celoRpcUrl,
+  rpc: {
+    timeoutMs: 30_000,
+    /** 18 times the largest window measured (0.44 MiB). A read that passes it is split in halves, not failed. */
+    maxResponseBytes: 8 * MIB,
+    retryStatuses: [429, 500, 502, 503, 504],
+    backoffMs: [1_000, 3_000],
+    /** The node explains a refused range, in words, in the body of an HTTP 400. */
+    readErrorBodies: true,
+  },
+  budget: {
+    /** 200 windows of 5,000 blocks: 1,000,000 blocks a run, so the 24.9 million blocks of history are read in a few dozen runs. */
+    maxWindows: 200,
+    concurrency: 3,
+    maxElapsedMs: 30_000,
+    /** Ten times the busiest window. The dense stretch holds 6,000 to 8,000 events in a million blocks, so the count ends a run there and the window count ends one elsewhere. */
+    maxEvents: 5_000,
+  },
+  cursorPrefix: "celo",
+  errorPrefix: "Celo",
+  logTag: "CELO",
+  fetchSentence: RECORDED_ONLY_SENTENCE,
+  listingRules: CELO_LISTING_RULES,
+  hostRowCap: FLOOD_HOST_ROW_CAP,
+  /** Read from the identity registry's deploy block, six blocks before the reputation registry's own. Window: the official node's ceiling is 5,000 blocks, and a window of that width holds 653 ratings at most. */
+  reputation: { registry: ERC8004_REPUTATION_REGISTRY, window: 5_000 },
+  protocolMigration: { version: "0060", record: "docs/celo-erc8004-2026-11-20.md" },
+  feature: "chain_celo",
+};
+
 /** Every chain the pass reads, in the order they were added. */
-export const ERC8004_CHAINS: readonly Erc8004Chain[] = [BSC_CHAIN, ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN];
+export const ERC8004_CHAINS: readonly Erc8004Chain[] = [BSC_CHAIN, ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN, CELO_CHAIN];
 
 /** The chain a source protocol belongs to, or null when the protocol is not read by this pass. */
 export function erc8004ChainOfProtocol(protocol: string): Erc8004Chain | null {
   return ERC8004_CHAINS.find(chain => chain.protocol === protocol) ?? null;
+}
+
+/** The chain with this key on the site, or null for a key the pass does not read. */
+export function erc8004ChainOfKey(key: string): Erc8004Chain | null {
+  return ERC8004_CHAINS.find(chain => chain.chainKey === key) ?? null;
 }
 
 /**
@@ -644,6 +729,10 @@ export function validateErc8004Chains(chains: readonly Erc8004Chain[]): string[]
       for (const [name, value] of Object.entries(chain.listingRules)) {
         if (!Number.isSafeInteger(value) || value < 2) problems.push(`${who}: the listing rule ${name} must be 2 or more`);
       }
+    }
+    if (chain.protocolMigration !== undefined) {
+      if (!/^\d{4}$/.test(chain.protocolMigration.version)) problems.push(`${who}: the protocol migration must be a four-digit version`);
+      if (!/^docs\/[a-z0-9.-]+\.md$/.test(chain.protocolMigration.record)) problems.push(`${who}: the protocol migration's record must be a file in docs/`);
     }
     if (chain.reputation !== undefined) {
       if (!ADDRESS.test(chain.reputation.registry)) problems.push(`${who}: the reputation registry is not an address`);

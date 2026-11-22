@@ -8,7 +8,10 @@ import {
   protocolsForLiveAgent,
   SIGNAL_ANIMATED_LINES,
   signalLineTone,
+  withPublisherState,
+  withTrustedOnly,
   type LiveAtlasRecord,
+  type MapTrustFilters,
 } from "./atlasModel";
 
 /**
@@ -147,5 +150,48 @@ describe("the age of an observation", () => {
     expect(formatObservedTime("2026-10-23T11:59:55.000Z")).toBe("T-5S");
     expect(formatObservedTime("2026-10-23T11:57:30.000Z")).toBe("T-2M");
     expect(formatObservedTime("2026-10-23T12:00:30.000Z")).toBe("T-0S");
+  });
+});
+
+describe("the map's two trust controls", () => {
+  const nothing: MapTrustFilters = { trustedOnly: false, publisherState: "all" };
+
+  it("filter to the allowlisted state when Trusted goes on, and lift it again when Trusted goes off", () => {
+    const on = withTrustedOnly(nothing, true);
+    expect(on).toEqual({ trustedOnly: true, publisherState: "allowlisted" });
+    // The map stayed filtered after the switch was turned off, because only the switch was reset.
+    expect(withTrustedOnly(on, false)).toEqual(nothing);
+  });
+
+  it("lift the allowlisted state when Trusted goes off, even if that state was chosen from the legend", () => {
+    expect(withTrustedOnly({ trustedOnly: false, publisherState: "allowlisted" }, false)).toEqual(nothing);
+  });
+
+  it("leave any other chosen state alone when Trusted goes off", () => {
+    expect(withTrustedOnly({ trustedOnly: false, publisherState: "revoked" }, false)).toEqual({ trustedOnly: false, publisherState: "revoked" });
+  });
+
+  it("switch Trusted off when any state but allowlisted is chosen, and keep it when allowlisted is chosen", () => {
+    expect(withPublisherState({ trustedOnly: true, publisherState: "allowlisted" }, "expired")).toEqual({ trustedOnly: false, publisherState: "expired" });
+    expect(withPublisherState({ trustedOnly: true, publisherState: "allowlisted" }, "all")).toEqual(nothing);
+    expect(withPublisherState({ trustedOnly: true, publisherState: "allowlisted" }, "allowlisted")).toEqual({ trustedOnly: true, publisherState: "allowlisted" });
+    expect(withPublisherState(nothing, "allowlisted")).toEqual({ trustedOnly: false, publisherState: "allowlisted" });
+  });
+
+  it("never end with Trusted on and a state other than allowlisted, whatever the order of the clicks", () => {
+    const states = ["all", "allowlisted", "expired", "revoked", "unverified"] as const;
+    const starts: MapTrustFilters[] = [
+      ...states.map(publisherState => ({ trustedOnly: false, publisherState })),
+      { trustedOnly: true, publisherState: "allowlisted" },
+    ];
+    for (const start of starts) {
+      for (const state of states) {
+        for (const on of [false, true]) {
+          const first = withPublisherState(start, state);
+          const second = withTrustedOnly(first, on);
+          for (const result of [first, second]) expect(!result.trustedOnly || result.publisherState === "allowlisted").toBe(true);
+        }
+      }
+    }
   });
 });

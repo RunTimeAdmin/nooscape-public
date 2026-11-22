@@ -30,6 +30,7 @@ import ArcRegistryReport from "./ArcRegistryReport";
 import BnbRegistryReport from "./BnbRegistryReport";
 import ArcRegistryReport20261106 from "./ArcRegistryReport20261106";
 import BaseRegistryReport from "./BaseRegistryReport";
+import CeloRegistryReport from "./CeloRegistryReport";
 import EthereumRegistryReport from "./EthereumRegistryReport";
 import GnosisRegistryReport from "./GnosisRegistryReport";
 import MonadRegistryReport from "./MonadRegistryReport";
@@ -42,6 +43,7 @@ const PAGES: ReadonlyArray<{ name: string; chain: CensusChain; page: ComponentTy
   { name: "Ethereum", chain: "ethereum", page: EthereumRegistryReport, measuredOn: "2026-10-28", lines: 8 },
   { name: "Monad", chain: "monad", page: MonadRegistryReport, measuredOn: "2026-11-01", lines: 8 },
   { name: "Gnosis", chain: "gnosis", page: GnosisRegistryReport, measuredOn: "2026-11-06", lines: 8 },
+  { name: "Celo", chain: "celo", page: CeloRegistryReport, measuredOn: "2026-11-20", lines: 8 },
   { name: "Robinhood Chain", chain: "robinhood", page: RobinhoodRegistryReport, measuredOn: "2026-10-20", lines: 4 },
   { name: "BNB Chain", chain: "bnb", page: BnbRegistryReport, measuredOn: "2026-10-16", lines: 1 },
 ];

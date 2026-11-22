@@ -19,6 +19,10 @@ type Props = {
   figures: readonly CensusTodayFigure[];
   /** What a reader needs to compare today's counts with the report's, when the way the directory keeps them changed in between. */
   note?: string;
+  /** Where today's counts are taken from, when it is not the directory (the BNB Chain ratings ledger). */
+  takenFrom?: string;
+  /** What the time names, when it is not the one registry's last pass (the earliest of the Solana passes; the ratings ledger's last write). */
+  asOfWords?: string;
 };
 
 const cellClass = "border-b border-white/[.08] py-2.5 pr-4 align-top";
@@ -34,7 +38,7 @@ export function CensusToday(props: Props) {
   return <CensusTodayBlock {...props} />;
 }
 
-function CensusTodayBlock({ chain, measuredOn, figures, note }: Props) {
+function CensusTodayBlock({ chain, measuredOn, figures, note, takenFrom = "the directory", asOfWords = "the registry pass that finished at" }: Props) {
   const query = trpc.liveData.censusToday.useQuery({ chain }, { ...ownRequest, staleTime: 5 * 60_000, refetchOnWindowFocus: false, retry: false });
   const today = query.data?.today;
   if (!today) return null;
@@ -46,8 +50,8 @@ function CensusTodayBlock({ chain, measuredOn, figures, note }: Props) {
     <section aria-labelledby="census-today" data-census-today={chain}>
       <h2 id="census-today" className={headingClass}>Today</h2>
       <p className={textClass}>
-        The report below is a measurement of {measuredOn} and does not change. This table is the same count, taken from the directory as it stands now
-        {today.asOf ? `, after the registry pass that finished at ${formatAsOf(today.asOf)}` : ""}.
+        The report below is a measurement of {measuredOn} and does not change. This table is the same count, taken from {takenFrom} as it stands now
+        {today.asOf ? `, after ${asOfWords} ${formatAsOf(today.asOf)}` : ""}.
       </p>
       <div className="mt-4 max-w-prose overflow-x-auto">
         <table className={tableClass}>

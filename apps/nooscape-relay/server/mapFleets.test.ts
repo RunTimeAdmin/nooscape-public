@@ -1,20 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { EXTRA_CHAIN_SPECS } from "@shared/chains";
 import {
   ARC_LIGHTS_LIMIT,
-  arcLightsCaption,
+  extraLightsCaption,
   ARC_OVERLAP_NOTE,
   BASE_LIGHTS_LIMIT,
-  baseLightsCaption,
+  CELO_LIGHTS_LIMIT,
   compactCount,
   EMPTY_MAP_FLEETS,
   EMPTY_ROBINHOOD_LIGHTS,
   EMPTY_SOLANA_LIGHTS,
   ETHEREUM_LIGHTS_LIMIT,
-  ethereumLightsCaption,
   MONAD_LIGHTS_LIMIT,
   GNOSIS_LIGHTS_LIMIT,
-  monadLightsCaption,
-  gnosisLightsCaption,
   FLEET_KIND_LABEL,
   FLEET_NOT_PROVED,
   FLEET_OVERLAP_NOTE,
@@ -256,6 +254,14 @@ describe("the words around a light", () => {
   const fleet = (kind: MapFleet["kind"], overrides: Partial<MapFleet> = {}): MapFleet => ({ id: "x", kind, chain: "bnb", name: null, wallet: null, registry: null, count: 126_839, wallets: null, ...overrides });
   const owner = (overrides: Partial<MapFleet> = {}): MapFleet => fleet("wallet", { chain: "solana", wallet: SOLANA_WALLET, registry: "8004", count: 326, ...overrides });
 
+  it("names an extra chain's group by its chain, and gives each the counted-one-by-one note", () => {
+    for (const spec of EXTRA_CHAIN_SPECS) {
+      expect(fleetFact(fleet("wallet", { chain: spec.key, count: 120 })), spec.key).toBe(`120 registrations on ${spec.label} name the same registering wallet.`);
+      expect(fleetOverlapNote({ chain: spec.key }), spec.key).toBe(ARC_OVERLAP_NOTE);
+    }
+    expect(fleetOverlapNote({ chain: "bnb" })).not.toBe(ARC_OVERLAP_NOTE);
+  });
+
   it("knows the four kinds and no other", () => {
     expect([...MAP_FLEET_KINDS]).toEqual(["wallet", "shared_link", "platform_host", "template"]);
     expect(isMapFleetKind("template")).toBe(true);
@@ -448,39 +454,62 @@ describe("the words around a light", () => {
     expect(new Set(shapes).size).toBe(8);
   });
 
+  it("words a Celo group as a formation on the Celo page, with the facts Arc's groups state, and draws it as an arrowhead", () => {
+    const celo = (kind: MapFleet["kind"], overrides: Partial<MapFleet> = {}): MapFleet => fleet(kind, { chain: "celo", count: 6_934, ...overrides });
+    expect(fleetShape(celo("platform_host"))).toBe("arrow");
+    expect(fleetKindLabel(celo("platform_host"))).toBe("Same host");
+    expect(fleetFact(celo("wallet"))).toBe("6,934 registrations on Celo name the same registering wallet.");
+    expect(fleetFact(celo("shared_link"))).toBe("6,934 registrations on Celo record exactly the same profile link.");
+    expect(fleetFact(celo("platform_host", { name: "run.example.app" }))).toBe("6,934 registrations on Celo point their profile link at run.example.app.");
+    expect(fleetFact(celo("platform_host"))).toBe("6,934 registrations on Celo point their profile link at the same host.");
+    expect(fleetNotProved(celo("platform_host"))).toBe(FLEET_NOT_PROVED.platform_host);
+    // Like an Arc, Base, Ethereum, Monad or Gnosis group, a Celo group is a formation on a page, so it shares Arc's note.
+    expect(fleetOverlapNote(celo("wallet"))).toBe(ARC_OVERLAP_NOTE);
+    const words = MAP_FLEET_KINDS.map(kind => fleetFact(celo(kind))).join(" ");
+    expect(words).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
+    expect(words).not.toMatch(new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`));
+    // The shapes of the nine chains are nine, so a group is never told from another by colour alone.
+    const shapes = [celo("wallet"), fleet("wallet", { chain: "gnosis" }), fleet("wallet", { chain: "monad" }), fleet("wallet", { chain: "ethereum" }), fleet("wallet", { chain: "base" }), fleet("wallet", { chain: "arc" }), owner(), fleet("wallet", { chain: "robinhood" }), fleet("wallet")].map(fleetShape);
+    expect(new Set(shapes).size).toBe(9);
+  });
+
   it("captions the Arc lights with how many are drawn of how many groups there are, and says what a dome is", () => {
     expect(ARC_LIGHTS_LIMIT).toBe(8);
-    expect(arcLightsCaption({ groups: 11 }, 8)).toBe(
+    expect(extraLightsCaption("arc", { groups: 11 }, 8)).toBe(
       "Large domes are Arc groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 8 of 11 groups, as the registry held them at its last read. Each dome is one group, not one agent. No individual Arc registration is drawn."
     );
-    expect(arcLightsCaption({ groups: 0 }, 1)).toContain("1 of 1 group,");
-    expect(arcLightsCaption({ groups: 3 }, 0)).toBeNull();
-    const words = arcLightsCaption({ groups: 11 }, 8)!;
+    expect(extraLightsCaption("arc", { groups: 0 }, 1)).toContain("1 of 1 group,");
+    expect(extraLightsCaption("arc", { groups: 3 }, 0)).toBeNull();
+    const words = extraLightsCaption("arc", { groups: 11 }, 8)!;
     expect(words).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
     expect(words).not.toMatch(/[–—]/);
   });
 
-  it("captions the Base, Ethereum, Monad and Gnosis lights the same way, naming the chain and its shape", () => {
+  it("captions the Base, Ethereum, Monad, Gnosis and Celo lights the same way, naming the chain and its shape", () => {
     expect(BASE_LIGHTS_LIMIT).toBe(5);
     expect(ETHEREUM_LIGHTS_LIMIT).toBe(5);
     expect(MONAD_LIGHTS_LIMIT).toBe(5);
     expect(GNOSIS_LIGHTS_LIMIT).toBe(5);
-    expect(baseLightsCaption({ groups: 121 }, 5)).toBe(
+    expect(CELO_LIGHTS_LIMIT).toBe(5);
+    expect(extraLightsCaption("base", { groups: 121 }, 5)).toBe(
       "Large crosses are Base groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 121 groups, as the registry held them at its last read. Each cross is one group, not one agent. No individual Base registration is drawn."
     );
-    expect(ethereumLightsCaption({ groups: 63 }, 5)).toBe(
+    expect(extraLightsCaption("ethereum", { groups: 63 }, 5)).toBe(
       "Large pentagons are Ethereum groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 63 groups, as the registry held them at its last read. Each pentagon is one group, not one agent. No individual Ethereum registration is drawn."
     );
-    expect(monadLightsCaption({ groups: 40 }, 5)).toBe(
+    expect(extraLightsCaption("monad", { groups: 40 }, 5)).toBe(
       "Large stars are Monad groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 40 groups, as the registry held them at its last read. Each star is one group, not one agent. No individual Monad registration is drawn."
     );
-    expect(gnosisLightsCaption({ groups: 12 }, 5)).toBe(
+    expect(extraLightsCaption("gnosis", { groups: 12 }, 5)).toBe(
       "Large octagons are Gnosis groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 12 groups, as the registry held them at its last read. Each octagon is one group, not one agent. No individual Gnosis registration is drawn."
     );
-    for (const caption of [baseLightsCaption, ethereumLightsCaption, monadLightsCaption, gnosisLightsCaption]) {
-      expect(caption({ groups: 0 }, 1)).toContain("1 of 1 group,");
-      expect(caption({ groups: 3 }, 0)).toBeNull();
-      const words = caption({ groups: 9 }, 8)!;
+    expect(extraLightsCaption("celo", { groups: 30 }, 5)).toBe(
+      "Large arrowheads are Celo groups of registrations that share one wallet, host or profile link, 50 or more registrations each: 5 of 30 groups, as the registry held them at its last read. Each arrowhead is one group, not one agent. No individual Celo registration is drawn."
+    );
+    for (const chain of ["base", "ethereum", "monad", "gnosis", "celo"] as const) {
+      expect(extraLightsCaption(chain, { groups: 0 }, 1)).toContain("1 of 1 group,");
+      expect(extraLightsCaption(chain, { groups: 3 }, 0)).toBeNull();
+      const words = extraLightsCaption(chain, { groups: 9 }, 8)!;
       expect(words).not.toMatch(/scam|fraud|fake|spam|bot farm|sybil|malicious|suspicious|junk|trust|score|rank|verified|safe/i);
       expect(words).not.toMatch(/[–—]/);
     }

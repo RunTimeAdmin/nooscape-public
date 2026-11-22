@@ -136,6 +136,10 @@ export async function runApproved8004SolanaSource(
         `[8004] pass ${snapshot.slot}: ${snapshot.unanchoredCount} change(s) and ${snapshot.unanchoredClosureCount} closure(s) recorded without a ledger anchor, ${snapshot.deferredAttributionCount} event(s) deferred by the attribution budget, ${snapshot.deferredCount} account(s) deferred by the per-pass event cap.`
       );
     }
+    if (snapshot.metadataLeftOutCount > 0) {
+      // The metadata entries are optional enrichment that anyone can add; past the per-pass ceiling the pass reads the first by address.
+      console.warn(`[8004] pass ${snapshot.slot}: metadata entries past the per-pass ceiling left out: ${snapshot.metadataLeftOutCount}.`);
+    }
     return {
       requestCount: snapshot.requestCount,
       discoveredCount: snapshot.enumeratedCount,

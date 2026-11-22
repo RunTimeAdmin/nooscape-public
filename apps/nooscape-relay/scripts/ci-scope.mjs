@@ -26,6 +26,7 @@ export const READ_BY_TESTS = [
   "apps/nooscape-relay/docs/bsc-b1-measurement-2026-10-16.md",
   "apps/nooscape-relay/docs/bsc-clusters-2026-10-16.md",
   "apps/nooscape-relay/docs/bsc-rater-credibility-2026-10-16.md",
+  "apps/nooscape-relay/docs/celo-census-2026-11-20.md",
   "apps/nooscape-relay/docs/ethereum-census-2026-10-28.md",
   "apps/nooscape-relay/docs/gnosis-census-2026-11-06.md",
   "apps/nooscape-relay/docs/incident-2026-10-14-outage.md",
@@ -33,6 +34,7 @@ export const READ_BY_TESTS = [
   "apps/nooscape-relay/docs/monad-census-2026-11-01.md",
   "apps/nooscape-relay/docs/robinhood-census-2026-10-20.md",
   "apps/nooscape-relay/docs/solana-census-2026-10-18.md",
+  "apps/nooscape-relay/docs/validation-registry-census-2026-11-20.md",
 ];
 
 /**

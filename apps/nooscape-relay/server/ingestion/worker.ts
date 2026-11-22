@@ -3,23 +3,13 @@ import { runBscClustering } from "../bscClusteringRun";
 import { runBscRaters } from "../bscRatersRun";
 import { runBscRegistrationFiles } from "../bscRegistrationFiles";
 import { runChainNames } from "../chainNames";
-import { runChainRatings } from "../chainRatings";
+import { chainRatingsTooLate, runChainRatings } from "../chainRatings";
 import { recheckClaims } from "../claims";
 import { runRobinhoodNames } from "../robinhoodNames";
 import { runSaidNames } from "../saidNames";
 import { selectTodaysCatch } from "../owlsCatch";
 import type { IngestionSource } from "../../drizzle/schema";
-import { runApprovedA2aSource } from "./runA2a";
-import { runApprovedCatalogSource } from "./runCatalog";
-import { runApprovedAgentEconomySource } from "./runAgentEconomy";
-import { runApproved8004SolanaSource } from "./run8004Solana";
-import { runApprovedSaidSource } from "./runSaid";
-import { runApprovedAgencSource } from "./runAgenc";
-import { runApprovedMetaplexRegistrySource } from "./runMetaplex";
-import { runApprovedRobinhoodRegistrySource } from "./runRobinhood";
-import { runApprovedBscRegistrySource } from "./runBsc";
-import { erc8004ChainOfProtocol } from "./erc8004Chains";
-import { runApprovedErc8004ChainSource } from "./runErc8004Chain";
+import { runSource } from "./runSource";
 
 export type WorkerTickResult = {
   state: "paused" | "rate_limited" | "completed" | "failed";
@@ -45,6 +35,20 @@ async function bestEffort(failedEvent: string, unknownMessage: string, step: () 
 }
 
 /** Best-effort maintenance: an expiry failure must not abort the ingestion tick. */
+/**
+ * A step a tick did not start because the tick had already run past the step's limit (90 seconds for the two BNB steps, 100 for the
+ * rest). The step runs on a later tick, since a skip does not start its interval; this says so in one line, so a skip is read in the
+ * log and not inferred from how long ticks take.
+ */
+function logSkippedStep(step: string, tickStartedAt: number): void {
+  console.log(JSON.stringify({ event: "nooscape_step_skipped", step, reason: "too_late", tickMs: Date.now() - tickStartedAt }));
+}
+
+/** Logs the skip when a step answered that it was too late to start. */
+function skippedIfLate(step: string, result: { state: string }, tickStartedAt: number): void {
+  if (result.state === "too_late") logSkippedStep(step, tickStartedAt);
+}
+
 async function runPublisherKeyExpiry() {
   try {
     const result = await expireDuePublisherKeys();
@@ -73,7 +77,7 @@ const runOwlsCatchSelection = () =>
  * throws and a failure here never fails the tick, whatever it reports.
  */
 const runBscClusteringStep = (tickStartedAt: number) =>
-  bestEffort("nooscape_bsc_clusters_failed", "Unknown BNB clustering error", () => runBscClustering({ tickStartedAt }));
+  bestEffort("nooscape_bsc_clusters_failed", "Unknown BNB clustering error", async () => skippedIfLate("bsc_clusters", await runBscClustering({ tickStartedAt }), tickStartedAt));
 
 /**
  * Best-effort, after the clustering for the same reasons: the BNB reputation read and the rater check keep their three tables in
@@ -81,7 +85,7 @@ const runBscClusteringStep = (tickStartedAt: number) =>
  * claimed sources, and it never throws; a failure here never fails the tick, whatever it reports. What it writes is internal.
  */
 const runBscRatersStep = (tickStartedAt: number) =>
-  bestEffort("nooscape_bsc_raters_failed", "Unknown BNB rater error", () => runBscRaters({ tickStartedAt }));
+  bestEffort("nooscape_bsc_raters_failed", "Unknown BNB rater error", async () => skippedIfLate("bsc_raters", await runBscRaters({ tickStartedAt }), tickStartedAt));
 
 /**
  * Best-effort, after the BNB steps for the same reasons: the Robinhood name step reads the registration link of a reviewed
@@ -91,7 +95,7 @@ const runBscRatersStep = (tickStartedAt: number) =>
  * tick, whatever it reports.
  */
 const runRobinhoodNamesStep = (tickStartedAt: number) =>
-  bestEffort("nooscape_robinhood_names_failed", "Unknown Robinhood names error", () => runRobinhoodNames({ tickStartedAt }));
+  bestEffort("nooscape_robinhood_names_failed", "Unknown Robinhood names error", async () => skippedIfLate("robinhood_names", await runRobinhoodNames({ tickStartedAt }), tickStartedAt));
 
 /**
  * Best-effort, after the Robinhood names for the same reasons: the BNB registration-file step reads the file behind the web or ipfs
@@ -100,7 +104,7 @@ const runRobinhoodNamesStep = (tickStartedAt: number) =>
  * sources, and it never throws; a failure here never fails the tick, whatever it reports. What it writes is internal.
  */
 const runBscRegistrationFilesStep = (tickStartedAt: number) =>
-  bestEffort("nooscape_bsc_files_failed", "Unknown BNB registration file error", () => runBscRegistrationFiles({ tickStartedAt }));
+  bestEffort("nooscape_bsc_files_failed", "Unknown BNB registration file error", async () => skippedIfLate("bsc_files", await runBscRegistrationFiles({ tickStartedAt }), tickStartedAt));
 
 /**
  * Best-effort, after the two steps above for the same reasons: the SAID name step reads the card that the metadata link of a SAID
@@ -109,16 +113,16 @@ const runBscRegistrationFilesStep = (tickStartedAt: number) =>
  * and it never throws; a failure here never fails the tick, whatever it reports.
  */
 const runSaidNamesStep = (tickStartedAt: number) =>
-  bestEffort("nooscape_said_names_failed", "Unknown SAID names error", () => runSaidNames({ tickStartedAt }));
+  bestEffort("nooscape_said_names_failed", "Unknown SAID names error", async () => skippedIfLate("said_names", await runSaidNames({ tickStartedAt }), tickStartedAt));
 
 /**
- * Best-effort, after the SAID names for the same reasons: the Base, Arc, Ethereum, Monad and Gnosis name step reads the registration link of a
- * directory entry on any of the five chains that is still called "Agent #n", through the safe fetch, and lays the name it finds over the placeholder
+ * Best-effort, after the SAID names for the same reasons: the Base, Arc, Ethereum, Monad, Gnosis and Celo name step reads the registration link of a
+ * directory entry on any of the six chains that is still called "Agent #n", through the safe fetch, and lays the name it finds over the placeholder
  * (docs/approvals/2026-10-26-base-arc-names.md). It reads the chain's own node and asks other people's hosts, so it runs only on a tick
  * that claimed sources, it takes one chain a run in turn, and it never throws; a failure here never fails the tick, whatever it reports.
  */
 const runChainNamesStep = (tickStartedAt: number) =>
-  bestEffort("nooscape_chain_names_failed", "Unknown chain names error", () => runChainNames({ tickStartedAt }));
+  bestEffort("nooscape_chain_names_failed", "Unknown chain names error", async () => skippedIfLate("chain_names", await runChainNames({ tickStartedAt }), tickStartedAt));
 
 /**
  * Best-effort, after the SAID names for the same reasons: the ratings step counts the NewFeedback and FeedbackRevoked events of the reputation
@@ -127,7 +131,11 @@ const runChainNamesStep = (tickStartedAt: number) =>
  * minutes for a chain, and it never throws; with its table not there it does nothing and says nothing. A failure here never fails the tick.
  */
 const runChainRatingsStep = (tickStartedAt: number) =>
-  bestEffort("nooscape_chain_ratings_failed", "Unknown ratings error", () => runChainRatings({ tickStartedAt }));
+  bestEffort("nooscape_chain_ratings_failed", "Unknown ratings error", async () => {
+    // The step answers an empty list both when nothing was due and when it was too late, so its own rule tells the two apart.
+    const results = await runChainRatings({ tickStartedAt });
+    if (results.length === 0 && chainRatingsTooLate(tickStartedAt, Date.now())) logSkippedStep("chain_ratings", tickStartedAt);
+  });
 
 /**
  * Best-effort, last, for the same reasons: the daily check of claimed agents asks the registry who owns each claim's agent that has
@@ -141,84 +149,9 @@ const runClaimRecheckStep = () =>
     if (result.checked > 0 || result.unavailable > 0) console.log(JSON.stringify({ event: "nooscape_claim_recheck", ...result }));
   });
 
-async function runApprovedSource(source: IngestionSource) {
-  switch (source.protocol) {
-    case "a2a":
-      return runApprovedA2aSource(source, "scheduled");
-    case "catalog":
-      return runApprovedCatalogSource(source, "scheduled");
-    case "census":
-      return runApprovedAgentEconomySource(source, "scheduled");
-    case "solana_registry":
-      // The Metaplex chain pass is the one unattended-safe mode: chain-facts-
-      // only reads through the shared paced Solana RPC client, INSERT-IGNORE
-      // ledger writes, and a snapshot persisted only after every attribution
-      // succeeds — a failure leaves the cursor untouched so the next pass
-      // re-detects the same changes.
-      return runApprovedMetaplexRegistrySource(source, "scheduled", "activity");
-    case "erc8004":
-      // The forward, reorg-checked activity walk is the one unattended-safe
-      // mode: it adds no reviewed records, the ledger writes are INSERT-IGNORE
-      // idempotent, and a reorg fails the run loudly with the cursor untouched.
-      return runApprovedRobinhoodRegistrySource(source, "scheduled", "activity");
-    case "erc8004_reputation":
-      // The ratings walk stays operator-paced until it has earned the same
-      // scheduled flip the activity walk did (design §7): the backward leg is
-      // a human-paced throttle defense, and the Cloudflare-fronted RPC blocks
-      // unattended rapid ticks.
-      throw new Error("Robinhood ERC-8004 reputation sources are manual-only and cannot run in the scheduled worker.");
-    case "solana_8004":
-      // The 8004 chain pass earned its scheduled flip (migration 0027) the
-      // same way the Metaplex chain pass did (0021): the seed inventory was
-      // staged, reviewed, and run by an operator (1,504 agents, an exact
-      // chain match, zero events), and the diff pass is chain-facts-only with
-      // INSERT-IGNORE ledger writes, a 98%-of-prior-live enumeration floor,
-      // and per-closure confirmation reads — a failure leaves the cursor
-      // untouched so the next pass re-detects the same changes.
-      return runApproved8004SolanaSource(source, "scheduled");
-    case "usdg_settlement":
-      throw new Error("USDG settlement sources are manual-only and cannot run in the scheduled worker.");
-    case "erc8004_bsc":
-      // The BNB Chain identity pass is staged manual_only and may be flipped to
-      // the scheduler by a reviewed migration once an operator has seeded it.
-      // It is directory-only chain facts from FINALIZED blocks (no reorg risk),
-      // INSERT-IGNORE and insert-only writes, and no URI fetching. A failure
-      // leaves the cursor untouched; a partial run keeps the windows it
-      // applied. runApprovedBscRegistrySource itself rejects a scheduled
-      // trigger unless the source holds the scheduled policy.
-      return runApprovedBscRegistrySource(source, "scheduled");
-    case "erc8004_eth":
-    case "erc8004_base":
-    case "erc8004_arc":
-    case "erc8004_monad":
-    case "erc8004_gnosis": {
-      // The Ethereum, Base, Arc, Monad and Gnosis identity passes are the BNB Chain pass on another chain (erc8004Chains.ts), staged manual_only and
-      // handed to the scheduler only by a later reviewed migration, after an operator has run and checked a first pass. The pass
-      // itself rejects a scheduled trigger unless the source holds the scheduled policy, and does not start while the chain's
-      // switch is off, so an unflipped source, or a chain that is switched off, can never run unattended.
-      const chain = erc8004ChainOfProtocol(source.protocol);
-      if (!chain) throw new Error(`No scheduled adapter is available for protocol ${source.protocol}.`);
-      return runApprovedErc8004ChainSource(chain, source, "scheduled");
-    }
-    case "solana_said":
-      // The SAID identity pass is staged manual_only and earned its scheduled
-      // flip from migration 0031 once an operator had seeded it (13,313
-      // identities, an exact chain match). It is the reviewed directory-only
-      // posture: one memcmp-filtered read, strict fail-closed decode, a
-      // 98%-of-prior floor, and an upsert that adds no reviewed record. A
-      // failure leaves the cursor untouched. runApprovedSaidSource itself
-      // rejects a scheduled trigger unless the source holds the scheduled
-      // policy, so an unflipped source can never run unattended.
-      return runApprovedSaidSource(source, "scheduled");
-    case "solana_agenc":
-      // The AgenC registry pass is staged manual_only and may be flipped to the scheduler by a reviewed migration once an operator has run it
-      // and compared the count to the chain. It is the SAID posture: directory-only chain facts, one memcmp-filtered read, a strict fail-closed
-      // decode, a 98%-of-prior floor, and an upsert that adds no reviewed record. A failure leaves the cursor untouched. runApprovedAgencSource
-      // itself rejects a scheduled trigger unless the source holds the scheduled policy, so an unflipped source can never run unattended.
-      return runApprovedAgencSource(source, "scheduled");
-    default:
-      throw new Error(`No scheduled adapter is available for protocol ${source.protocol}.`);
-  }
+/** A due source, run by its adapter as a scheduled trigger (runSource.ts, which the operator's runs share). */
+function runApprovedSource(source: IngestionSource) {
+  return runSource(source, "scheduled");
 }
 
 /**

@@ -7,7 +7,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { archiveMeta, dayMeta, noCatchMeta, type PublicCatch } from "@shared/owlsCatch";
 import { buildCspFromHtml } from "./_core/securityHeaders";
-import { catchPages, injectHead } from "./catchPage";
+import { catchPages, injectHead, UNAVAILABLE_RETRY_AFTER_SECONDS } from "./catchPage";
 import { CIRCUIT_OPEN_CODE } from "./dbBreaker";
 
 /**
@@ -52,6 +52,15 @@ describe("what the head says", () => {
     expect(tag(html, /<meta name="robots"[^>]*>/)).toContain('content="noindex, follow"');
   });
 
+  it("puts the page's own heading and description in the boot text, so no two pages share the homepage's body", () => {
+    const html = flat(injectHead(SOURCE_SHELL, dayMeta(view())));
+    const meta = dayMeta(view());
+    const esc = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    expect(tag(html, /<h1 class="ns-boot-headline">[\s\S]*?<\/h1>/)).toBe(`<h1 class="ns-boot-headline"><span>${esc(meta.heading)}</span></h1>`);
+    expect(tag(html, /<p class="ns-boot-copy">[\s\S]*?<\/p>/)).toBe(`<p class="ns-boot-copy">${esc(meta.description)}</p>`);
+    expect(tag(flat(SOURCE_SHELL), /<p class="ns-boot-copy">[\s\S]*?<\/p>/)).not.toBe(tag(html, /<p class="ns-boot-copy">[\s\S]*?<\/p>/));
+  });
+
   it("changes nothing else: the image, the card type, the site name and every other tag stay as they were", () => {
     const after = injectHead(SOURCE_SHELL, dayMeta(view()));
     const names = (html: string) => (html.match(/<(?:meta|link)\b[^>]*>/g) ?? []).map(found => found.replace(/\s+/g, " ").replace(/\bcontent="[^"]*"|\bhref="[^"]*"/g, "")).sort();
@@ -75,6 +84,8 @@ describe("what the head says", () => {
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).not.toContain("<b>bold</b>");
     expect(tag(flat(html), /<title>[^<]*<\/title>/)).toBe(`<title>${escaped}</title>`);
+    expect(tag(flat(html), /<p class="ns-boot-copy">[\s\S]*?<\/p>/)).toBe(`<p class="ns-boot-copy">${escaped}</p>`);
+    expect(tag(flat(html), /<h1 class="ns-boot-headline">[\s\S]*?<\/h1>/)).toBe(`<h1 class="ns-boot-headline"><span>${escaped}</span></h1>`);
     // Every tag that takes the text holds it exactly, so none of them reads `$&` or `$1` as a replacement pattern.
     for (const pattern of [/<meta name="description"[^>]*>/, /<meta property="og:title"[^>]*>/, /<meta property="og:description"[^>]*>/, /<meta name="twitter:title"[^>]*>/, /<meta name="twitter:description"[^>]*>/]) {
       expect(tag(flat(html), pattern), String(pattern)).toContain(`content="${escaped}"`);
@@ -200,14 +211,18 @@ describe("the routes", () => {
     expect(reads).toEqual([]);
   });
 
-  it("sends the ordinary page, not an error, when the catch cannot be read, and says so once in the log", async () => {
+  it("answers 503 with Retry-After and a noindex head when the catch cannot be read, and says so once in the log", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     next = async () => {
       throw new Error("connect ECONNREFUSED 127.0.0.1:3306 password=hunter2");
     };
     const page = await get("/catch/2026-10-15");
-    expect(page.status).toBe(200);
-    expect(page.body).toBe("FALLBACK");
+    expect(page.status).toBe(503);
+    expect(page.headers.get("retry-after")).toBe(String(UNAVAILABLE_RETRY_AFTER_SECONDS));
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    expect(page.body).toMatch(/<meta name="robots" content="noindex, follow"/);
+    expect(page.body).toContain('<link rel="canonical" href="https://nooscape.si/catch/2026-10-15"');
+    expect(page.body).not.toContain("hunter2");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(warn.mock.calls)).not.toContain("hunter2");
   });
@@ -217,7 +232,7 @@ describe("the routes", () => {
     next = async () => {
       throw Object.assign(new Error("paused"), { code: CIRCUIT_OPEN_CODE });
     };
-    expect((await get("/catch/2026-10-15")).body).toBe("FALLBACK");
+    expect((await get("/catch/2026-10-15")).status).toBe(503);
     expect(warn).not.toHaveBeenCalled();
   });
 });

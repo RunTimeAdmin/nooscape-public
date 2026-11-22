@@ -8,10 +8,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { archiveMeta, noCatchMeta } from "@shared/owlsCatch";
 import { CHAIN_WORLDS } from "../client/src/lib/chainExplorerModel";
 import { buildCspFromHtml } from "./_core/securityHeaders";
-import { injectHead } from "./catchPage";
+import { injectHead, UNAVAILABLE_RETRY_AFTER_SECONDS } from "./catchPage";
 import { EXACT_CLIENT_ROUTES, FLAGGED_CLIENT_ROUTES } from "./clientRoutes";
 import { CIRCUIT_OPEN_CODE } from "./dbBreaker";
-import { agentMeta, cachedAgentReader, ROUTE_HEADS, ROUTES_WITH_THEIR_OWN_HEAD, routeHeads, type AgentHeadFacts } from "./routeHead";
+import { agentMeta, cachedAgentReader, cachedLiveRecords, ROUTE_HEADS, ROUTES_WITH_THEIR_OWN_HEAD, routeHeads, type AgentHeadFacts } from "./routeHead";
 
 /**
  * The head the server writes for every routed page, so a shared link or a search result reads the page it points at and
@@ -125,12 +125,13 @@ describe("the card of a chain page", () => {
     ["/chains/ethereum", "Ethereum"],
     ["/chains/monad", "Monad"],
     ["/chains/gnosis", "Gnosis"],
+    ["/chains/celo", "Celo"],
   ];
   const publicDir = path.resolve(import.meta.dirname, "../client/public");
   const cardOf = (route: string) => ROUTE_HEADS[route]!.image!;
   const IMAGE_TAGS = [/<meta property="og:image"[^>]*>/, /<meta property="og:image:secure_url"[^>]*>/, /<meta property="og:image:alt"[^>]*>/, /<meta name="twitter:image"[^>]*>/, /<meta name="twitter:image:alt"[^>]*>/];
 
-  it("belongs to the eight chain pages and to no other fixed page", () => {
+  it("belongs to the nine chain pages and to no other fixed page", () => {
     expect(Object.keys(ROUTE_HEADS).filter(route => ROUTE_HEADS[route]!.image).sort()).toEqual(CHAINS.map(([route]) => route).sort());
   });
 
@@ -256,6 +257,59 @@ describe("the cache in front of the agent read", () => {
     for (let index = 0; index < 1_001; index += 1) await read(`id-${index}`);
     await read("id-0");
     expect(reads.length).toBe(1_002);
+  });
+});
+
+describe("the cache in front of the reviewed records", () => {
+  const record = (agentId: string) => ({ agentId, displayName: `Record ${agentId}` });
+
+  it("reads the records once a minute for every id asked, and reads again when the minute is up", async () => {
+    let clock = 0;
+    let reads = 0;
+    const names = cachedLiveRecords(async () => {
+      reads += 1;
+      return [record("a"), record("b")];
+    }, () => clock);
+    for (let index = 0; index < 200; index += 1) await names();
+    expect((await names()).get("b")).toBe("Record b");
+    expect(reads).toBe(1);
+    clock = 61_000;
+    await names();
+    expect(reads).toBe(2);
+  });
+
+  it("gives requests that arrive during the read that one read, and reads again if it failed", async () => {
+    let reads = 0;
+    let release!: (records: Array<{ agentId: string; displayName: string }>) => void;
+    const names = cachedLiveRecords(() => {
+      reads += 1;
+      return new Promise(resolve => {
+        release = resolve;
+      });
+    });
+    const burst = [names(), names(), names()];
+    release([record("a")]);
+    expect((await Promise.all(burst)).map(held => held.get("a"))).toEqual(["Record a", "Record a", "Record a"]);
+    expect(reads).toBe(1);
+
+    let attempts = 0;
+    const flaky = cachedLiveRecords(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("storage down");
+      return [record("a")];
+    });
+    await expect(flaky()).rejects.toThrow("storage down");
+    expect((await flaky()).get("a")).toBe("Record a");
+  });
+
+  it("keeps the first record of an id and knows no other", async () => {
+    const names = cachedLiveRecords(async () => [
+      { agentId: "a", displayName: "First" },
+      { agentId: "a", displayName: "Second" },
+    ]);
+    const held = await names();
+    expect(held.get("a")).toBe("First");
+    expect(held.get("nobody")).toBeUndefined();
   });
 });
 
@@ -461,6 +515,31 @@ describe("the routes", () => {
     }
   });
 
+  it("serves the Celo page's head only while its switch is on, and indexes it with its own card", async () => {
+    const saved = process.env.VITE_FEATURES;
+    try {
+      delete process.env.VITE_FEATURES;
+      expect((await get("/chains/celo")).body).toBe("FALLBACK");
+      process.env.VITE_FEATURES = "chain_arc,chain_base,chain_ethereum,chain_monad,chain_gnosis";
+      expect((await get("/chains/celo")).body).toBe("FALLBACK");
+      process.env.VITE_FEATURES = "claims, chain_celo";
+      const page = await get("/chains/celo");
+      expect(page.status).toBe(200);
+      expect(page.body).toContain("<title>Celo registry groups | Nooscape</title>");
+      expect(tag(page.body, /<link rel="canonical"[^>]*>/)).toContain('href="https://nooscape.si/chains/celo"');
+      expect(tag(page.body, /<meta name="robots"[^>]*>/)).toContain(`content="${INDEXED}"`);
+      const card = ROUTE_HEADS["/chains/celo"]!.image!;
+      const url = `https://nooscape.si/${card.file}`;
+      const html = flat(page.body);
+      expect(card.file).toBe("nooscape-card-chain-celo.png");
+      for (const pattern of [/<meta property="og:image"[^>]*>/, /<meta property="og:image:secure_url"[^>]*>/, /<meta name="twitter:image"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${url}"`);
+      for (const pattern of [/<meta property="og:image:alt"[^>]*>/, /<meta name="twitter:image:alt"[^>]*>/]) expect(tag(html, pattern)).toContain(`content="${card.alt}"`);
+    } finally {
+      if (saved === undefined) delete process.env.VITE_FEATURES;
+      else process.env.VITE_FEATURES = saved;
+    }
+  });
+
   it("keeps the operator console and the 404 page out of search, and every other fixed page in", async () => {
     expect(tag((await get("/admin/sources")).body, /<meta name="robots"[^>]*>/)).toContain('content="noindex, nofollow"');
     expect(tag((await get("/404")).body, /<meta name="robots"[^>]*>/)).toContain(`content="${NOT_INDEXED}"`);
@@ -482,7 +561,7 @@ describe("the routes", () => {
     expect(tag((await get("/agents/agent-8623-f7867ea086")).body, /<meta name="robots"[^>]*>/)).toContain(`content="${INDEXED}"`);
     facts = async () => null;
     const none = await get("/agents/nobody");
-    expect(none.status).toBe(200);
+    expect(none.status).toBe(404);
     expect(none.body).toContain("<title>Agent | Nooscape</title>");
     expect(tag(none.body, /<meta name="robots"[^>]*>/)).toContain(`content="${NOT_INDEXED}"`);
   });
@@ -506,14 +585,18 @@ describe("the routes", () => {
     expect(reads).toEqual([]);
   });
 
-  it("sends the ordinary page, not an error, when the agent cannot be read, and says so once in the log", async () => {
+  it("answers 503 with Retry-After and a noindex head when the agent cannot be read, and says so once in the log", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     facts = async () => {
       throw new Error("connect ECONNREFUSED 127.0.0.1:3306 password=hunter2");
     };
     const page = await get("/agents/abc");
-    expect(page.status).toBe(200);
-    expect(page.body).toBe("FALLBACK");
+    expect(page.status).toBe(503);
+    expect(page.headers.get("retry-after")).toBe(String(UNAVAILABLE_RETRY_AFTER_SECONDS));
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    expect(tag(page.body, /<meta name="robots"[^>]*>/)).toContain(`content="${NOT_INDEXED}"`);
+    expect(tag(page.body, /<link rel="canonical"[^>]*>/)).toContain('href="https://nooscape.si/agents/abc"');
+    expect(page.body).not.toContain("hunter2");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(warn.mock.calls)).not.toContain("hunter2");
   });
@@ -523,7 +606,7 @@ describe("the routes", () => {
     facts = async () => {
       throw Object.assign(new Error("paused"), { code: CIRCUIT_OPEN_CODE });
     };
-    expect((await get("/agents/abc")).body).toBe("FALLBACK");
+    expect((await get("/agents/abc")).status).toBe(503);
     expect(warn).not.toHaveBeenCalled();
   });
 });

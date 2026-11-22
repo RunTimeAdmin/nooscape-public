@@ -48,6 +48,17 @@ describe("the evidence a link gives", () => {
     expect(facts.profileUriHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("takes no endpoint host from an address whose host is longer than the columns that keep one, and still reads the registration", () => {
+    const record = (host: string) => ({ name: "Long Host Bot", description: "One registration", services: [{ name: "web", endpoint: `https://${host}/api` }] });
+    const tooLong = `${"h".repeat(300)}.example.io`;
+    expect(evidenceFromUri(inline(record(tooLong)), "5")).toMatchObject({ readStatus: "inline", endpointHost: null, templateKey: expect.stringMatching(/^[0-9a-f]{16}$/) });
+    expect(evidenceFromFile(JSON.stringify(record(tooLong)), "5", "a".repeat(64))).toMatchObject({ readStatus: "fetched", endpointHost: null });
+    // A host that fits is kept as it was.
+    const longest = [60, 60, 60, 60].map((length, index) => "hijk"[index]!.repeat(length)).join(".") + ".io";
+    expect(longest.length).toBeLessThanOrEqual(255);
+    expect(evidenceFromUri(inline(record(longest)), "5").endpointHost).toBe(longest);
+  });
+
   it("has a key for a registration with a name and no address", () => {
     expect(evidenceFromUri(inline({ name: "Lone Agent" }), "3")).toMatchObject({ readStatus: "inline", endpointHost: null, templateKey: expect.stringMatching(/^[0-9a-f]{16}$/) });
   });

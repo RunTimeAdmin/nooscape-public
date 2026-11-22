@@ -21,7 +21,7 @@ A count is what the report's queries count (`docs/monad-census-queries-2026-11-0
 | Registering wallets | different registering wallets among the rows |
 | Registrations with an https link | rows with a host |
 | Host names of those links | different hosts among the rows |
-| Different profile links | different profile-link hashes among the rows (the empty link counts as one, as in the census) |
+| Different profile links | different profile-link hashes among the rows, leaving out the empty link: a registration that set no link is not counted, as in the reports' tables (update 2026-11-20, below) |
 
 A registry that keeps entries (Robinhood Chain) is counted from its visible entries: listed, wallets, https links and host names. A count the registry does not have is left out of the block, and a line of a report's table the answer has no count for is left out and never shown as zero.
 
@@ -35,7 +35,7 @@ I first offered a daily job that stores a row for each chain. The counts turned 
 
 ## Which reports have it
 
-Arc (both reports), Base, Ethereum, Monad, Gnosis, Robinhood Chain, and BNB Chain's registry report, which shows the one count the report and the directory make the same way (the listed entries; the report replayed the chain for its registrations, so its figure is not the directory's stored count).
+Arc (both reports), Base, Ethereum, Monad, Gnosis, Robinhood Chain, and BNB Chain's registry report, which shows the one count the report and the directory make the same way (the listed entries; the report replayed the chain for its registrations, so its figure is not the directory's stored count). Update 2026-11-20: Celo's report carries it too ([the census](./celo-census-2026-11-20.md)), with `celo` in the block's chain list and its ratings line read from the chain's own count.
 
 Not done:
 
@@ -53,7 +53,7 @@ The reports: their figures, their prose and their tests are unchanged, and the r
 ## Held by tests
 
 - `shared/censusToday.test.ts`: the chains, each extra chain's source and ratings key against the chain table, the switches, the labels of the counts.
-- `censusToday.integration.test.ts` (MySQL 8 and MariaDB 10.11): every count against rows, overflow, entries and ratings seeded by hand, including the hidden entry that is not listed, the empty profile link that is one link, a ratings count that has not read the whole history, a paused source, a chain with no source, counts only in what is returned, and the cache.
+- `censusToday.integration.test.ts` (MySQL 8 and MariaDB 10.11): every count against rows, overflow, entries and ratings seeded by hand, including the hidden entry that is not listed, the empty profile link that is not a link, a ratings count that has not read the whole history, a paused source, a chain with no source, counts only in what is returned, and the cache.
 - `censusTodayRoute.test.ts`: the public read through the router: a chain whose switch is off, the two that are always on, a chain with no report, a source that is not active, and a failed read.
 - `censusTodayModel.test.ts`, `CensusToday.test.ts`: the lines and the change, the words, each case of fails-closed, the request made, and counts only.
 - `censusTodayPages.test.ts`: each report carries the block for its own chain right after the lines that say when it was measured, with a line for each line of its first table, and without the block where there is no query client.
@@ -64,3 +64,9 @@ The reports: their figures, their prose and their tests are unchanged, and the r
 - On 2026-11-07, after the deploy, the block was drawn on all eight live reports in headless Chrome (no console error, nothing overflowing, plausible changes), which is how the Base comparison above was found. Before that it was drawn in headless Chrome by a built server against a scratch database in the shape of the real one, at 1440 and 375 pixels: it draws on Robinhood Chain, Base and Arc (Gnosis's page has the same two lines as Monad's and is held by the same test), sits right after the lines that say when the report was measured, overflows nothing and leaves the console quiet; and it is absent, with the report intact, on Ethereum (paused source), Monad and BNB Chain (no source). The first look at the deployed pages is the check above.
 - No history is kept, as above.
 - Solana, as above.
+
+## Update 2026-11-20: the empty link is not a link
+
+The block counted the registrations that set no link as one link (the hash of the empty text), because it was written to match query 1 of the census, whose `distinct_profile_links` counts that hash. The reports' tables do not: their "Different profile links" is that count less the empty link, as the data files say (`q1[5] - (q1[6] > 0 ? 1 : 0)`). So on a chain where some registrations set no link the block read one more than the table beside it from the first minute, and its change column showed +1 for it. It was found on 2026-11-20 while the Celo census was being checked: 9,956 against 9,955 on Celo (45 registrations set no link), and on the live pages of Gnosis (2,297 against 2,294 while the stored registrations rose by 2) and Monad (2,154 against 2,148 for 5 more).
+
+The block now leaves the empty link out (`profileUriHash <> EMPTY_URI_SHA256`, the constant the pass and the groups already use), so it counts what the table counts. A row with no hash at all was never counted. The reports are dated measurements and do not change; only the block's figure moves, down by one on a chain with registrations that set no link (Arc, Base, Ethereum, Monad and Gnosis have some). The integration test seeds the empty link and a row with none and expects two links, and the figure was also run against Celo's real rows (a read-only dump of public chain facts) and read 9,955, the report's table.

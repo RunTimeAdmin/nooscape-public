@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { BNB_RATINGS_REPORT as report } from "@/lib/bnbRatingsReport";
 import { InfoPage, headingClass, linkClass, listClass, textClass } from "@/components/InfoPage";
+import { CensusToday } from "@/components/CensusToday";
 
 /**
  * A dated read of the ratings on the BNB Chain ERC-8004 reputation registry as a whole. It is a report, not a directory: it
@@ -23,6 +24,22 @@ export default function BnbRatingsReport() {
         <dt>Finalized block</dt>
         <dd className="text-ns-ink">{n(r.finalizedBlock)}</dd>
       </dl>
+      {/* The ledger's counts, from the events the rater step keeps: the report's first table, without the findings, which apply its rules. */}
+      <CensusToday
+        chain="bnb_ratings"
+        measuredOn={r.date}
+        takenFrom="the ratings ledger the directory keeps"
+        asOfWords="the rater step last wrote it at"
+        figures={[
+          ["Events", r.events.value, "events"],
+          ["Ratings sent", r.ratingsSent.value, "ratingsSent"],
+          ["Revocations", r.revocations.value, "revocations"],
+          ["Ratings that stand", r.ratingsStand.value, "ratingsStand"],
+          ["Wallets that sent a rating", r.senders.value, "senders"],
+          ["Wallets with a rating that stands", r.raters.value, "raters"],
+          ["Agents with a rating that stands", r.agentsRated.value, "agentsRated"],
+        ]}
+      />
 
       <section aria-labelledby="ratings-method">
         <h2 id="ratings-method" className={headingClass}>How it was done</h2>

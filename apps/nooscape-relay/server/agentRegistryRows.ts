@@ -70,7 +70,7 @@ export const BSC_LISTING_RULES: RegistryListingRules = {
 };
 
 /** SHA-256 of the empty string: the profile hash of a registration that set no URI. Never a real shared link. */
-const EMPTY_URI_SHA256 = createHash("sha256").update("").digest("hex");
+export const EMPTY_URI_SHA256 = createHash("sha256").update("").digest("hex");
 
 const ROWS = sql.raw("agent_directory_registry_rows");
 const ENTRIES = sql.raw("agent_directory_entries");
@@ -550,7 +550,7 @@ type AgentRegistryProfile = {
 /**
  * What fills the registry, as counts over recorded facts: how many registrations
  * are stored, how many pass the rules, how many are held out and why, and the
- * biggest shared profile links and hosts. Index-only scans over the source's
+ * biggest shared profile links and hosts (not counting a hidden or suppressed registration, as in readRegistryGroups). Scans over the source's
  * rows; the caller caches it.
  */
 export async function readAgentRegistryProfile(sourceId: string, rules: RegistryListingRules = BSC_LISTING_RULES): Promise<AgentRegistryProfile> {
@@ -570,7 +570,7 @@ export async function readAgentRegistryProfile(sourceId: string, rules: Registry
     .from(agentDirectoryRegistryRows)
     .where(
       and(
-        eq(agentDirectoryRegistryRows.sourceId, sourceId),
+        liveRegistryRows(sourceId),
         sql`${agentDirectoryRegistryRows.profileUriHash} IS NOT NULL AND ${agentDirectoryRegistryRows.profileUriHash} <> ${EMPTY_URI_SHA256}`
       )
     )
@@ -583,7 +583,8 @@ export async function readAgentRegistryProfile(sourceId: string, rules: Registry
     const [member] = await db
       .select({ host: agentDirectoryRegistryRows.locatorHost, name: agentDirectoryRegistryRows.displayName })
       .from(agentDirectoryRegistryRows)
-      .where(and(eq(agentDirectoryRegistryRows.sourceId, sourceId), eq(agentDirectoryRegistryRows.profileUriHash, group.hash!)))
+      .where(and(liveRegistryRows(sourceId), eq(agentDirectoryRegistryRows.profileUriHash, group.hash!)))
+      .orderBy(agentDirectoryRegistryRows.id)
       .limit(1);
     // A host names the group; failing that a recorded name does (an inline template shares its name). A placeholder
     // name (Agent #<id>) belongs to one member, not the group, so it never labels it. The name is self-asserted text
@@ -596,7 +597,7 @@ export async function readAgentRegistryProfile(sourceId: string, rules: Registry
   const hostRows = await db
     .select({ host: agentDirectoryRegistryRows.locatorHost, total: sql<number>`count(*)` })
     .from(agentDirectoryRegistryRows)
-    .where(and(eq(agentDirectoryRegistryRows.sourceId, sourceId), sql`${agentDirectoryRegistryRows.locatorHost} IS NOT NULL`))
+    .where(and(liveRegistryRows(sourceId), sql`${agentDirectoryRegistryRows.locatorHost} IS NOT NULL`))
     .groupBy(agentDirectoryRegistryRows.locatorHost)
     .having(sql`count(*) >= 2`)
     .orderBy(sql`count(*) desc`)
@@ -697,6 +698,16 @@ export type RegistryGroupsRead = {
 };
 
 /**
+ * The registrations a public group read counts: not hidden (by the operator, or at insert because the host is suppressed) and not on a
+ * suppressed host now, because a URI update moves a registration's host without changing its hidden flag. One definition for every
+ * public read of a registry's groups, so two readers of the same table cannot disagree about which rows exist.
+ */
+export function liveRegistryRows(sourceId: string) {
+  const rows = agentDirectoryRegistryRows;
+  return and(eq(rows.sourceId, sourceId), eq(rows.hidden, false), sql`(${rows.locatorHost} IS NULL OR NOT (${suppressedLocatorHostSql(rows.locatorHost)}))`);
+}
+
+/**
  * The registering wallets, hosts and profile links that `minimum` or more of a chain's registrations share, for the chain's own page:
  * the `limit` largest of each kind and how many there are in all, with the number of registrations the registry holds. Counted over
  * every registration, listed or held out, because the groups are what holds registrations out. A registration that is hidden (by the
@@ -715,7 +726,7 @@ export async function readRegistryGroups(protocol: string, minimum: number, limi
     .limit(1);
   if (!source) return null;
   const rows = agentDirectoryRegistryRows;
-  const live = and(eq(rows.sourceId, source.id), eq(rows.hidden, false), sql`(${rows.locatorHost} IS NULL OR NOT (${suppressedLocatorHostSql(rows.locatorHost)}))`);
+  const live = liveRegistryRows(source.id);
   const totals: Record<RegistryGroupKind, number> = { wallet: 0, platform_host: 0, shared_link: 0 };
   const groups: RegistryGroupRow[] = [];
 

@@ -8,12 +8,14 @@ import { staleSince } from "@/components/home/EvidenceAsOf";
 import { cn } from "@/lib/utils";
 import { setPageCovered } from "@/lib/pageCover";
 import { trpc } from "@/lib/trpc";
+import { EXTRA_CHAIN_SWITCH } from "@shared/chains";
 import { featureOn } from "@shared/features";
+import { EXTRA_CHAIN_LIGHTS } from "@shared/mapFleets";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { buildProtocolPopulation, extraChainTotals, listingRulesSentence, reviewedProtocolCounts, splitDirectoryTotals } from "@/lib/directoryProtocols";
 import { evidenceGroup, evidenceRank, type PublisherState } from "@/lib/evidenceReadout";
 import { recordsWithIsoDates } from "./home/liveRecords";
-import { type AtlasAgent, type BnbRegistryProfile, type DirectoryBreakdown, type DirectoryFunnel, type DirectoryUsdgSettlements, type DirectoryWalletCensus, EVIDENCE_POLL, type EvidenceEnvelope, type IngestionEvent, type LiveAtlasCoverage, type LiveAtlasRecord, type TrustFilter, ingressMatchesFramework, mapLiveRecord, positionForLiveAgent, protocolsForLiveAgent } from "./home/atlasModel";
+import { type AtlasAgent, type BnbRegistryProfile, type DirectoryBreakdown, type DirectoryFunnel, type DirectoryUsdgSettlements, type DirectoryWalletCensus, EVIDENCE_POLL, type EvidenceEnvelope, type IngestionEvent, type LiveAtlasCoverage, type LiveAtlasRecord, type TrustFilter, ingressMatchesFramework, mapLiveRecord, positionForLiveAgent, protocolsForLiveAgent, withPublisherState, withTrustedOnly } from "./home/atlasModel";
 
 // The scan map loads after the first paint, so the Atlas below it does not wait on it.
 const LandingHero = lazy(() => import("./home/LandingHero"));
@@ -34,13 +36,17 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
   const liveCoverageQuery = trpc.liveData.publicCoverage.useQuery(undefined, LIVE_POLL);
   // The largest groups of BNB Chain registrations that share one fact, drawn as one large circle each with its count. Read in the same batch as the records and waited for, so the page below does not move when they arrive; not retried, so a failed read leaves the map as it was. No single BNB Chain registration is read for the map.
   const mapFleetsQuery = trpc.liveData.mapFleets.useQuery(undefined, { enabled: view === "home", retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
-  // The groups of Arc registrations, drawn as domes beside the others while Arc's switch is on in this build. Not waited for and not retried: a failed or empty read leaves the map as it was, and the domes are placed after everything else, so they move nothing when they arrive.
-  const arcFleetsQuery = trpc.liveData.registryFleets.useQuery({ chain: "arc" }, { enabled: view === "home" && featureOn("chain_arc", import.meta.env.VITE_FEATURES), retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
-  // The same for Base (crosses), Ethereum (pentagons), Monad (stars) and Gnosis (octagons), each behind its own switch and placed after the Arc domes.
-  const baseFleetsQuery = trpc.liveData.registryFleets.useQuery({ chain: "base" }, { enabled: view === "home" && featureOn("chain_base", import.meta.env.VITE_FEATURES), retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
-  const ethereumFleetsQuery = trpc.liveData.registryFleets.useQuery({ chain: "ethereum" }, { enabled: view === "home" && featureOn("chain_ethereum", import.meta.env.VITE_FEATURES), retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
-  const monadFleetsQuery = trpc.liveData.registryFleets.useQuery({ chain: "monad" }, { enabled: view === "home" && featureOn("chain_monad", import.meta.env.VITE_FEATURES), retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
-  const gnosisFleetsQuery = trpc.liveData.registryFleets.useQuery({ chain: "gnosis" }, { enabled: view === "home" && featureOn("chain_gnosis", import.meta.env.VITE_FEATURES), retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false });
+  // Each extra chain's groups (Arc's domes, Base's crosses, Ethereum's pentagons, Monad's stars, Gnosis's octagons, Celo's arrowheads), drawn
+  // beside the others while that chain's switch is on in this build. Not waited for and not retried: a failed or empty read leaves the map
+  // as it was, and these lights are placed after everything else, so they move nothing.
+  const registryFleetsQueries = trpc.useQueries(t =>
+    EXTRA_CHAIN_LIGHTS.map(({ chain }) =>
+      t.liveData.registryFleets({ chain }, { enabled: view === "home" && featureOn(EXTRA_CHAIN_SWITCH[chain], import.meta.env.VITE_FEATURES), retry: false, staleTime: 10 * 60_000, refetchOnWindowFocus: false })
+    )
+  );
+  const registryFleetsData = registryFleetsQueries.map(query => query.data);
+  // One answer per extra chain, always the same number of them, so the list of answers is a fixed-length dependency.
+  const registryFleets = useMemo(() => Object.fromEntries(EXTRA_CHAIN_LIGHTS.map(({ chain }, index) => [chain, registryFleetsData[index] ?? null])), registryFleetsData);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [linkedAgentId, setLinkedAgentId] = useState<string | null>(null);
@@ -231,13 +237,15 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
   }, [selectedId, visibleAgents]);
 
   const setMapPublisherState = (state: PublisherState | "all") => {
-    setPublisherStateFilter(state);
-    if (state !== "allowlisted") setTrustedOnly(false);
+    const next = withPublisherState({ trustedOnly, publisherState: publisherStateFilter }, state);
+    setPublisherStateFilter(next.publisherState);
+    setTrustedOnly(next.trustedOnly);
   };
 
   const setMapTrustedOnly = (value: boolean) => {
-    setTrustedOnly(value);
-    if (value) setPublisherStateFilter("allowlisted");
+    const next = withTrustedOnly({ trustedOnly, publisherState: publisherStateFilter }, value);
+    setTrustedOnly(next.trustedOnly);
+    setPublisherStateFilter(next.publisherState);
   };
 
   const setMainTrustFilter = (value: TrustFilter) => {
@@ -424,7 +432,7 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
             <HeroScene onAskTheOwl={askTheOwl} />
 
             <Suspense fallback={<div className="mb-5 h-[520px]" aria-hidden="true" />}>
-              <LandingHero records={liveRecords} status={liveRecordsQuery.isLoading || mapFleetsQuery.isLoading ? "loading" : liveRecordsQuery.isError ? "unavailable" : "ready"} fleets={mapFleetsQuery.data ?? null} arcFleets={arcFleetsQuery.data ?? null} baseFleets={baseFleetsQuery.data ?? null} ethereumFleets={ethereumFleetsQuery.data ?? null} monadFleets={monadFleetsQuery.data ?? null} gnosisFleets={gnosisFleetsQuery.data ?? null} linkedAgentId={linkedAgentId} />
+              <LandingHero records={liveRecords} status={liveRecordsQuery.isLoading || mapFleetsQuery.isLoading ? "loading" : liveRecordsQuery.isError ? "unavailable" : "ready"} fleets={mapFleetsQuery.data ?? null} registryFleets={registryFleets} linkedAgentId={linkedAgentId} />
             </Suspense>
 
             {/* Below the map, not above it: the map is the best thing on the page and should be the first section a visitor reaches. The hero's own line says what is new and links here. */}

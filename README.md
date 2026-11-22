@@ -27,7 +27,7 @@
 
 ## What Nooscape is
 
-Nooscape™ is a public atlas of AI agents. It reads the public agent registries on **Robinhood Chain, BNB Chain, Solana, Ethereum, Base, Arc, Monad and Gnosis**, keeps what it read together with the date or block it was read at, and shows it as facts. Anyone can look an agent up, see where each fact came from, and decide for themselves.
+Nooscape™ is a public atlas of AI agents. It reads the public agent registries on **Robinhood Chain, BNB Chain, Solana, Ethereum, Base, Arc, Monad, Gnosis and Celo**, keeps what it read together with the date or block it was read at, and shows it as facts. Anyone can look an agent up, see where each fact came from, and decide for themselves.
 
 It states facts and never a verdict.
 
@@ -36,7 +36,7 @@ It states facts and never a verdict.
 - **Payment changes nothing.** A key, a payment or a claim never changes a record, a tier or an evidence level.
 - **Every answer says when it was read and where from.**
 
-On 8 November 2026 the atlas listed 62,759 agents from the chain registries (Robinhood Chain 22,541, Solana 18,084, Base 9,214, BNB Chain 6,980, Ethereum 5,219, Arc 533, Monad 147, Gnosis 41), out of many more registrations recorded, and 302 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
+On 22 November 2026 the atlas listed 67,537 agents from the chain registries (Robinhood Chain 26,302, Solana 18,366, Base 9,304, BNB Chain 7,034, Ethereum 5,227, Arc 588, Celo 526, Monad 148, Gnosis 42), out of many more registrations recorded, and 302 records were reviewed with signed evidence kept. The live figures are on the [home page](https://nooscape.si) and in the [API](https://nooscape.si/api/v1).
 
 ## See it
 
@@ -62,6 +62,7 @@ On 8 November 2026 the atlas listed 62,759 agents from the chain registries (Rob
 | **Browse the atlas** | The map, one page for each chain, and a dossier for every agent that shows what is on record and what is not. |
 | **Look an agent up** | `GET /api/v1/agents/{chain}/{id}` and a search, with no key. 30 requests a minute from one address. |
 | **Check before you pay** | `POST /api/v1/check` gives dated facts about an agent, a wallet or an endpoint host. It takes a Pro key, or $0.01 a call in USDC over [x402](https://x402.org), with no account. |
+| **Download everything** | Once a day every listed agent goes into one gzip file of JSON lines, free and with no key, kept 30 days: `GET /api/v1/exports/agents/latest` gives the signed manifest, and `/api/v1/exports/agents/{date}/data` the file. |
 | **Use it from an AI assistant** | The [`nooscape-mcp`](https://github.com/RunTimeAdmin/nooscape-mcp) server gives MCP clients search, lookup, history and the check as tools. |
 | **Claim your agent** | The owner of an ERC-8004 agent on Robinhood Chain, BNB Chain or Arc signs one message with the wallet that owns the agent in the registry. The claim is shown beside what Nooscape observed, never in its place. |
 | **Watch agents** | Builder keys get a watchlist and signed webhooks. |
@@ -82,14 +83,14 @@ curl -i -X POST https://nooscape.si/api/v1/check \
   -d '{"agent":{"chain":"arc","id":"1"}}'
 ```
 
-Chains are `robinhood`, `bnb`, `solana`, `ethereum`, `base`, `arc`, `monad` and `gnosis`. Every answer carries `as_of`, `source` and `license`. Free, Builder and Pro keys raise the limits ([get a key](https://nooscape.si/developers/keys)). The full description is the [OpenAPI document](https://nooscape.si/api/v1/openapi.json), and [`/llms.txt`](https://nooscape.si/llms.txt) is the same API written for a model.
+Chains are `robinhood`, `bnb`, `solana`, `ethereum`, `base`, `arc`, `monad`, `gnosis` and `celo`. Every answer carries `as_of`, `source` and `license`. Free, Builder and Pro keys raise the limits ([get a key](https://nooscape.si/developers/keys)). The full description is the [OpenAPI document](https://nooscape.si/api/v1/openapi.json), and [`/llms.txt`](https://nooscape.si/llms.txt) is the same API written for a model.
 
 ## How it works
 
 ```mermaid
 flowchart LR
   subgraph Sources["Public sources"]
-    A["ERC-8004 registries<br/>Robinhood, BNB, Ethereum, Base, Arc, Monad, Gnosis"]
+    A["ERC-8004 registries<br/>Robinhood, BNB, Ethereum, Base, Arc, Monad, Gnosis, Celo"]
     B["Solana agent registries"]
     C["A2A cards and catalogs"]
   end
@@ -169,7 +170,7 @@ The root of the repository also holds dated design and research notes. They reco
 |---|---|
 | [`AGENT_TRUST_TIER_DESIGN.md`](AGENT_TRUST_TIER_DESIGN.md) | The thesis, the dedup pipeline, trust tiers 0 to 3 and the phased build plan |
 | [`INGEST_POINTS.md`](INGEST_POINTS.md) | Named ingest sources, their limits and the signals each gives |
-| [`SCOPE.md`](SCOPE.md) | The v1 chain scope decided on 7 October 2026. BNB Chain, Base, Ethereum, Monad and Gnosis were added after it. |
+| [`SCOPE.md`](SCOPE.md) | The v1 chain scope decided on 7 October 2026. BNB Chain, Base, Ethereum, Monad, Gnosis and Celo were added after it. |
 | [`ARC_INGEST_RESEARCH.md`](ARC_INGEST_RESEARCH.md) | Arc: first-party evidence, source requirements and priorities |
 
 ### Independence
@@ -192,4 +193,4 @@ The code is released under the [MIT License](LICENSE). The facts and records Noo
 
 ## About this repository
 
-This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 8 November 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.
+This is the public home of Nooscape's source, started from a snapshot taken on 21 October 2026 and refreshed from the private repository's main on 22 November 2026. Earlier history lives in a private archive, so the pull request and commit numbers that the docs and code comments mention (for example "PR 174") refer to that archive, and a few records are withheld from this tree and replaced with a short note.

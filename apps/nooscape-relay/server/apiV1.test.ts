@@ -225,7 +225,7 @@ describe("the document the API serves", () => {
     const found: Record<string, string[]> = {};
     for (const route of routesIn(apiV1Router(deps()).stack as Layer[])) {
       if (route.methods.length === 0) continue;
-      const path = `/api/v1${route.path === "/" ? "" : route.path}`.replace(":chain", "{chain}").replace(":id", "{id}").replace(":entry", "{nooscape_id}");
+      const path = `/api/v1${route.path === "/" ? "" : route.path}`.replace(":chain", "{chain}").replace(":id", "{id}").replace(":entry", "{nooscape_id}").replace(":date", "{date}");
       found[path] = [...(found[path] ?? []), ...route.methods].sort();
     }
     const documented = Object.fromEntries(Object.entries(API_V1_SPEC.paths).map(([path, item]) => [path, Object.keys(item).sort()]));
@@ -892,9 +892,9 @@ describe("what the API is held to at the source", () => {
     expect(page).toContain("up to five minutes");
   });
 
-  it("lets a shared cache hold nothing about an agent: only the index and the document, which hold no per-caller state, are public", () => {
+  it("lets a shared cache hold nothing about an agent: only the index, the document and the daily export, which hold no per-caller state, are public", () => {
     const publics = api.match(/"public, max-age=\d+"/g) ?? [];
-    expect(publics).toEqual(['"public, max-age=300"', '"public, max-age=300"']);
+    expect(publics).toEqual(['"public, max-age=300"', '"public, max-age=300"', '"public, max-age=300"', '"public, max-age=3600"', '"public, max-age=3600"']);
     expect(api).toMatch(/const cacheable = \(res: Response\) => res\.set\("Cache-Control", "private, max-age=60"\);/);
   });
 

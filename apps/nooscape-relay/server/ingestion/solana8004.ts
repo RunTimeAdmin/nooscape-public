@@ -141,10 +141,11 @@ const SOLANA_8004_METADATA_DISCRIMINATOR = [0x30, 0x91, 0x0c, 0xf9, 0xb0, 0x8d, 
 /** Exact MetadataEntryPda size at probe time; anything else is not one. */
 const SOLANA_8004_METADATA_ENTRY_BYTES = 332;
 /**
- * Growth ceiling for the metadata entries, aligned with the agent
- * ceiling's stop-loudly posture.
+ * Metadata entries read per pass. They are optional enrichment and anyone who can call the program's metadata instruction can add them,
+ * so past this many a pass reads the first of them by address and counts the rest: a flood of them must never stop the core agent pass.
+ * The agent ceiling is different on purpose: a truncated agent list would read as closures, so it stops the pass.
  */
-const SOLANA_8004_METADATA_MAX_ACCOUNTS = 4_000;
+export const SOLANA_8004_METADATA_MAX_ACCOUNTS = 4_000;
 /**
  * Registration-URI name fetches per pass. At the 30-minute cadence this
  * sweeps the ~1,159 fetchable links (755 ipfs + ~404 https) in about a day;
@@ -248,6 +249,8 @@ type Solana8004ChainSnapshot = {
   /** Step-3: metadata entries decoded this pass, and malformed rows skipped and counted. */
   metadataCount: number;
   metadataSkippedCount: number;
+  /** Step-3: decoded metadata entries past the per-pass ceiling, left out of this pass (the first by address were read). */
+  metadataLeftOutCount: number;
   /** Step-3: name fetches spent and names resolved this pass (never part of requestCount — HTTP, not RPC). */
   fetchAttemptedCount: number;
   fetchResolvedCount: number;
@@ -1247,12 +1250,19 @@ export async function fetchSolana8004ChainState(input: {
   // agent accounts), so they are read from it and not asked for again with a memcmp filter: a second getProgramAccounts after the attribution
   // loop cost a request, a pause and the provider's own load, for the same rows. These surfaces feed enrichment and linkage only, never
   // closures, and their results are idempotent upserts.
-  const metadata = parseSolana8004MetadataAccounts(metadataRows);
-  if (metadata.entries.length > SOLANA_8004_METADATA_MAX_ACCOUNTS) {
-    throw new Solana8004ValidationError(
-      `8004 metadata enumeration returned ${metadata.entries.length} entries, past the approved ${SOLANA_8004_METADATA_MAX_ACCOUNTS}-account ceiling.`
-    );
-  }
+  const decodedMetadata = parseSolana8004MetadataAccounts(metadataRows);
+  // Past the ceiling the pass reads the first entries by address and counts the rest. A throw here would come after the attribution walk
+  // and before any write, so anyone who adds enough entries could stop the core pass.
+  const metadataLeftOutCount = Math.max(0, decodedMetadata.entries.length - SOLANA_8004_METADATA_MAX_ACCOUNTS);
+  const metadata =
+    metadataLeftOutCount === 0
+      ? decodedMetadata
+      : {
+          ...decodedMetadata,
+          entries: [...decodedMetadata.entries]
+            .sort((left, right) => (left.account < right.account ? -1 : left.account > right.account ? 1 : 0))
+            .slice(0, SOLANA_8004_METADATA_MAX_ACCOUNTS),
+        };
   const chainLinks = buildSolana8004ChainLinks(metadata.entries);
   const metaResolutions = buildSolana8004MetadataResolutions(metadata.entries);
 
@@ -1342,6 +1352,7 @@ export async function fetchSolana8004ChainState(input: {
     chainLinks,
     metadataCount: metadata.entries.length,
     metadataSkippedCount: metadata.skippedCount,
+    metadataLeftOutCount,
     fetchAttemptedCount,
     fetchResolvedCount,
     requestCount,

@@ -1,10 +1,11 @@
-import { arcClaimsOn, baseClaimsOn, ethereumClaimsOn, gnosisClaimsOn, monadClaimsOn } from "@shared/features";
+import { EXTRA_CHAIN_SPECS, extraChainClaimsOn } from "@shared/chains";
 import { callArcRpcOnce } from "./claimsArc";
-import { callBaseRpcOnce, callEthereumRpcOnce, callGnosisRpcOnce, callMonadRpcOnce } from "./claimsPinned";
+import { callPinnedRpcOnce, PINNED_CLAIM_CHAIN_IDS } from "./claimsPinned";
 import { BscRpcError, callBscRpc } from "./ingestion/bscRpc";
 import { BSC_CHAIN_ID, BSC_IDENTITY_REGISTRY } from "./ingestion/bscChain";
 import { bscReadBucket, BSC_CU } from "./ingestion/bscBudget";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, ERC8004_CHAINS } from "./ingestion/erc8004Chains";
+import type { Erc8004ChainProtocol } from "./ingestion/types";
 import { callRobinhoodRpcOnce, ROBINHOOD_IDENTITY_REGISTRY, ROBINHOOD_REGISTRY_CHAIN } from "./ingestion/robinhood";
 import { decodeOwnerOf, encodeIsValidSignature, encodeOwnerOf, isValidSignatureAnswer } from "./claimsCrypto";
 import { consumeRateLimit } from "./rateLimit";
@@ -13,32 +14,27 @@ import { consumeRateLimit } from "./rateLimit";
  * What a claim reads from a chain (docs/claims-2026-10-18.md), and nothing else: who the registry says owns an agent now
  * (`ownerOf`), whether an address is a contract, and whether a contract wallet accepts a signature (EIP-1271). Three read-only
  * `eth_call` and `eth_getCode` requests through the paced clients the passes already use: a BNB Chain read spends from the same
- * compute-unit bucket as the worker's own reads, and a Robinhood Chain, Arc, Base, Ethereum, Monad or Gnosis read is one attempt with no retry ladder, so a visitor
+ * compute-unit bucket as the worker's own reads, and a Robinhood Chain, Arc, Base, Ethereum, Monad, Gnosis or Celo read is one attempt with no retry ladder, so a visitor
  * never waits out a throttle. It asks for no transaction, holds no key and sends nothing.
  */
 
-export type ClaimChain = { protocol: "erc8004" | "erc8004_bsc" | "erc8004_arc" | "erc8004_base" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis"; chainId: number; registry: string; label: string };
+export type ClaimChain = { protocol: "erc8004" | Erc8004ChainProtocol; chainId: number; registry: string; label: string };
 
-/** The EVM registries a claim can be made on. A directory entry of any other protocol cannot be claimed here. Arc's, Base's, Ethereum's, Monad's and Gnosis's count only while their claims are switched on. */
-export const CLAIM_CHAINS: Record<ClaimChain["protocol"], ClaimChain> = {
+/** The EVM registries a claim can be made on. A directory entry of any other protocol cannot be claimed here. Arc's, Base's, Ethereum's, Monad's, Gnosis's and Celo's count only while their claims are switched on. */
+export const CLAIM_CHAINS = {
   erc8004: { protocol: "erc8004", chainId: ROBINHOOD_REGISTRY_CHAIN.chainId, registry: ROBINHOOD_IDENTITY_REGISTRY, label: "Robinhood Chain" },
-  erc8004_bsc: { protocol: "erc8004_bsc", chainId: BSC_CHAIN_ID, registry: BSC_IDENTITY_REGISTRY, label: "BNB Smart Chain" },
-  erc8004_arc: { protocol: "erc8004_arc", chainId: ARC_CHAIN.chainId, registry: ARC_CHAIN.identityRegistry, label: "Arc" },
-  erc8004_base: { protocol: "erc8004_base", chainId: BASE_CHAIN.chainId, registry: BASE_CHAIN.identityRegistry, label: "Base" },
-  erc8004_eth: { protocol: "erc8004_eth", chainId: ETHEREUM_CHAIN.chainId, registry: ETHEREUM_CHAIN.identityRegistry, label: "Ethereum" },
-  erc8004_monad: { protocol: "erc8004_monad", chainId: MONAD_CHAIN.chainId, registry: MONAD_CHAIN.identityRegistry, label: "Monad" },
-  erc8004_gnosis: { protocol: "erc8004_gnosis", chainId: GNOSIS_CHAIN.chainId, registry: GNOSIS_CHAIN.identityRegistry, label: "Gnosis" },
-};
+  // BNB Smart Chain and each extra chain, from the chain pass's own entries.
+  ...Object.fromEntries(ERC8004_CHAINS.map(chain => [chain.protocol, { protocol: chain.protocol, chainId: chain.chainId, registry: chain.identityRegistry, label: chain.label }])),
+} as Record<ClaimChain["protocol"], ClaimChain>;
 
-/** The registries claimable now, in the order the words name them: each extra chain's only while its own switch and its claims switch are both on in the list. */
+/**
+ * The registries claimable now, in the order the words name them: Robinhood Chain and BNB Smart Chain always, then each extra chain, in
+ * the order the tabs list them (shared/chains.ts), only while its own switch and its claims switch are both on in the list.
+ */
 export const claimableChains = (features: string | undefined = process.env.VITE_FEATURES): ClaimChain[] => [
   CLAIM_CHAINS.erc8004,
   CLAIM_CHAINS.erc8004_bsc,
-  ...(arcClaimsOn(features) ? [CLAIM_CHAINS.erc8004_arc] : []),
-  ...(baseClaimsOn(features) ? [CLAIM_CHAINS.erc8004_base] : []),
-  ...(ethereumClaimsOn(features) ? [CLAIM_CHAINS.erc8004_eth] : []),
-  ...(monadClaimsOn(features) ? [CLAIM_CHAINS.erc8004_monad] : []),
-  ...(gnosisClaimsOn(features) ? [CLAIM_CHAINS.erc8004_gnosis] : []),
+  ...EXTRA_CHAIN_SPECS.filter(spec => extraChainClaimsOn(spec.key, features)).map(spec => CLAIM_CHAINS[spec.protocol]),
 ];
 
 export const claimChainOf = (protocol: string, features: string | undefined = process.env.VITE_FEATURES): ClaimChain | null => claimableChains(features).find(chain => chain.protocol === protocol) ?? null;
@@ -69,10 +65,10 @@ export const CLAIM_CHAIN_READS_PER_MINUTE = 60;
  * refuses (as an outage, "try again") rather than queue when it is spent. The worker's daily check does not take it: it is bounded by
  * the 25 claims a run, and it must not be starved by visitors, or starve them.
  */
-function makeCallChain(options: { admit: boolean }): EvmCall {
+function makeCallChain(options: { admit: boolean; bucket?: string }): EvmCall {
   return async (chainId, method, params) => {
     try {
-      if (options.admit && !consumeRateLimit(`claim-chain:${chainId}`, CLAIM_CHAIN_READS_PER_MINUTE, 60_000).allowed) throw new ChainUnavailableError();
+      if (options.admit && !consumeRateLimit(`${options.bucket ?? "claim-chain"}:${chainId}`, CLAIM_CHAIN_READS_PER_MINUTE, 60_000).allowed) throw new ChainUnavailableError();
       if (chainId === BSC_CHAIN_ID) {
         await bscReadBucket.take(BSC_CU.eth_call);
         return { revert: false, result: await callBscRpc(method, params) };
@@ -87,10 +83,7 @@ function makeCallChain(options: { admit: boolean }): EvmCall {
         return { revert: false, result: response.result };
       }
       if (chainId === ARC_CHAIN.chainId) return { revert: false, result: await callArcRpcOnce(method, params) };
-      if (chainId === BASE_CHAIN.chainId) return { revert: false, result: await callBaseRpcOnce(method, params) };
-      if (chainId === ETHEREUM_CHAIN.chainId) return { revert: false, result: await callEthereumRpcOnce(method, params) };
-      if (chainId === MONAD_CHAIN.chainId) return { revert: false, result: await callMonadRpcOnce(method, params) };
-      if (chainId === GNOSIS_CHAIN.chainId) return { revert: false, result: await callGnosisRpcOnce(method, params) };
+      if (PINNED_CLAIM_CHAIN_IDS.includes(chainId)) return { revert: false, result: await callPinnedRpcOnce(chainId, method, params) };
       throw new ChainUnavailableError();
     } catch (error) {
       if (error instanceof ChainUnavailableError) throw error;
@@ -105,6 +98,8 @@ function makeCallChain(options: { admit: boolean }): EvmCall {
 export const callChain: EvmCall = makeCallChain({ admit: true });
 /** For the worker's daily check. */
 export const callChainForWorker: EvmCall = makeCallChain({ admit: false });
+/** For a check's pay_to: the same per-minute budget, in a bucket of its own, so a flood of checks cannot use the claims' reads. */
+export const callChainForPayTo: EvmCall = makeCallChain({ admit: true, bucket: "pay-to-chain" });
 
 type OwnerRead = { status: "owner"; owner: string } | { status: "none" };
 

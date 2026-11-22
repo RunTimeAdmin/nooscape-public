@@ -100,6 +100,8 @@ describe("API cache policy", () => {
     handler({}, { set: (name, value) => { headers[name] = value; } }, () => { passedThrough = true; });
 
     expect(headers["Cache-Control"]).toBe("no-store");
+    // robots.txt lets crawlers fetch /api/trpc/ so they can render pages; this keeps the answers themselves out of search.
+    expect(headers["X-Robots-Tag"]).toBe("noindex");
     expect(passedThrough).toBe(true);
   });
 });

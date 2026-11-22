@@ -31,7 +31,7 @@ export type RatingsDeps = {
   /** The chain's node, opened for the source's host. Tests give a fake one. */
   rpcFor: (chain: Erc8004Chain, source: IngestionSource) => Promise<RpcCall>;
   now: () => number;
-  /** The step stops starting new windows after this long, shared evenly by the chains it reads. */
+  /** The step stops starting new windows after this long, shared by the chains it reads: evenly, and a chain also gets the time the chains before it left unspent. */
   budgetMs: number;
   /** The most windows in one run, for one chain. */
   maxWindows: number;
@@ -45,6 +45,9 @@ const RATINGS_BUDGET_MS = 30_000;
 const RATINGS_MAX_WINDOWS = 200;
 /** The worker does not start the step when its own tick has already run this long. */
 const RATINGS_TICK_LIMIT_MS = 100_000;
+
+/** Whether a tick has run too long for the ratings step to start: the one rule the step skips by and the worker logs a skip by. */
+export const chainRatingsTooLate = (tickStartedAt: number, now: number): boolean => now - tickStartedAt > RATINGS_TICK_LIMIT_MS;
 /** The narrowest window a result-size refusal may split down to. */
 const MIN_SPLIT_WIDTH = 64;
 
@@ -182,14 +185,19 @@ async function readChain(chain: Erc8004Chain, reputation: NonNullable<Erc8004Cha
 /** One run of the step over every chain that has a reputation registry named and is on. Never throws. */
 export async function runChainRatings(options: { tickStartedAt: number }, overrides: Partial<RatingsDeps> = {}): Promise<ChainRatingsResult[]> {
   const deps = { ...defaultDeps(), ...overrides };
-  if (deps.now() - options.tickStartedAt > RATINGS_TICK_LIMIT_MS) return [];
+  if (chainRatingsTooLate(options.tickStartedAt, deps.now())) return [];
   const results: ChainRatingsResult[] = [];
   const due = deps.chains.filter(chain => chain.reputation && erc8004ChainOn(chain));
-  // The budget is shared out evenly, so a chain with a long history to read cannot keep the others waiting for their turn.
+  // The budget is shared out evenly, so a chain with a long history to read cannot keep the others waiting for their turn. A chain also gets the time the
+  // chains before it left unspent: one that has caught up needs a few seconds and one that is waiting for its interval none, so a chain with a long way to go,
+  // read after them, reads for most of the budget. The chains are read in the order of the list, the newest last, and no chain gets less than its even share.
   const share = Math.floor(deps.budgetMs / Math.max(1, due.length));
-  for (const chain of due) {
+  const budgetEnd = deps.now() + deps.budgetMs;
+  for (let index = 0; index < due.length; index += 1) {
+    const chain = due[index];
+    const allowance = Math.max(share, Math.floor((budgetEnd - deps.now()) / (due.length - index)));
     try {
-      results.push(await readChain(chain, chain.reputation!, deps, deps.now() + share));
+      results.push(await readChain(chain, chain.reputation!, deps, deps.now() + allowance));
     } catch (error) {
       if (isMissingTable(error)) {
         results.push({ chainKey: chain.chainKey, state: "unavailable", windows: 0, ratings: 0, revocations: 0, caughtUp: false });

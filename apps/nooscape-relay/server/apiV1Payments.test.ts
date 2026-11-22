@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import express from "express";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WALLET_NOT_READ, type WalletRead } from "./agentWallet";
 import { API_CHAINS, API_V1_RATE_LIMIT, registerApiV1, type ApiV1Deps, type KeyAccess } from "./apiV1";
 import { API_TIERS, type ApiKeyRecord } from "./apiKeys";
 import { API_V1_SPEC } from "./apiV1Spec";
@@ -23,6 +24,8 @@ const ROBINHOOD_KEY = `eip155:4663:${API_CHAINS.robinhood.registry}:7`;
 const ROBINHOOD_KEY_8 = `eip155:4663:${API_CHAINS.robinhood.registry}:8`;
 const ENTRY_ID = "11111111-1111-4111-8111-111111111111";
 const WALLET = "0x14791697260e4c9a71f18484c9f997b308e59325";
+const PAYEE = "0x2222222222222222222222222222222222222222";
+const OTHER_PAYEE = "0x3333333333333333333333333333333333333333";
 const KEY_FREE = `nsk_${"a".repeat(40)}`;
 const KEY_PRO = `nsk_${"b".repeat(40)}`;
 const cfg = testConfig();
@@ -445,6 +448,62 @@ describe("the check", () => {
     expect((await check({ agent: { chain: "nowhere", id: "1" } }, { "payment-signature": header })).status).toBe(400);
     expect(facilitator.calls).toHaveLength(0);
     expect(store.rows).toHaveLength(0);
+  });
+
+  it("is delivered with pay_to for a payment, the same answer a Pro key gets, and a payment is for the one address it was made for", async () => {
+    const wallet: WalletRead = { status: "held", wallet: PAYEE };
+    const callers: string[] = [];
+    const { deps, buyer, facilitator } = world({
+      overrides: {
+        agentWallet: async (_chain, _id, caller) => {
+          callers.push(caller);
+          return wallet;
+        },
+      },
+    });
+    await start(deps);
+    const asked = { ...CHECK_AGENT, pay_to: PAYEE };
+    const pro = await json(await check(asked, { authorization: `Bearer ${KEY_PRO}` }));
+    expect(pro.data.results[0].pay_to.outcome).toBe("matches_agent_wallet");
+    const paid = await check(asked, { "payment-signature": headerOf(buyer.pay(cfg, "check")) });
+    expect(paid.status).toBe(200);
+    expect(await json(paid)).toEqual(pro);
+    expect(problems(schemaOf("CheckResponse"), await json(paid))).toEqual([]);
+    expect(facilitator.calls).toHaveLength(1);
+    // A key's read is counted against the key, a payment's (no key) against the address it came from.
+    expect(callers).toHaveLength(2);
+    expect(callers[1]).not.toBe(callers[0]);
+    // This test's requests come from the loopback address, as an IPv4 address or an IPv6 /64.
+    expect(callers[1]).toMatch(/^127\.0\.0\.1$|::\/64$/);
+    // The plain check is another question than the one with an address, and so is the same check with another address.
+    const plainPayment = headerOf(buyer.pay(cfg, "check"));
+    expect((await check(CHECK_AGENT, { "payment-signature": plainPayment })).status).toBe(200);
+    const asksMore = await check(asked, { "payment-signature": plainPayment });
+    expect(asksMore.status).toBe(402);
+    expect((await json(asksMore)).error).toContain("different request");
+    const askedPayment = headerOf(buyer.pay(cfg, "check"));
+    expect((await check(asked, { "payment-signature": askedPayment })).status).toBe(200);
+    const otherAddress = await check({ ...CHECK_AGENT, pay_to: OTHER_PAYEE }, { "payment-signature": askedPayment });
+    expect(otherAddress.status).toBe(402);
+    expect((await json(otherAddress)).error).toContain("different request");
+    expect(facilitator.calls).toHaveLength(3);
+  });
+
+  it("is never charged when the registry could not be read: a payment is answered 503 and costs nothing, and a Pro key gets the answer with not_read", async () => {
+    const { deps, buyer, facilitator, store } = world({ overrides: { agentWallet: async () => ({ status: "not_read", reason: WALLET_NOT_READ.chain }) } });
+    await start(deps);
+    const asked = { ...CHECK_AGENT, pay_to: PAYEE };
+    const refused = await check(asked, { "payment-signature": headerOf(buyer.pay(cfg, "check")) });
+    expect(refused.status).toBe(503);
+    expect(facilitator.calls).toHaveLength(0);
+    expect(store.rows).toHaveLength(0);
+    const pro = await check(asked, { authorization: `Bearer ${KEY_PRO}` });
+    expect(pro.status).toBe(200);
+    expect((await json(pro)).data.results[0].pay_to).toMatchObject({ outcome: "not_read", reason: WALLET_NOT_READ.chain });
+    // The same payment still buys the plain answer: without pay_to the registry is not read at all.
+    const plain = await check(CHECK_AGENT, { "payment-signature": headerOf(buyer.pay(cfg, "check")) });
+    expect(plain.status).toBe(200);
+    expect(facilitator.calls).toHaveLength(1);
   });
 
   it("is not changed for a caller with a key: a Pro key is served free, a free key is told it needs a Pro key, a bad key is refused, and a payment next to a key is not taken", async () => {

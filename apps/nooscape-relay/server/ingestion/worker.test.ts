@@ -30,6 +30,8 @@ const mocks = vi.hoisted(() => ({
   runSaidNames: vi.fn(async (_options?: { tickStartedAt?: number }) => ({ state: "completed" })),
   runChainNames: vi.fn(async (_options?: { tickStartedAt?: number }) => ({ state: "completed" })),
   recheckClaims: vi.fn(async () => ({ checked: 0, revoked: 0, unavailable: 0, stoppedBy: "done" as const })),
+  runChainRatings: vi.fn(async (_options: { tickStartedAt: number }): Promise<unknown[]> => []),
+  chainRatingsTooLate: vi.fn((_tickStartedAt: number, _now: number) => false),
   runApprovedA2aSource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
   runApprovedAgenstrySource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
   runApprovedA2aRegistrySource: vi.fn(async (_source: unknown, _trigger: string) => ({})),
@@ -52,6 +54,7 @@ vi.mock("../bscRegistrationFiles", () => ({ runBscRegistrationFiles: mocks.runBs
 vi.mock("../saidNames", () => ({ runSaidNames: mocks.runSaidNames }));
 vi.mock("../chainNames", () => ({ runChainNames: mocks.runChainNames }));
 vi.mock("../claims", () => ({ recheckClaims: mocks.recheckClaims }));
+vi.mock("../chainRatings", () => ({ runChainRatings: mocks.runChainRatings, chainRatingsTooLate: mocks.chainRatingsTooLate }));
 vi.mock("./runA2a", () => ({ runApprovedA2aSource: mocks.runApprovedA2aSource }));
 vi.mock("./runAgenstry", () => ({ runApprovedAgenstrySource: mocks.runApprovedAgenstrySource }));
 vi.mock("./runA2aRegistry", () => ({ runApprovedA2aRegistrySource: mocks.runApprovedA2aRegistrySource }));
@@ -365,7 +368,7 @@ describe("runRateLimitedIngestionTick", () => {
     }
   });
 
-  it("runs the Base, Arc, Ethereum, Monad and Gnosis name step after the SAID names, on a tick that claimed sources, never on a paused or held-back one, and never lets it fail the tick or be stopped by the steps before it", async () => {
+  it("runs the Base, Arc, Ethereum, Monad, Gnosis and Celo name step after the SAID names, on a tick that claimed sources, never on a paused or held-back one, and never lets it fail the tick or be stopped by the steps before it", async () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const s8004 = scheduledSource("src-8004", "solana_8004");
@@ -458,6 +461,27 @@ describe("runRateLimitedIngestionTick", () => {
     } finally {
       errorLog.mockRestore();
     }
+  });
+
+  it("says in one line for each step a long tick skipped, in step order, and nothing for a step that ran", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const skipped = () =>
+      log.mock.calls
+        .map(([line]) => (typeof line === "string" && line.includes("nooscape_step_skipped") ? JSON.parse(line) : null))
+        .filter(Boolean) as Array<{ step: string; reason: string; tickMs: number }>;
+    for (const step of [mocks.runBscClustering, mocks.runBscRaters, mocks.runRobinhoodNames, mocks.runBscRegistrationFiles, mocks.runSaidNames, mocks.runChainNames]) step.mockResolvedValueOnce({ state: "too_late" });
+    mocks.chainRatingsTooLate.mockReturnValueOnce(true);
+    mocks.claimDueIngestionSources.mockResolvedValueOnce({ config: {}, sources: [scheduledSource("src-8004", "solana_8004")], reason: "due" });
+    await runRateLimitedIngestionTick();
+    expect(skipped().map(line => line.step)).toEqual(["bsc_clusters", "bsc_raters", "robinhood_names", "bsc_files", "said_names", "chain_names", "chain_ratings"]);
+    expect(skipped().every(line => line.reason === "too_late" && line.tickMs >= 0)).toBe(true);
+
+    // A tick where every step ran, and one where the ratings step had nothing due in time, say nothing.
+    log.mockClear();
+    mocks.claimDueIngestionSources.mockResolvedValueOnce({ config: {}, sources: [scheduledSource("src-8004", "solana_8004")], reason: "due" });
+    await runRateLimitedIngestionTick();
+    expect(skipped()).toEqual([]);
+    log.mockRestore();
   });
 
   it("says in the log when a day's catch is chosen, and nothing when it was already there", async () => {
