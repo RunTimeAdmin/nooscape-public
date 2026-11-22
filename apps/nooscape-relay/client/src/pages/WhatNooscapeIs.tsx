@@ -85,7 +85,7 @@ export default function WhatNooscapeIs() {
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(191,255,118,.055)_1px,transparent_1px),linear-gradient(90deg,rgba(191,255,118,.055)_1px,transparent_1px)] [background-size:42px_42px] [mask-image:linear-gradient(to_bottom,black,transparent_72%)]" />
 
       <header className="relative z-10 mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-5 lg:px-8">
-        <Link href="/" className="group flex items-center gap-3" aria-label="Return to Nooscape Atlas">
+        <Link href="/" className="group flex items-center gap-3">
           <span className="relative grid h-10 w-10 place-items-center rounded-full border border-[#bfff76]/50 bg-[#bfff76]/[.08] transition duration-200 group-hover:scale-105"><img src="/favicon.svg" alt="" width="32" height="32" className="h-8 w-8 rounded-xl" /><span className="absolute inset-[-5px] rounded-full border border-[#bfff76]/20" /></span>
           <span><strong className="block text-sm font-semibold uppercase tracking-[.29em] text-[#f1fff3]">Nooscape</strong><em className="mt-0.5 block font-mono text-[9px] not-italic uppercase tracking-[.18em] text-[#718378]">Positioning brief</em></span>
         </Link>

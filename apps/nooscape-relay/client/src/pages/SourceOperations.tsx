@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { endOperatorView } from "@/lib/operatorSession";
 import { trpc } from "@/lib/trpc";
 import { identityWalkOffered, reputationWalkMode } from "@/lib/walkModes";
 import { extraChainsToStage, protocolLabel } from "@/lib/sourceOperationsModel";
 import { isChainPassProtocol } from "@shared/chains";
 import { featureOn } from "@shared/features";
 import { Activity, Check, Coins, Copy, Database, ExternalLink, FileX, Globe, KeyRound, Layers3, Loader2, LogOut, Pause, Play, Plus, RadioTower, RefreshCw, ShieldAlert, ShieldCheck, Star, Undo2, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useMemo, useState } from "react";
 import { Link } from "wouter";
 
@@ -65,6 +67,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
 
 export default function SourceOperations() {
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
   const operatorQuery = trpc.operator.status.useQuery(undefined, { retry: false });
   const isOperator = operatorQuery.data?.authenticated === true;
   const [token, setToken] = useState("");
@@ -117,6 +120,8 @@ export default function SourceOperations() {
     void utils.liveData.admin.sources.invalidate();
     void utils.liveData.admin.domainChallenges.invalidate();
     void utils.liveData.admin.recordWithdrawals.invalidate();
+    // An open "Verify evidence" panel reads the source's latest batch: a run makes a new one.
+    void utils.liveData.admin.verifySourceEvidenceBatch.invalidate();
   };
   const loginMutation = trpc.operator.login.useMutation({
     onSuccess: result => {
@@ -129,8 +134,10 @@ export default function SourceOperations() {
   const logoutMutation = trpc.operator.logout.useMutation({
     onSuccess: () => {
       setNotice("Operator session ended.");
-      refresh();
+      // What the session read (owners' emails, claims, payments) leaves the cache with it, so the next sign-in starts from fresh reads.
+      endOperatorView(queryClient);
     },
+    onError: error => setNotice(error.message),
   });
   const registerMutation = trpc.liveData.admin.registerA2aSource.useMutation({
     onSuccess: () => {
@@ -325,6 +332,23 @@ export default function SourceOperations() {
 
   if (operatorQuery.isLoading) {
     return <main className="source-ops-shell"><Loader2 className="h-5 w-5 animate-spin text-lime-300" /></main>;
+  }
+
+  // A first read that failed is not an answer: "not configured" is only said when the server said it.
+  if (operatorQuery.isError && !operatorQuery.data) {
+    return (
+      <main className="source-ops-shell">
+        <section className="source-ops-empty">
+          <ShieldAlert className="h-8 w-8 text-amber-300" />
+          <p className="eyebrow">Operator access</p>
+          <h1>Could not reach the server.</h1>
+          <p>The sign-in check did not answer. Nothing was changed.</p>
+          <Button type="button" variant="outline" onClick={() => void operatorQuery.refetch()} disabled={operatorQuery.isFetching}>
+            <RefreshCw className="h-4 w-4" /> Try again
+          </Button>
+        </section>
+      </main>
+    );
   }
 
   if (!operatorQuery.data?.configured) {

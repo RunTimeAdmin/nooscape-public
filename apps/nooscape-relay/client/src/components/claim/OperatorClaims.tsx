@@ -15,13 +15,14 @@ import { trpc } from "@/lib/trpc";
  */
 const FIELD_NAME: Record<ClaimField, string> = { name: "Name", website: "Website", description: "Description", links: "Links" };
 
-function ClaimCard({ claim, onChanged }: { claim: { id: string; status: string; wallet: string; claimedAt: Date; profile: { name: string | null; website: string | null; description: string | null; links: string[] } }; onChanged: (message: string) => void }) {
+function ClaimCard({ claim, onChanged, refreshing }: { claim: { id: string; status: string; wallet: string; claimedAt: Date; profile: { name: string | null; website: string | null; description: string | null; links: string[] } }; onChanged: (message: string) => void; refreshing: boolean }) {
   const [fields, setFields] = useState<ClaimField[]>([...CLAIM_FIELDS]);
   const [by, setBy] = useState<"owner" | "nooscape" | null>(null);
   const hold = trpc.claim.freeze.useMutation({ onSuccess: () => onChanged("The claim is on hold."), onError: error => onChanged(error.message) });
   const release = trpc.claim.unfreeze.useMutation({ onSuccess: () => onChanged("The claim is off hold."), onError: error => onChanged(error.message) });
   const remove = trpc.claim.removeText.useMutation({ onSuccess: result => onChanged(`Removed from view: ${result.removed.join(", ")}.`), onError: error => onChanged(error.message) });
-  const busy = hold.isPending || release.isPending || remove.isPending;
+  // Also while the list is read again after a change: until then the status shown is the old one, and a second press would repeat the change.
+  const busy = hold.isPending || release.isPending || remove.isPending || refreshing;
   const text = [claim.profile.name, claim.profile.website, claim.profile.description, ...claim.profile.links].filter(Boolean);
 
   const removeChecked = () => {
@@ -94,7 +95,9 @@ export function OperatorClaims() {
     const id = entryIdFrom(entry);
     if (id.length === 0) return;
     setNotice(null);
-    setLookedUp(id);
+    // The same entry again is a fresh read: an unchanged key would otherwise show the list already held.
+    if (lookedUp === id) void claims.refetch();
+    else setLookedUp(id);
   };
   const changed = (message: string) => {
     setNotice(message);
@@ -123,7 +126,7 @@ export function OperatorClaims() {
       {lookedUp !== null && !claims.isLoading && !claims.error && claims.data?.length === 0 ? <div className="source-ops-loading">No claim has been made for this entry.</div> : null}
       {claims.data && claims.data.length > 0 ? (
         <ul style={{ padding: "0 1rem 1rem", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "1rem" }}>
-          {claims.data.map(claim => <ClaimCard key={claim.id} claim={claim} onChanged={changed} />)}
+          {claims.data.map(claim => <ClaimCard key={claim.id} claim={claim} onChanged={changed} refreshing={claims.isFetching} />)}
         </ul>
       ) : null}
     </section>

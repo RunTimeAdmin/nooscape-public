@@ -28,11 +28,9 @@ const globalAttempts: { current: AttemptWindow | null } = { current: null };
 /** Live operator sessions: cookie id → expiry. Restarting the app clears the map (operator re-logs in). */
 const sessionsById = new Map<string, { expiresAt: number }>();
 
+/** Express reads X-Forwarded-Proto only from the trusted proxy hop (`trust proxy`), so a header a client sets itself counts for nothing. */
 function isSecureRequest(req: Request) {
-  if (req.protocol === "https") return true;
-  const forwarded = req.headers["x-forwarded-proto"];
-  const values = Array.isArray(forwarded) ? forwarded : (forwarded ?? "").split(",");
-  return values.some(value => value.trim().toLowerCase() === "https");
+  return req.secure === true;
 }
 
 function activeCookieName(req: Request) {

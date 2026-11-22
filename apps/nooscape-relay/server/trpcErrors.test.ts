@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { TRPCError } from "@trpc/server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { logUnexpectedTrpcError, publicProcedure, router, UNEXPECTED_ERROR_MESSAGE } from "./_core/trpc";
+import { z } from "zod";
+import { INVALID_INPUT_MESSAGE, logUnexpectedTrpcError, publicProcedure, router, UNEXPECTED_ERROR_MESSAGE } from "./_core/trpc";
 
 /**
  * What a caller learns from a failed call, and what the server keeps. A driver
@@ -44,6 +45,10 @@ const testRouter = router({
   }),
   unauthorized: publicProcedure.query(() => {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Production operator authentication is required." });
+  }),
+  typed: publicProcedure.input(z.object({ agentId: z.string() })).query(() => "ok"),
+  rejected: publicProcedure.query(() => {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "That address is not on a public site." });
   }),
 });
 
@@ -119,6 +124,7 @@ describe("a deliberate TRPCError", () => {
     ["refused", 412, "Live data is temporarily unavailable."],
     ["missing", 404, "Agent not found."],
     ["unauthorized", 401, "Production operator authentication is required."],
+    ["rejected", 400, "That address is not on a public site."],
   ])("keeps its own message and is not logged (%s)", async (path, status, message) => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const result = await call(path);
@@ -132,6 +138,16 @@ describe("a deliberate TRPCError", () => {
     expect(status).toBe(404);
     expect(error.message).toBe("Not found.");
     expect(error.data.path ?? null).toBeNull();
+  });
+});
+
+describe("input that fails a procedure's schema", () => {
+  it("is answered with a fixed line that names no field and no type", async () => {
+    const input = encodeURIComponent(JSON.stringify({ json: { agentId: 5 } }));
+    const { status, text, error } = await call(`typed?input=${input}`);
+    expect(status).toBe(400);
+    expect(error.message).toBe(INVALID_INPUT_MESSAGE);
+    for (const leaked of ["agentId", "expected", "invalid_type", "string"]) expect(text).not.toContain(leaked);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { discoverWallets, requestAddress, signMessage, utf8Hex, walletErrorMessage, WALLET_METHODS, type Eip1193Provider, type WalletWindow } from "./wallet";
+import { discoverWallets, requestAddress, signMessage, utf8Hex, WALLET_ANSWER_MS, walletErrorMessage, WALLET_METHODS, watchAccount, type Eip1193Provider, type WalletWindow } from "./wallet";
 
 /**
  * The browser wallet, as "Claim this agent" uses it: discovery, one account, one signature, and nothing else, against a fake window and
@@ -107,6 +107,67 @@ describe("asking a wallet", () => {
     const never = provider(() => "0x00");
     await expect(signMessage(never, "m", "0x1234")).rejects.toThrow(/not an account/);
     expect(never.calls).toEqual([]);
+  });
+
+  it("stops waiting for a wallet that never answers, and says so in plain words", async () => {
+    vi.useFakeTimers();
+    try {
+      const silent: Eip1193Provider = { request: () => new Promise(() => {}) };
+      const account = requestAddress(silent);
+      const signature = signMessage(silent, "m", ADDRESS);
+      const accountFailed = expect(account).rejects.toThrow("The wallet did not answer.");
+      const signatureFailed = expect(signature).rejects.toThrow("The wallet did not answer.");
+      await vi.advanceTimersByTimeAsync(WALLET_ANSWER_MS);
+      await accountFailed;
+      await signatureFailed;
+      expect(walletErrorMessage(new Error("The wallet did not answer."))).toBe("Your wallet did not answer. Nothing was signed. Open it and try again.");
+      // A visitor reading the message has time: the wait is minutes, not seconds.
+      expect(WALLET_ANSWER_MS).toBeGreaterThanOrEqual(120_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("takes an answer that comes in time, and leaves no timer behind", async () => {
+    vi.useFakeTimers();
+    try {
+      expect(await requestAddress(provider(() => [ADDRESS]), 50)).toBe(ADDRESS);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tells the panel when the wallet stops sharing the connected account, and only listens to do it", () => {
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    const asked: string[] = [];
+    const wallet: Eip1193Provider = {
+      request: async args => {
+        asked.push(args.method);
+        return null;
+      },
+      on: (event, listener) => listeners.set(event, listener),
+      removeListener: event => listeners.delete(event),
+    };
+    let changes = 0;
+    const stop = watchAccount(wallet, ADDRESS, () => (changes += 1));
+    expect([...listeners.keys()]).toEqual(["accountsChanged"]);
+    // The same account, in another case, is not a change.
+    listeners.get("accountsChanged")!([ADDRESS.toLowerCase()]);
+    expect(changes).toBe(0);
+    listeners.get("accountsChanged")!(["0x" + "2".repeat(40)]);
+    listeners.get("accountsChanged")!([]);
+    expect(changes).toBe(2);
+    stop();
+    expect(listeners.size).toBe(0);
+    expect(asked).toEqual([]);
+  });
+
+  it("does nothing with a wallet that sends no events", () => {
+    const stop = watchAccount(provider(() => null), ADDRESS, () => {
+      throw new Error("not called");
+    });
+    expect(() => stop()).not.toThrow();
   });
 
   it("only ever asks for the two things on its list", () => {

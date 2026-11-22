@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ClaimEdit, ClaimField } from "@shared/claimProfile";
 import { formatWhen } from "@/lib/checkText";
 import {
+  ACCOUNT_CHANGED_LINE,
   CLAIM_HEADING,
+  CLAIM_UNAVAILABLE_LINE,
   CLAIM_MEANS_LINE,
   claimedLine,
   claimIntro,
@@ -28,7 +30,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { ClaimHistory } from "./ClaimHistory";
 import { OwnerText } from "./OwnerText";
-import { discoverWallets, requestAddress, signMessage, walletErrorMessage, type WalletInfo } from "@/lib/wallet";
+import { discoverWallets, requestAddress, signMessage, walletErrorMessage, watchAccount, type WalletInfo } from "@/lib/wallet";
 
 /**
  * "Claim this agent" on an entry's page (docs/claims-2026-10-18.md). Nothing here touches a wallet until a visitor presses a button, and
@@ -68,7 +70,8 @@ export function ClaimPanel({ entryId, chainLabel }: { entryId: string; chainLabe
   const [fieldError, setFieldError] = useState<{ field: ClaimField; message: string } | null>(null);
 
   const state = stateQuery.data;
-  const view = claimViewOf(state, connected?.address ?? null);
+  // Only a first read that failed: after a later one fails, the query still holds the answer it had, and the panel keeps it.
+  const view = claimViewOf(state, connected?.address ?? null, stateQuery.isError && !stateQuery.data);
   const claim = state?.claim ?? null;
   const busy = step !== "idle";
 
@@ -81,24 +84,51 @@ export function ClaimPanel({ entryId, chainLabel }: { entryId: string; chainLabe
 
   // The button that asked for the message goes when the message appears, so the keyboard lands on the next step.
   const signButton = useRef<HTMLButtonElement>(null);
+  // Counts the waits on the wallet. "Stop waiting" moves it on, so a wallet that answers after that is not listened to.
+  const attempt = useRef(0);
   useEffect(() => {
     if (prepared) signButton.current?.focus();
   }, [prepared]);
 
+  // A wallet that switches to another account would be asked to sign for the one shown here, and refuse: the panel lets it go and says why.
+  useEffect(() => {
+    if (!connected) return;
+    return watchAccount(connected.wallet.provider, connected.address, () => {
+      attempt.current += 1;
+      setStep("idle");
+      disconnect();
+      setError(ACCOUNT_CHANGED_LINE);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `disconnect` only sets state
+  }, [connected]);
+
   // A read that fails after one succeeded keeps the view it had: the query holds its data, and the panel stays. With no data there is no view yet, and it is "loading".
   if (view === "loading" || view === "hidden") return null;
+  if (view === "unavailable") {
+    return (
+      <section aria-labelledby="dossier-claim" className={card}>
+        <h3 id="dossier-claim" className="text-lg font-medium tracking-[-.02em] text-[#F2FFF5]">{CLAIM_HEADING}</h3>
+        <p className={`${note} mt-4`}>{CLAIM_UNAVAILABLE_LINE}</p>
+        <button type="button" className={`${quiet} mt-2`} disabled={stateQuery.isFetching} onClick={() => void stateQuery.refetch()}>
+          Try again
+        </button>
+      </section>
+    );
+  }
 
   async function connect() {
     setError(null);
     setNotice(null);
     setStep("connecting");
+    const mine = (attempt.current += 1);
     try {
       const wallets = await discoverWallets(window);
+      if (attempt.current !== mine) return;
       if (wallets.length === 0) setError(NO_WALLET_LINE);
       else if (wallets.length === 1) await connectTo(wallets[0]!);
       else setChoices(wallets);
     } finally {
-      setStep("idle");
+      if (attempt.current === mine) setStep("idle");
     }
   }
 
@@ -106,13 +136,22 @@ export function ClaimPanel({ entryId, chainLabel }: { entryId: string; chainLabe
     setChoices(null);
     setError(null);
     setStep("connecting");
+    const mine = (attempt.current += 1);
     try {
-      setConnected({ address: await requestAddress(wallet.provider), wallet });
+      const address = await requestAddress(wallet.provider);
+      if (attempt.current === mine) setConnected({ address, wallet });
     } catch (failure) {
-      setError(walletErrorMessage(failure));
+      if (attempt.current === mine) setError(walletErrorMessage(failure));
     } finally {
-      setStep("idle");
+      if (attempt.current === mine) setStep("idle");
     }
+  }
+
+  /** A wallet that never answers would hold the panel: this lets the visitor stop waiting, and its late answer is ignored. */
+  function stopWaiting() {
+    attempt.current += 1;
+    setStep("idle");
+    setError(null);
   }
 
   function disconnect() {
@@ -144,14 +183,18 @@ export function ClaimPanel({ entryId, chainLabel }: { entryId: string; chainLabe
     if (!connected || !prepared) return;
     setError(null);
     setStep("signing");
+    const mine = (attempt.current += 1);
     let signature: string;
     try {
       signature = await signMessage(connected.wallet.provider, prepared.message, connected.address);
     } catch (failure) {
+      if (attempt.current !== mine) return;
       setError(walletErrorMessage(failure));
       setStep("idle");
       return;
     }
+    // The visitor stopped waiting: a signature that comes after that is not sent.
+    if (attempt.current !== mine) return;
     setStep("checking");
     try {
       if (prepared.action === "claim") {
@@ -334,6 +377,11 @@ export function ClaimPanel({ entryId, chainLabel }: { entryId: string; chainLabe
       </div>
       {/* The status stays in the page so a screen reader hears it change; with nothing to say it takes no room. */}
       <div role="status" aria-live="polite" className="text-sm text-ns-ink-dim [&:not(:empty)]:mt-5">{STEP_LABEL[step] || notice || ""}</div>
+      {(step === "connecting" || step === "signing") && (
+        <button type="button" className={`${quiet} mt-2`} onClick={stopWaiting}>
+          Stop waiting
+        </button>
+      )}
       {error && <p role="alert" className="mt-5 max-w-2xl text-sm leading-6 text-[#FFB4A8]">{error}</p>}
     </section>
   );

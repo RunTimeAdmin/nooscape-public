@@ -1,11 +1,15 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
+import { ZodError } from "zod";
 import { isCircuitOpenError } from "../dbBreaker";
 import { getAuthenticatedOperator } from "../operatorAuth";
 import type { TrpcContext } from "./context";
 
 /** What a caller is told when an unexpected exception (a driver error, a bug) escapes a procedure. */
 export const UNEXPECTED_ERROR_MESSAGE = "Something went wrong.";
+
+/** What a caller is told when its input fails a procedure's schema. */
+export const INVALID_INPUT_MESSAGE = "Invalid input.";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -25,6 +29,11 @@ const t = initTRPC.context<TrpcContext>().create({
     }
     if (error.code === "INTERNAL_SERVER_ERROR") {
       return { ...shape, message: UNEXPECTED_ERROR_MESSAGE, data: { ...shape.data, stack: undefined } };
+    }
+    // Input that fails a procedure's schema: the schema's own report names each field and the type it wanted. Say only that the input
+    // was wrong. The public pages already show a fixed line for it (serverErrorMessage in client/src/lib/claimFlow.ts).
+    if (error.code === "BAD_REQUEST" && error.cause instanceof ZodError) {
+      return { ...shape, message: INVALID_INPUT_MESSAGE, data: { ...shape.data, stack: undefined } };
     }
     return shape;
   },

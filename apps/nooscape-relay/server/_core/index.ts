@@ -80,8 +80,9 @@ async function startServer() {
   // What a stop signal waits for: the requests in flight (a paid one among them), and what the meter has counted since its last write.
   onShutdown("http", drainHttpServer(server));
   onShutdown("api meter", () => apiMeter.flush());
-  // The relay sits behind the Hostinger edge (hcdn): trust the single proxy
-  // hop so req.ip / req.secure reflect the real client.
+  // One proxy hop: Caddy (deploy/vps/Caddyfile), which replaces any X-Forwarded-For and X-Forwarded-Proto a client sends.
+  // req.ip and req.secure come from that hop. Put a CDN or load balancer in front and this count must change with it,
+  // or every visitor shares the proxy's address and its rate limits (pinned by server/proxyHops.test.ts).
   app.set("trust proxy", 1);
   registerSecurityHeaders(app);
   // www.nooscape.si is one 301 away from nooscape.si, before anything else answers it but the security headers (server/wwwRedirect.ts).

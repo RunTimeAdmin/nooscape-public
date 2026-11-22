@@ -43,6 +43,12 @@ describe("which view the panel shows", () => {
     expect(claimViewOf(state({ claimable: false }), WALLET)).toBe("hidden");
   });
 
+  it("says the claim could not be read when the first read failed, and keeps the answer it has when a later one fails", () => {
+    expect(claimViewOf(undefined, null, true)).toBe("unavailable");
+    expect(claimViewOf(state(), null, true)).toBe("open");
+    expect(claimViewOf(state({ claim: claim() }), null, true)).toBe("claimed");
+  });
+
   it("offers the claim when nobody has claimed, whether or not a wallet is connected", () => {
     expect(claimViewOf(state(), null)).toBe("open");
     expect(claimViewOf(state(), WALLET)).toBe("open");

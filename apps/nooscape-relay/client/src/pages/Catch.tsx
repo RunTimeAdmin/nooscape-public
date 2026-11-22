@@ -4,6 +4,7 @@ import { isCatchDate, type PublicCatch } from "@shared/owlsCatch";
 import { CatchActions, CatchFind } from "@/components/home/OwlsCatch";
 import { ARCHIVE_PATH, ARCHIVE_TITLE, catchPath, dateLabel, dayTitle } from "@/components/home/owlsCatchModel";
 import { trpc } from "@/lib/trpc";
+import { keepPreviousData } from "@tanstack/react-query";
 
 /** How many catches the archive lists to begin with, and the most it will list. */
 const FIRST_PAGE = 30;
@@ -49,7 +50,8 @@ const quietBox = "rounded-xl border border-white/[.08] bg-black/20 px-3.5 py-3 t
 function CatchArchive() {
   usePageTitle(ARCHIVE_TITLE);
   const [limit, setLimit] = useState(FIRST_PAGE);
-  const query = trpc.liveData.owlsCatchArchive.useQuery({ limit }, { staleTime: 60_000, refetchOnWindowFocus: true });
+  // "Show more" keeps the list on screen while the longer one is read, instead of swapping it for the loading line.
+  const query = trpc.liveData.owlsCatchArchive.useQuery({ limit }, { staleTime: 60_000, refetchOnWindowFocus: true, placeholderData: keepPreviousData });
   const catches: readonly PublicCatch[] = query.data?.catches ?? [];
 
   return (
@@ -72,7 +74,7 @@ function CatchArchive() {
             ))}
           </ol>
           <p data-owl-avoid="" className="mt-4 text-sm leading-6 text-ns-ink-dim">
-            {catches.length < limit ? (catches.length === 1 ? "The only catch so far." : `All ${catches.length} catches so far.`) : `The newest ${catches.length} catches.`} A day with no catch is not listed.
+            {query.isPlaceholderData ? "Reading the older catches…" : catches.length < limit ? (catches.length === 1 ? "The only catch so far." : `All ${catches.length} catches so far.`) : `The newest ${catches.length} catches.`} A day with no catch is not listed.
           </p>
           {limit < MOST && catches.length >= limit && (
             <button
