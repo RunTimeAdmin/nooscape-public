@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { applyPendingMigrations, collectMigrationFiles, MANUAL_MIGRATIONS, migrationLockName, parseMigrationVersion, splitMigrationStatements } from "./dbMigrations";
@@ -610,7 +610,9 @@ describe("manual migration 49", () => {
     const file = (await collectMigrationFiles(path.resolve(process.cwd(), "drizzle"))).find(entry => entry.version === 49)!;
     const statements = splitMigrationStatements(readFileSync(file.file, "utf8"));
     expect(statements).toEqual(["ALTER TABLE `ingestion_worker_config` DROP COLUMN `tickSeconds`;"]);
-    for (const source of ["drizzle/schema.ts", "server/db.ts", "server/routers/liveData.ts"]) {
+    // The database layer is server/db.ts and the modules it re-exports from server/db/.
+    const dbModules = readdirSync(path.resolve(process.cwd(), "server/db")).map(file => `server/db/${file}`);
+    for (const source of ["drizzle/schema.ts", "server/db.ts", ...dbModules, "server/routers/liveData.ts"]) {
       expect(readFileSync(path.resolve(process.cwd(), source), "utf8"), source).not.toContain("tickSeconds");
     }
   });

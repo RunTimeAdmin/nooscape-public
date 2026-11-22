@@ -43,7 +43,7 @@ export function protocolsOf(chain: ChainKey): string[] {
 }
 
 /**
- * Ethereum, Base, Arc, Monad and Gnosis: the chains the ERC-8004 identity pass reads besides the three above (docs/multichain-erc8004-2026-10-20.md).
+ * The chains of {@link EXTRA_CHAIN_SPECS} (Ethereum, Base, Arc, Monad, Gnosis and Celo now): the chains the ERC-8004 identity pass reads besides the three above (docs/multichain-erc8004-2026-10-20.md).
  * Each is behind a switch in `VITE_FEATURES` that is off until the owner turns it on, and while it is off nothing of it is listed,
  * counted or served. They are kept apart from {@link ChainKey} on purpose: a chain in that list gets a map light, a page and a
  * place in the Owl's Catch, and an extra chain takes each of those on its own. Arc has a page (`WorldKey` in
@@ -51,38 +51,49 @@ export function protocolsOf(chain: ChainKey): string[] {
  * (docs/chain-worlds-2026-10-20.md and the arc-*.md records it links). Every extra chain that is on is in "just arrived", in the
  * Owl's Catch's round numbers and in the watchlist and the webhook, and is otherwise listed and counted.
  */
-export type ExtraChainKey = "ethereum" | "base" | "arc" | "monad" | "gnosis";
+type ExtraChainSpecShape = { key: string; label: string; protocol: `erc8004_${string}`; feature: Feature; claimsFeature: Feature };
+
+/**
+ * One entry for each extra chain, in the order the tabs and the API list them: its key on the site, its name, the directory protocol of
+ * its identity registry, the switch that turns it on and the switch that opens its claims. The lists and maps below are built from it,
+ * and the server's chain entry (server/ingestion/erc8004Chains.ts) is held to it by server/chainTables.test.ts, so a new extra chain is
+ * an entry here and an entry there.
+ */
+export const EXTRA_CHAIN_SPECS = [
+  { key: "ethereum", label: "Ethereum", protocol: "erc8004_eth", feature: "chain_ethereum", claimsFeature: "claims_ethereum" },
+  { key: "base", label: "Base", protocol: "erc8004_base", feature: "chain_base", claimsFeature: "claims_base" },
+  { key: "arc", label: "Arc", protocol: "erc8004_arc", feature: "chain_arc", claimsFeature: "claims_arc" },
+  { key: "monad", label: "Monad", protocol: "erc8004_monad", feature: "chain_monad", claimsFeature: "claims_monad" },
+  { key: "gnosis", label: "Gnosis", protocol: "erc8004_gnosis", feature: "chain_gnosis", claimsFeature: "claims_gnosis" },
+  { key: "celo", label: "Celo", protocol: "erc8004_celo", feature: "chain_celo", claimsFeature: "claims_celo" },
+] as const satisfies readonly ExtraChainSpecShape[];
+
+export type ExtraChainSpec = (typeof EXTRA_CHAIN_SPECS)[number];
+export type ExtraChainKey = ExtraChainSpec["key"];
 
 /** Every chain the directory lists: the three that need no switch, then the extra ones. */
 export type ListedChainKey = ChainKey | ExtraChainKey;
 
 /** The extra chains in the order the tabs and the API list them. */
-export const EXTRA_CHAINS: readonly ExtraChainKey[] = ["ethereum", "base", "arc", "monad", "gnosis"];
+export const EXTRA_CHAINS: readonly ExtraChainKey[] = EXTRA_CHAIN_SPECS.map(spec => spec.key);
 
-export const EXTRA_CHAIN_LABEL: Record<ExtraChainKey, string> = {
-  ethereum: "Ethereum",
-  base: "Base",
-  arc: "Arc",
-  monad: "Monad",
-  gnosis: "Gnosis",
-};
+export const EXTRA_CHAIN_LABEL = Object.fromEntries(EXTRA_CHAIN_SPECS.map(spec => [spec.key, spec.label])) as Record<ExtraChainKey, string>;
 
 /** The switch that turns each extra chain on (shared/features.ts). */
-export const EXTRA_CHAIN_SWITCH: Record<ExtraChainKey, Feature> = {
-  ethereum: "chain_ethereum",
-  base: "chain_base",
-  arc: "chain_arc",
-  monad: "chain_monad",
-  gnosis: "chain_gnosis",
-};
+export const EXTRA_CHAIN_SWITCH = Object.fromEntries(EXTRA_CHAIN_SPECS.map(spec => [spec.key, spec.feature])) as Record<ExtraChainKey, Feature>;
 
-const EXTRA_CHAIN_OF_PROTOCOL: Record<string, ExtraChainKey> = {
-  erc8004_eth: "ethereum",
-  erc8004_base: "base",
-  erc8004_arc: "arc",
-  erc8004_monad: "monad",
-  erc8004_gnosis: "gnosis",
-};
+const EXTRA_CHAIN_OF_PROTOCOL: Record<string, ExtraChainKey> = Object.fromEntries(EXTRA_CHAIN_SPECS.map(spec => [spec.protocol, spec.key]));
+
+/** Whether a name is one of the extra chains' keys. */
+export function isExtraChainKey(value: string): value is ExtraChainKey {
+  return (EXTRA_CHAINS as readonly string[]).includes(value);
+}
+
+/** Whether agents on an extra chain can be claimed: the chain itself is on and its claims have been switched on. */
+export function extraChainClaimsOn(chain: ExtraChainKey, features: string | undefined): boolean {
+  const spec = EXTRA_CHAIN_SPECS.find(candidate => candidate.key === chain)!;
+  return featureOn(spec.feature, features) && featureOn(spec.claimsFeature, features);
+}
 
 /** The extra chains whose switch is on in this list, in {@link EXTRA_CHAINS} order. Empty for an unset list. */
 export function extraChainsOn(features: string | undefined): ExtraChainKey[] {
@@ -104,6 +115,14 @@ export function extraProtocolOf(chain: ExtraChainKey): string {
   return Object.keys(EXTRA_CHAIN_OF_PROTOCOL).find(protocol => EXTRA_CHAIN_OF_PROTOCOL[protocol] === chain)!;
 }
 
+/**
+ * The identity registries the one chain pass reads: BNB Chain's and each extra chain's. A source on one of them runs the chain pass and
+ * nothing else, so the operator's console offers "Run chain pass" for it and no plain run, and the router refuses a plain run.
+ */
+export function isChainPassProtocol(protocol: string): boolean {
+  return protocol === "erc8004_bsc" || Object.keys(EXTRA_CHAIN_OF_PROTOCOL).includes(protocol);
+}
+
 /** The protocols of the extra chains whose switch is off in this list: the ones no public read may show. */
 export function protocolsOfChainsOff(features: string | undefined): string[] {
   const on = new Set(extraChainsOn(features));
@@ -112,7 +131,7 @@ export function protocolsOfChainsOff(features: string | undefined): string[] {
 
 /** The name a chain goes by, for any listed chain. */
 export function listedChainLabel(chain: ListedChainKey): string {
-  return chain === "ethereum" || chain === "base" || chain === "arc" || chain === "monad" || chain === "gnosis" ? EXTRA_CHAIN_LABEL[chain] : CHAIN_LABEL[chain];
+  return isExtraChainKey(chain) ? EXTRA_CHAIN_LABEL[chain] : CHAIN_LABEL[chain];
 }
 
 /** The `protocols` text a reviewed record stores (a JSON array of strings); anything else is no protocols. */

@@ -14,6 +14,8 @@ import {
   ERC8004_REPUTATION_REGISTRY,
   ETHEREUM_LISTING_RULES,
   FLOOD_HOST_ROW_CAP,
+  CELO_CHAIN,
+  CELO_LISTING_RULES,
   GNOSIS_CHAIN,
   GNOSIS_LISTING_RULES,
   MONAD_CHAIN,
@@ -284,6 +286,50 @@ describe("the Gnosis entry", () => {
   });
 });
 
+describe("the Celo entry", () => {
+  it("holds the facts measured on 2026-11-20", () => {
+    expect(CELO_CHAIN).toMatchObject({
+      protocol: "erc8004_celo",
+      chainKey: "celo",
+      chainId: 42220,
+      chainIdHex: "0xa4ec",
+      label: "Celo",
+      chainLabel: "Celo",
+      identityRegistry: REGISTRY,
+      deployBlock: 58_396_724,
+      maxLogRange: 5_000,
+      maxWindowLogs: 2_000,
+      handoutBlockWindow: 3_600,
+      sourceKey: "celo-erc8004-identity-registry",
+      provider: { kind: "pinned", rootUrl: "https://forno.celo.org", allowedHostname: "forno.celo.org" },
+      rpcEnvVar: "CELO_RPC_URL",
+      cursorPrefix: "celo",
+      errorPrefix: "Celo",
+      logTag: "CELO",
+      feature: "chain_celo",
+    });
+    expect(CELO_CHAIN.rpc).toEqual({ timeoutMs: 30_000, maxResponseBytes: 8 * MIB, retryStatuses: [429, 500, 502, 503, 504], backoffMs: [1_000, 3_000], readErrorBodies: true });
+    expect(CELO_CHAIN.budget).toEqual({ maxWindows: 200, concurrency: 3, maxElapsedMs: 30_000, maxEvents: 5_000 });
+    expect(CELO_CHAIN.listingRules).toBe(CELO_LISTING_RULES);
+    expect(CELO_CHAIN.reputation).toEqual({ registry: REPUTATION_REGISTRY, window: 5_000 });
+  });
+
+  it("is a chain id the registry's own chain answers with, in the hex form a node gives", () => {
+    expect(Number.parseInt(CELO_CHAIN.chainIdHex.slice(2), 16)).toBe(CELO_CHAIN.chainId);
+  });
+
+  it("plans windows of the 5,000 blocks the official node answers, from the busiest window measured on 2026-11-20", () => {
+    // The whole history was read through a public gateway and cut into windows of 5,000 blocks from the deploy block: the busiest held 471 of
+    // the three event kinds the pass asks for, and the largest was 461,070 bytes as JSON.
+    const BUSIEST = { events: 471, bytes: 461_070 };
+    expect(CELO_CHAIN.maxLogRange).toBe(5_000);
+    expect(CELO_CHAIN.maxWindowLogs).toBeGreaterThanOrEqual(3 * BUSIEST.events);
+    expect(CELO_CHAIN.rpc.maxResponseBytes).toBeGreaterThanOrEqual(3 * BUSIEST.bytes);
+    // A run of 200 windows reads a million blocks, so the 24.9 million blocks of history (head 83,293,113 on 2026-11-20) take 25 runs if every run reads 200 windows, and more because the 30 s clock ends a run sooner (section 5 of the record).
+    expect(Math.ceil((83_293_113 - CELO_CHAIN.deployBlock) / (CELO_CHAIN.budget.maxWindows * CELO_CHAIN.maxLogRange))).toBe(25);
+  });
+});
+
 describe("what the measurements ask of the caps", () => {
   // The densest windows measured on 2026-10-20. A cap below one of these would stall the walk at that window.
   const ETHEREUM_DENSEST_2000 = { events: 19_200, bytes: 12_994_910 };
@@ -326,7 +372,7 @@ describe("what the measurements ask of the caps", () => {
 });
 
 describe("every chain after BNB Chain", () => {
-  const later: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN];
+  const later: readonly Erc8004Chain[] = [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN, CELO_CHAIN];
 
   it("has a switch named for its key, its own listing rules and a note that says only what happened", () => {
     for (const chain of later) {
@@ -337,8 +383,8 @@ describe("every chain after BNB Chain", () => {
   });
 
   it("has listing rules of its own: a constant each, equal to BNB Chain's for now, which are provisional until its first census", () => {
-    expect(new Set([ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES, GNOSIS_LISTING_RULES]).size).toBe(5);
-    for (const rules of [ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES, GNOSIS_LISTING_RULES]) {
+    expect(new Set([ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES, GNOSIS_LISTING_RULES, CELO_LISTING_RULES]).size).toBe(6);
+    for (const rules of [ETHEREUM_LISTING_RULES, BASE_LISTING_RULES, ARC_LISTING_RULES, MONAD_LISTING_RULES, GNOSIS_LISTING_RULES, CELO_LISTING_RULES]) {
       expect(rules).toEqual(BSC_LISTING_RULES);
       expect(rules).not.toBe(BSC_LISTING_RULES);
     }
@@ -355,12 +401,13 @@ describe("every chain after BNB Chain", () => {
 
   it("names the reputation registry the ratings step counts, at the one address, with a window each provider answers in full", () => {
     expect(ERC8004_REPUTATION_REGISTRY).toBe(REPUTATION_REGISTRY);
-    expect(later.map(chain => [chain.protocol, chain.reputation])).toEqual([
+    expect(later.filter(chain => chain.reputation).map(chain => [chain.protocol, chain.reputation])).toEqual([
       ["erc8004_eth", { registry: REPUTATION_REGISTRY, window: 50_000 }],
       ["erc8004_base", { registry: REPUTATION_REGISTRY, window: 50_000 }],
       ["erc8004_arc", { registry: REPUTATION_REGISTRY, window: 100_000 }],
       ["erc8004_monad", { registry: REPUTATION_REGISTRY, window: 50_000 }],
       ["erc8004_gnosis", { registry: REPUTATION_REGISTRY, window: 10_000 }],
+      ["erc8004_celo", { registry: REPUTATION_REGISTRY, window: 5_000 }],
     ]);
     // BNB Chain keeps its own internal ratings read (docs/bsc-rater-credibility-2026-10-16.md) and is not counted by this step.
     expect(BSC_CHAIN.reputation).toBeUndefined();
@@ -368,6 +415,7 @@ describe("every chain after BNB Chain", () => {
     expect(ETHEREUM_CHAIN.reputation!.window).toBeLessThanOrEqual(50_000);
     expect(MONAD_CHAIN.reputation!.window).toBeLessThanOrEqual(MONAD_CHAIN.maxLogRange);
     expect(GNOSIS_CHAIN.reputation!.window).toBeLessThanOrEqual(GNOSIS_CHAIN.maxLogRange);
+    expect(CELO_CHAIN.reputation!.window).toBeLessThanOrEqual(CELO_CHAIN.maxLogRange);
     // Base's is wider than Alchemy's 10,000-block answer in full: the plan answers any range of 10,000 logs or fewer, and a refusal halves the window.
   });
 
@@ -423,7 +471,7 @@ describe("a chain's switch", () => {
 
 describe("the endpoint each chain reads", () => {
   it("is the variable the entry names and no other: each chain, with every variable set to a value of its own, reads its own", async () => {
-    const names = ["BSC_RPC_URL", "ETH_RPC_URL", "BASE_RPC_URL", "MONAD_RPC_URL", "GNOSIS_RPC_URL"];
+    const names = ["BSC_RPC_URL", "ETH_RPC_URL", "BASE_RPC_URL", "MONAD_RPC_URL", "GNOSIS_RPC_URL", "CELO_RPC_URL"];
     const before = Object.fromEntries(names.map(name => [name, process.env[name]]));
     const value = (name: string) => `https://node.example/${name}`;
     for (const name of names) process.env[name] = value(name);
@@ -447,7 +495,7 @@ describe("the endpoint each chain reads", () => {
 describe("the list of chains", () => {
   it("is sound", () => {
     expect(validateErc8004Chains(ERC8004_CHAINS)).toEqual([]);
-    expect(ERC8004_CHAINS.map(chain => chain.protocol)).toEqual(["erc8004_bsc", "erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_monad", "erc8004_gnosis"]);
+    expect(ERC8004_CHAINS.map(chain => chain.protocol)).toEqual(["erc8004_bsc", "erc8004_eth", "erc8004_base", "erc8004_arc", "erc8004_monad", "erc8004_gnosis", "erc8004_celo"]);
   });
 
   it("stays sound with a further chain beside the others, so a chain can be added by an entry alone", () => {

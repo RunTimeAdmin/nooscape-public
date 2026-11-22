@@ -141,18 +141,21 @@ describe.skipIf(!dbReachable)("the ratings step, against a real database", { tim
     await admin.end();
   });
 
-  it("names the reputation registry on Ethereum, Base, Arc, Monad and Gnosis, and the entries are sound", async () => {
-    const { ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN } = await import("./ingestion/erc8004Chains");
+  it("names the reputation registry on Ethereum, Base, Arc, Monad, Gnosis and Celo, and the entries are sound", async () => {
+    const { CELO_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN } = await import("./ingestion/erc8004Chains");
     const { ROBINHOOD_REPUTATION_REGISTRY } = await import("./ingestion/robinhoodReputation");
     expect(ERC8004_REPUTATION_REGISTRY).toBe(ROBINHOOD_REPUTATION_REGISTRY);
-    for (const chain of [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN]) expect(chain.reputation?.registry, chain.protocol).toBe(ERC8004_REPUTATION_REGISTRY);
+    for (const chain of [ETHEREUM_CHAIN, BASE_CHAIN, ARC_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN, CELO_CHAIN]) expect(chain.reputation?.registry, chain.protocol).toBe(ERC8004_REPUTATION_REGISTRY);
     // Monad reads from its identity registry's deploy block in windows of 50,000 blocks, the most Alchemy answers for one request.
     expect(MONAD_CHAIN.reputation?.window).toBe(50_000);
     expect(MONAD_CHAIN.reputation!.window).toBeLessThanOrEqual(MONAD_CHAIN.maxLogRange);
     // Gnosis reads from its identity registry's deploy block in windows of 10,000 blocks, the most Alchemy answers for one request there.
     expect(GNOSIS_CHAIN.reputation?.window).toBe(10_000);
     expect(GNOSIS_CHAIN.reputation!.window).toBeLessThanOrEqual(GNOSIS_CHAIN.maxLogRange);
-    expect(validateErc8004Chains([ARC, BASE, MONAD_CHAIN, GNOSIS_CHAIN])).toEqual([]);
+    // Celo reads from its identity registry's deploy block in windows of 5,000 blocks, the most the official node answers for one request.
+    expect(CELO_CHAIN.reputation?.window).toBe(5_000);
+    expect(CELO_CHAIN.reputation!.window).toBeLessThanOrEqual(CELO_CHAIN.maxLogRange);
+    expect(validateErc8004Chains([ARC, BASE, MONAD_CHAIN, GNOSIS_CHAIN, CELO_CHAIN])).toEqual([]);
   });
 
   describe("counting", () => {
@@ -297,6 +300,40 @@ describe.skipIf(!dbReachable)("the ratings step, against a real database", { tim
       const slow = node([ratingLog(1_010, 0, "rating")], 1_449, ARC, { onLogs: () => void (clock.t += 10_000) });
       const result = await run([ARC], { arc: () => slow.rpc }, { budgetMs: 25_000 });
       expect(result[0]).toMatchObject({ state: "completed", windows: 3, caughtUp: false });
+    });
+
+    it("gives a chain that is behind the time the chains before it did not use", async () => {
+      await forget("arc");
+      await forget("base");
+      clock.t += 30 * MINUTE;
+      // Arc is at its head in one window that takes no time. Base has ten windows to read, ten seconds each, and the minute is the budget.
+      const arc = node([], 1_099, ARC);
+      const base = node([ratingLog(5_010, 0, "rating")], 5_999, BASE, { onLogs: () => void (clock.t += 10_000) });
+      const results = await run([ARC, BASE], { arc: () => arc.rpc, base: () => base.rpc }, { budgetMs: 60_000 });
+      // An even share would be thirty seconds and three windows. Base reads for the whole minute: six.
+      expect(results.map(r => [r.chainKey, r.windows, r.caughtUp])).toEqual([["arc", 1, true], ["base", 6, false]]);
+    });
+
+    it("gives a chain its even share when the chain before it has used more than its own", async () => {
+      await forget("arc");
+      await forget("base");
+      clock.t += 30 * MINUTE;
+      // Arc's one window takes forty seconds, ten more than its share. Twenty seconds are left, and Base still gets thirty: three windows.
+      const arc = node([ratingLog(1_010, 0, "rating")], 1_449, ARC, { onLogs: () => void (clock.t += 40_000) });
+      const base = node([], 5_999, BASE, { onLogs: () => void (clock.t += 10_000) });
+      const results = await run([ARC, BASE], { arc: () => arc.rpc, base: () => base.rpc }, { budgetMs: 60_000 });
+      expect(results.map(r => [r.chainKey, r.windows])).toEqual([["arc", 1], ["base", 3]]);
+    });
+
+    it("keeps the even split between two chains that both have a long way to go", async () => {
+      await forget("arc");
+      await forget("base");
+      clock.t += 30 * MINUTE;
+      // Ten seconds a window and a minute to spend: thirty seconds each, three windows each, as before.
+      const arc = node([], 1_999, ARC, { onLogs: () => void (clock.t += 10_000) });
+      const base = node([], 5_999, BASE, { onLogs: () => void (clock.t += 10_000) });
+      const results = await run([ARC, BASE], { arc: () => arc.rpc, base: () => base.rpc }, { budgetMs: 60_000 });
+      expect(results.map(r => [r.chainKey, r.windows, r.caughtUp])).toEqual([["arc", 3, false], ["base", 3, false]]);
     });
   });
 

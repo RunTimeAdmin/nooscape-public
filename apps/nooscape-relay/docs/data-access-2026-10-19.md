@@ -2,7 +2,7 @@
 
 Nooscape holds a combined, dated record that nobody else has in one place: ERC-8004 identities on Robinhood Chain and BNB Smart Chain, Solana owner wallets, reputation feedback and revocations, evidence levels, endpoint-host groups, owner claims with their public history. The plan to offer it to platforms, wallets, facilitators and researchers is the operator's `SPEC_DATA_ACCESS.md`: a free public tier, free and paid keys, a pre-flight `/check`, pay-per-call x402, webhooks and daily exports, in six stages (D1 to D6), one pull request each, each stopping for review, none auto-merged.
 
-**Status.** D1 (PR 155) and D2 (PR 156) are merged and live (19 Oct 2026). A follow-up (PR 157) made answers about an agent private to the caller's cache: see "Caching, corrected" below. D3 (the pre-flight check, PR 159) is merged and live. D4 (pay per call, PR 161) is merged and live on Arc testnet and Arc mainnet: see the D4 section below. D4b (smart-contract wallets, PR 164) and D5 (watchlists and webhooks, PR 165) are merged and deployed (19 Oct 2026): see the D4b section at the end. D6 is not started.
+**Status.** D1 (PR 155) and D2 (PR 156) are merged and live (19 Oct 2026). A follow-up (PR 157) made answers about an agent private to the caller's cache: see "Caching, corrected" below. D3 (the pre-flight check, PR 159) is merged and live. D4 (pay per call, PR 161) is merged and live on Arc testnet and Arc mainnet: see the D4 section below. D4b (smart-contract wallets, PR 164) and D5 (watchlists and webhooks, PR 165) are merged and deployed (19 Oct 2026): see the D4b section at the end. D6, the daily export (free, kept 30 days, the operator's choices of 2026-11-21), is built in three stages: the writer and its signed manifest (`server/exportAgents.ts`, PR 349, merged), the downloads under `/api/v1/exports/agents` (`server/apiExports.ts`, PR 350, merged), and the daily run with the 30-day cleanup (`server/exportAgentsDaily.ts` and `server/exportRetention.ts`, run at 02:43 UTC by `deploy/vps/export.sh` from `/etc/cron.d/nooscape-export`, writing to the `exports` volume; journalctl -t nooscape-export).
 
 ## What D1 is
 
@@ -202,6 +202,8 @@ These are mine, so the operator can say no.
 - `agent`: `{ "chain": "robinhood", "id": "7" }` (with `registry` on Solana, as the lookup takes it).
 - `wallet`: the address that registered agents.
 - `url`: an endpoint address. Only its **host** is used, to find listings that registered that host. Nothing is fetched, so the check opens no outbound request.
+
+Since 2026-11-20 an `agent` may also carry `pay_to`, which makes one chain read of that agent's registry ([the check's pay_to](./check-pay-to-2026-11-20.md)). The check still never fetches an endpoint.
 
 `chain` narrows a wallet or a url. A wallet or a url answers for the listings it matches exactly, **newest first, up to 10**, and says "at least" (`matched_total_capped`) when the page was full. There is no cursor yet. A wallet or an address nothing matches answers 200 with an empty list. An agent nothing lists answers 404, in the same words as a hidden one.
 

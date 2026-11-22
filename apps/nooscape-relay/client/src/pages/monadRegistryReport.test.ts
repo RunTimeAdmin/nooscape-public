@@ -670,6 +670,7 @@ describe("the address", () => {
     expect(CHAIN_GROUP_REPORT.monad).toEqual({ href: ROUTE, label: "Monad registry census, 1 November 2026" });
     expect(read("ChainExplorer.tsx")).toContain("CHAIN_GROUP_REPORT[chain]");
     // The line under the map links it beside the Monad lights.
-    expect(read("home", "LandingHero.tsx")).toContain(`<Link href="${ROUTE}"`);
+    // The home map links the report from the same entry, under the chain's caption.
+    expect(read("home", "LandingHero.tsx")).toContain("report: CHAIN_GROUP_REPORT[lights.chain]");
   });
 });

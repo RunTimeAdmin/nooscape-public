@@ -5,7 +5,8 @@ import express from "express";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { AGENT_ID_MAX_CHARS } from "./apiChains";
 import { ACKNOWLEDGED_STATEMENT, API_CHAINS, registerApiV1, type ApiV1Deps } from "./apiV1";
-import { checkFlags, CHECK_RESULT_LIMIT, CHECK_STATEMENT, FIRST_SEEN_WITHIN_DAYS, hostOfUrl, REGISTRY_EVENT_LIST_LIMIT, type CheckFlagsInput } from "./apiCheck";
+import { checkFlags, CHECK_RESULT_LIMIT, CHECK_STATEMENT, FIRST_SEEN_WITHIN_DAYS, hostOfUrl, PAY_TO_BASIS, REGISTRY_EVENT_LIST_LIMIT, type CheckFlagsInput } from "./apiCheck";
+import { WALLET_NOT_READ, type WalletRead } from "./agentWallet";
 import { problems, schemaOf } from "./apiV1Testing";
 import { API_TIERS, type ApiKeyRecord } from "./apiKeys";
 import { CHAIN_BLOCKS_PER_DAY } from "./db";
@@ -168,6 +169,11 @@ describe("POST /api/v1/check, the request", () => {
       [{ wallet: WALLET, chain: "ethereum" }, "chain"],
       [{ agent: { chain: "robinhood", id: "7", price: 1 } }, "agent"],
       [{ agent: { chain: "robinhood", id: "7" }, tier: "pro" }, "tier"],
+      [{ agent: { chain: "robinhood", id: "7" }, pay_to: "not an address" }, "pay_to must be an address"],
+      [{ agent: { chain: "robinhood", id: "7" }, pay_to: SOLANA_WALLET }, "pay_to must be an address"],
+      [{ wallet: WALLET, pay_to: WALLET }, "pay_to goes with an agent"],
+      [{ url: "https://alice.example/", pay_to: WALLET }, "pay_to goes with an agent"],
+      [{ agent: { chain: "solana", id: SOLANA_WALLET }, pay_to: WALLET }, "pay_to is compared with an EVM registry's agent wallet"],
       [{ url: "x" }, "url"],
       [{ url: "ftp://alice.example/agent" }, "url must be an http or https address with a host"],
       [{ url: "not a url at all" }, "url must be an http or https address with a host"],
@@ -260,6 +266,99 @@ describe("POST /api/v1/check for an agent", () => {
     expect(problems(schemaOf("CheckResponse"), answer)).toEqual([]);
     expect(answer.data.results[0].flags.ownership_changes.present).toBeNull();
     expect(answer.data.results[0].sources.activity_through_block).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- pay_to
+
+describe("POST /api/v1/check with pay_to", () => {
+  const PAYEE = "0xAbCdEf0123456789aBcDeF0123456789abcdef01";
+  const PAYEE_LOWER = PAYEE.toLowerCase();
+  const OTHER_WALLET = "0x3333333333333333333333333333333333333333";
+  const asked = { agent: { chain: "robinhood", id: "7" }, pay_to: PAYEE };
+  let reads: Array<[string, string]> = [];
+  let callers: string[] = [];
+  const holding = (read: WalletRead) =>
+    deps({
+      agentWallet: async (chain, id, caller) => {
+        reads.push([chain, id]);
+        callers.push(caller);
+        return read;
+      },
+    });
+  beforeEach(() => {
+    reads = [];
+    callers = [];
+  });
+
+  it("counts each read against the key that asked, so one key's checks cannot use another's", async () => {
+    await start(holding({ status: "none" }));
+    expect((await check(asked)).status).toBe(200);
+    expect((await check(asked, KEY_PRO_TWO)).status).toBe(200);
+    expect(callers).toEqual(["k-pro", "k-pro-two"]);
+  });
+
+  it("gives a kept answer's own read time, not the time of the check", async () => {
+    const readAt = NOW.getTime() - 20_000;
+    await start(holding({ status: "held", wallet: PAYEE_LOWER, readAt }));
+    const answer = await body(await check(asked));
+    expect(answer.data.results[0].pay_to.read_at).toBe(new Date(readAt).toISOString());
+  });
+
+  it("compares the address with the wallet the agent's registry holds now: the same, another, none, or not read", async () => {
+    const outcomes: Array<[WalletRead, Record<string, unknown>]> = [
+      [{ status: "held", wallet: PAYEE_LOWER }, { outcome: "matches_agent_wallet", agent_wallet: PAYEE_LOWER, read_at: NOW.toISOString(), reason: null }],
+      [{ status: "held", wallet: OTHER_WALLET }, { outcome: "differs_from_agent_wallet", agent_wallet: OTHER_WALLET, read_at: NOW.toISOString(), reason: null }],
+      [{ status: "none" }, { outcome: "no_agent_wallet", agent_wallet: null, read_at: NOW.toISOString(), reason: null }],
+      [{ status: "not_read", reason: WALLET_NOT_READ.chain }, { outcome: "not_read", agent_wallet: null, read_at: null, reason: WALLET_NOT_READ.chain }],
+    ];
+    for (const [read, expected] of outcomes) {
+      await start(holding(read));
+      const response = await check(asked);
+      expect(response.status, read.status).toBe(200);
+      const answer = await body(response);
+      expect(problems(schemaOf("CheckResponse"), answer), read.status).toEqual([]);
+      // The address is given back in lower case, and the comparison does not depend on how either was written.
+      expect(answer.data.results[0].pay_to, read.status).toEqual({ address: PAYEE_LOWER, ...expected, basis: PAY_TO_BASIS });
+    }
+  });
+
+  it("reads the registry once, for the agent's own chain and id, and only when the request carries pay_to and names an agent that is listed", async () => {
+    await start(holding({ status: "none" }));
+    expect((await check(asked)).status).toBe(200);
+    expect(reads).toEqual([["robinhood", "7"]]);
+
+    reads = [];
+    const plain = await body(await check(robinhood));
+    expect(plain.data.results[0]).not.toHaveProperty("pay_to");
+    expect((await check({ agent: { chain: "robinhood", id: "8" }, pay_to: PAYEE })).status).toBe(404);
+    expect((await check({ agent: { chain: "robinhood", id: "7" }, pay_to: "nope" })).status).toBe(400);
+    expect(reads).toEqual([]);
+  });
+
+  it("leaves the rest of the result as it is without pay_to, and says not read when this server has no chain read set up", async () => {
+    await start(holding({ status: "none" }));
+    const plain = await body(await check(robinhood));
+    const withPayTo = await body(await check(asked));
+    const { pay_to: added, ...rest } = withPayTo.data.results[0];
+    expect(added).toBeDefined();
+    expect(rest).toEqual(plain.data.results[0]);
+    expect(withPayTo.data.matched_total).toBe(1);
+
+    await start(deps());
+    const unset = await body(await check(asked));
+    expect(problems(schemaOf("CheckResponse"), unset)).toEqual([]);
+    expect(unset.data.results[0].pay_to).toMatchObject({ outcome: "not_read", agent_wallet: null, read_at: null, reason: WALLET_NOT_READ.chain });
+  });
+
+  it("gives no verdict in what it says about the address, and no long dash", async () => {
+    await start(holding({ status: "held", wallet: OTHER_WALLET }));
+    const text = JSON.stringify((await body(await check(asked))).data.results[0].pay_to);
+    expect(text).not.toMatch(/\b(safe|unsafe|trusted|trustworthy|untrusted|certified|endorsed|secure|risk|risky|suspicious|scam|malicious|legit|score|grade|rank|verdict|warning|red flag)\b/i);
+    expect(text).not.toMatch(/[\u2013\u2014]/);
+    // It says what was compared, and what a match does not show.
+    expect(PAY_TO_BASIS).toContain("getAgentWallet");
+    expect(PAY_TO_BASIS).toContain("does not show");
   });
 });
 
@@ -551,6 +650,11 @@ describe("what the check is held to", () => {
       expect(developer, flag).toContain(flag);
       expect(Object.keys((API_V1_SPEC.components.schemas.CheckResult.properties.flags.properties as Record<string, unknown>)), flag).toContain(flag);
     }
+    // pay_to is in the document's request and in an agent's result, in the code's words, and on the developer page.
+    expect(Object.keys(API_V1_SPEC.components.schemas.CheckRequest.properties)).toContain("pay_to");
+    expect(Object.keys(API_V1_SPEC.components.schemas.CheckResult.properties)).toContain("pay_to");
+    expect(post.description).toContain("pay_to");
+    expect(developer).toContain("pay_to");
     expect(read("../client/src/lib/apiKeysFlow.ts")).toContain("needs a Pro key");
     // Where pay per call is on a call with no key can be paid for, and the pages say so beside the key.
     expect(read("../client/src/lib/apiKeysFlow.ts")).toContain("With no key it can be paid for per call where pay per call is on");

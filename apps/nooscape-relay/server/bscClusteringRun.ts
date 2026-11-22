@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { agentDirectoryRegistryRows, bscClusters, bscEndpointHostGroups, bscEntryEvidence, ingestionSources } from "../drizzle/schema";
-import { BSC_LISTING_RULES, REGISTRY_LISTING } from "./agentRegistryRows";
+import { BSC_LISTING_RULES, liveRegistryRows, REGISTRY_LISTING } from "./agentRegistryRows";
 import { agentIdOfKey, CLUSTER_MIN, ENDPOINT_HOST_RULE, endpointHostGroups, evidenceFromUri, groupEvidence, templateLabelMember, type ClusterKind, type EndpointHostGroup } from "./bscClusters";
 import { getDb, requireDb } from "./db";
 import { bscReadBucket } from "./ingestion/bscBudget";
@@ -97,12 +97,15 @@ const REGISTRY_MARKER = "all";
 
 type ClusterRow = { clusterKey: string; label: string | null; memberCount: number; listedCount: number; walletCount: number | null };
 
+/** The width of bsc_clusters.label. A host group is labelled with its host, and a locator host may be up to 255 characters, so the label is cut to fit. */
+const CLUSTER_LABEL_MAX_CHARS = 200;
+
 /** Makes the stored rows of one kind exactly `wanted`: new ones added, changed ones updated, ones no longer wanted removed. */
 async function replaceClusters(db: Db, sourceId: string, kind: ClusterKind, wanted: ClusterRow[], computedAt: Date) {
   for (const part of chunks(wanted, 200)) {
     await db
       .insert(bscClusters)
-      .values(part.map(row => ({ id: randomUUID(), sourceId, kind, ...row, computedAt })))
+      .values(part.map(row => ({ id: randomUUID(), sourceId, kind, ...row, label: row.label === null ? null : row.label.slice(0, CLUSTER_LABEL_MAX_CHARS), computedAt })))
       .onDuplicateKeyUpdate({
         set: {
           label: sql.raw("values(`label`)"),
@@ -121,10 +124,11 @@ async function replaceClusters(db: Db, sourceId: string, kind: ClusterKind, want
 
 /** Part 1: the fleets over the whole registry. */
 async function refreshFleets(db: Db, sourceId: string, computedAt: Date) {
+  // A hidden or suppressed registration is not counted in a fleet, as in every public read of the registry (liveRegistryRows).
   const wallets = await db
     .select({ key: ROWS.registrant, total: sql<number>`count(*)` })
     .from(ROWS)
-    .where(and(eq(ROWS.sourceId, sourceId), isNotNull(ROWS.registrant)))
+    .where(and(liveRegistryRows(sourceId), isNotNull(ROWS.registrant)))
     .groupBy(ROWS.registrant)
     .having(sql`count(*) >= ${CLUSTER_MIN}`);
   await replaceClusters(
@@ -138,7 +142,7 @@ async function refreshFleets(db: Db, sourceId: string, computedAt: Date) {
   const hosts = await db
     .select({ key: ROWS.locatorHost, total: sql<number>`count(*)` })
     .from(ROWS)
-    .where(and(eq(ROWS.sourceId, sourceId), isNotNull(ROWS.locatorHost)))
+    .where(and(liveRegistryRows(sourceId), isNotNull(ROWS.locatorHost)))
     .groupBy(ROWS.locatorHost)
     .having(sql`count(*) >= ${BSC_LISTING_RULES.sharedHostFrom}`);
   await replaceClusters(
@@ -152,7 +156,7 @@ async function refreshFleets(db: Db, sourceId: string, computedAt: Date) {
   const links = await db
     .select({ key: ROWS.profileUriHash, total: sql<number>`count(*)` })
     .from(ROWS)
-    .where(and(eq(ROWS.sourceId, sourceId), isNotNull(ROWS.profileUriHash), sql`${ROWS.profileUriHash} <> ${EMPTY_URI_SHA256}`))
+    .where(and(liveRegistryRows(sourceId), isNotNull(ROWS.profileUriHash), sql`${ROWS.profileUriHash} <> ${EMPTY_URI_SHA256}`))
     .groupBy(ROWS.profileUriHash)
     .having(sql`count(*) >= ${CLUSTER_MIN}`);
   const linkRows: ClusterRow[] = [];
@@ -160,7 +164,7 @@ async function refreshFleets(db: Db, sourceId: string, computedAt: Date) {
     const [member] = await db
       .select({ host: ROWS.locatorHost, name: ROWS.displayName })
       .from(ROWS)
-      .where(and(eq(ROWS.sourceId, sourceId), eq(ROWS.profileUriHash, link.key!)))
+      .where(and(liveRegistryRows(sourceId), eq(ROWS.profileUriHash, link.key!)))
       .orderBy(ROWS.id)
       .limit(1);
     linkRows.push({ clusterKey: link.key!, label: publicLabel(member?.host ?? null, member?.name ?? null), memberCount: Number(link.total), listedCount: 0, walletCount: null });
@@ -307,7 +311,8 @@ export async function groupListed(db: Db, sourceId: string, computedAt: Date) {
     })
     .from(bscEntryEvidence)
     .innerJoin(ROWS, and(eq(ROWS.sourceId, bscEntryEvidence.sourceId), eq(ROWS.externalKey, bscEntryEvidence.externalKey)))
-    .where(and(eq(bscEntryEvidence.sourceId, sourceId), eq(ROWS.listing, REGISTRY_LISTING.LISTED)));
+    // A hidden entry is not counted in a template group or named for one, as in every public read (it is not public).
+    .where(and(eq(bscEntryEvidence.sourceId, sourceId), eq(ROWS.listing, REGISTRY_LISTING.LISTED), eq(ROWS.hidden, false)));
 
   // The registry's own count for each wallet, as the fleet bar reads it.
   const walletSize = new Map<string, number>();

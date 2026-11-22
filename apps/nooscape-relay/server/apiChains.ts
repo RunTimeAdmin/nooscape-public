@@ -1,6 +1,6 @@
-import { extraChainsOn, type ExtraChainKey } from "@shared/chains";
+import { extraChainsOn, isExtraChainKey, type ExtraChainKey } from "@shared/chains";
 import { BSC_CHAIN_ID, BSC_IDENTITY_REGISTRY } from "./ingestion/bscChain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
+import { ERC8004_CHAINS, type Erc8004Chain } from "./ingestion/erc8004Chains";
 import { ROBINHOOD_IDENTITY_REGISTRY, ROBINHOOD_REGISTRY_CHAIN } from "./ingestion/robinhood";
 
 /**
@@ -43,11 +43,8 @@ export const API_CHAINS: Record<ApiChain, ApiChainTable> = {
     keyOf: id => `eip155:${BSC_CHAIN_ID}:${BSC_IDENTITY_REGISTRY}:${id}`,
   },
   solana: { protocols: ["solana_8004", "solana_said", "solana_registry", "solana_agenc"], chainId: null, registry: null, idPattern: BASE58, keyOf: id => id },
-  ethereum: chainPassTable(ETHEREUM_CHAIN),
-  base: chainPassTable(BASE_CHAIN),
-  arc: chainPassTable(ARC_CHAIN),
-  monad: chainPassTable(MONAD_CHAIN),
-  gnosis: chainPassTable(GNOSIS_CHAIN),
+  // Each extra chain, from the chain pass's own entry.
+  ...(Object.fromEntries(ERC8004_CHAINS.filter(chain => isExtraChainKey(chain.chainKey)).map(chain => [chain.chainKey, chainPassTable(chain)])) as Record<ExtraChainKey, ApiChainTable>),
 };
 
 /**
@@ -58,8 +55,8 @@ export const API_CHAINS: Record<ApiChain, ApiChainTable> = {
 export const CHAIN_KEYS: readonly ApiChain[] = ["robinhood", "bnb", "solana"];
 
 /**
- * The chains the API serves under this switch list (shared/features.ts): the three above, then each of Ethereum, Base, Arc, Monad and Gnosis
- * that is on. The list is read as the server runs, so a request sees the switches as they are now; with all five off it is {@link CHAIN_KEYS}.
+ * The chains the API serves under this switch list (shared/features.ts): the three above, then each of Ethereum, Base, Arc, Monad, Gnosis and
+ * Celo that is on. The list is read as the server runs, so a request sees the switches as they are now; with all six off it is {@link CHAIN_KEYS}.
  */
 export function servedChains(features: string | undefined = process.env.VITE_FEATURES): readonly ApiChain[] {
   const extra = extraChainsOn(features);

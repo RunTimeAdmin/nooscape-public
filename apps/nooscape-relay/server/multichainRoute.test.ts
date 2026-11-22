@@ -65,7 +65,7 @@ describe("staging a source for another chain", { timeout: 30_000 }, () => {
 
   it("refuses a chain whose switch is off, and says which switch, creating nothing", async () => {
     const caller = await callerWith(OPERATOR);
-    for (const [name, label, feature] of [["ethereum", "Ethereum", "chain_ethereum"], ["base", "Base", "chain_base"], ["arc", "Arc", "chain_arc"], ["monad", "Monad", "chain_monad"], ["gnosis", "Gnosis", "chain_gnosis"]] as const) {
+    for (const [name, label, feature] of [["ethereum", "Ethereum", "chain_ethereum"], ["base", "Base", "chain_base"], ["arc", "Arc", "chain_arc"], ["monad", "Monad", "chain_monad"], ["gnosis", "Gnosis", "chain_gnosis"], ["celo", "Celo", "chain_celo"]] as const) {
       const error = await rejected(caller.liveData.admin.registerApprovedPublicSource({ source: name }));
       expect(error.code, name).toBe("PRECONDITION_FAILED");
       expect(error.message, name).toBe(`The ${label} identity pass is switched off (${feature}), so its source cannot be staged.`);
@@ -173,6 +173,37 @@ describe("staging a source for another chain", { timeout: 30_000 }, () => {
     expect((await rejected(caller.liveData.admin.registerApprovedPublicSource({ source: "base" }))).message).toBe("Live data is temporarily unavailable.");
   });
 
+  it("stages Celo from its entry: its own key, protocol and provider host, in review, manual only", async () => {
+    vi.stubEnv("VITE_FEATURES", "chain_celo");
+    const caller = await callerWith(OPERATOR);
+    expect(await caller.liveData.admin.registerApprovedPublicSource({ source: "celo" })).toMatchObject({ created: true, state: "review" });
+    expect(mocks.createIngestionSource).toHaveBeenLastCalledWith({
+      sourceKey: "celo-erc8004-identity-registry",
+      label: "Celo ERC-8004 identity registry",
+      protocol: "erc8004_celo",
+      rootUrl: "https://forno.celo.org",
+      allowedHostname: "forno.celo.org",
+      executionPolicy: "manual_only",
+      scheduleMinutes: 1_440,
+      state: "review",
+      createdByUserId: OPERATOR.id,
+    });
+  });
+
+  it("says which migration is missing when the database refuses Celo's protocol value, and takes no other refusal for it", async () => {
+    vi.stubEnv("VITE_FEATURES", "chain_celo,chain_base");
+    const caller = await callerWith(OPERATOR);
+    mocks.createIngestionSource.mockRejectedValueOnce(Object.assign(new Error("Failed query: insert into ingestion_sources"), { cause: Object.assign(new Error("Data truncated for column 'protocol' at row 1"), { code: "WARN_DATA_TRUNCATED", errno: 1265 }) }));
+    const missing = await rejected(caller.liveData.admin.registerApprovedPublicSource({ source: "celo" }));
+    expect(missing.code).toBe("PRECONDITION_FAILED");
+    expect(missing.message).toContain("Paste migration 0060 first");
+    // Another column, another failure and another chain's refusal of its protocol say nothing about 0060.
+    mocks.createIngestionSource.mockRejectedValueOnce(Object.assign(new Error("Data truncated for column 'label' at row 1"), { code: "WARN_DATA_TRUNCATED" }));
+    expect((await rejected(caller.liveData.admin.registerApprovedPublicSource({ source: "celo" }))).message).toBe("Live data is temporarily unavailable.");
+    mocks.createIngestionSource.mockRejectedValueOnce(Object.assign(new Error("Data truncated for column 'protocol' at row 1"), { code: "WARN_DATA_TRUNCATED" }));
+    expect((await rejected(caller.liveData.admin.registerApprovedPublicSource({ source: "base" }))).message).toBe("Live data is temporarily unavailable.");
+  });
+
   it("stages Arc on the host X402_RPC names, and keeps that host alone: no port, path, query or key", async () => {
     vi.stubEnv("VITE_FEATURES", "chain_arc");
     vi.stubEnv("X402_RPC", `https://Arc-Node.example:8443/pfx-secret-9/v1/${KEY}?token=abc123`);
@@ -239,8 +270,8 @@ describe("running a source of another chain", { timeout: 30_000 }, () => {
 
   it("sends each protocol to the one chain pass with its own chain, as a manual run", async () => {
     const caller = await callerWith(OPERATOR);
-    const { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN } = await import("./ingestion/erc8004Chains");
-    for (const [protocol, chain] of [["erc8004_eth", ETHEREUM_CHAIN], ["erc8004_base", BASE_CHAIN], ["erc8004_arc", ARC_CHAIN], ["erc8004_monad", MONAD_CHAIN], ["erc8004_gnosis", GNOSIS_CHAIN]] as const) {
+    const { ARC_CHAIN, BASE_CHAIN, CELO_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN } = await import("./ingestion/erc8004Chains");
+    for (const [protocol, chain] of [["erc8004_eth", ETHEREUM_CHAIN], ["erc8004_base", BASE_CHAIN], ["erc8004_arc", ARC_CHAIN], ["erc8004_monad", MONAD_CHAIN], ["erc8004_gnosis", GNOSIS_CHAIN], ["erc8004_celo", CELO_CHAIN]] as const) {
       mocks.getIngestionSource.mockResolvedValueOnce(active(protocol));
       await caller.liveData.admin.runSource({ sourceId: SOURCE_ID, mode: "activity" });
       expect(mocks.runApprovedErc8004ChainSource).toHaveBeenLastCalledWith(chain, expect.objectContaining({ protocol }), "manual");

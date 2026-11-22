@@ -5,13 +5,13 @@ import { createConnection, createPool } from "mysql2/promise";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import * as schema from "../drizzle/schema";
 import { externalKey } from "./ingestion/erc8004Chain";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
+import { ARC_CHAIN, BASE_CHAIN, CELO_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
 import { Erc8004RpcBusyError, Erc8004RpcHttpError } from "./ingestion/erc8004Rpc";
 import type { RegistrationNameResult } from "./ingestion/registrationFetch";
 import { entryNameNote, uriHashOf } from "./robinhoodNamesCore";
 
 /**
- * The Base, Arc, Ethereum, Monad and Gnosis name step against a real database (docs/approvals/2026-10-26-base-arc-names.md): the links read from the chain for
+ * The Base, Arc, Ethereum, Monad, Gnosis and Celo name step against a real database (docs/approvals/2026-10-26-base-arc-names.md): the links read from the chain for
  * the entries that show the placeholder, newest first; the check that a link is the one the registry row recorded; the links queued,
  * read and kept; the names written where the name is still the placeholder; the names laid back over an entry the listing published
  * again; the pace of the reads; a node that limits its callers; and the gates of the step: the chain's switch, its source, its node and
@@ -40,6 +40,7 @@ const BOTH = "chain_base,chain_arc";
 const ALL = "chain_base,chain_arc,chain_ethereum";
 const WITH_MONAD = "chain_base,chain_arc,chain_ethereum,chain_monad";
 const WITH_GNOSIS = "chain_base,chain_arc,chain_ethereum,chain_monad,chain_gnosis";
+const WITH_CELO = "chain_base,chain_arc,chain_ethereum,chain_monad,chain_gnosis,chain_celo";
 const keyOf = (chain: Erc8004Chain, id: number) => externalKey(chain, String(id));
 const linkOf = (host: string, id: number) => `https://${host}/agent/${id}.json`;
 const inline = (record: Record<string, unknown>) => `data:application/json;base64,${Buffer.from(JSON.stringify(record)).toString("base64")}`;
@@ -47,7 +48,7 @@ const NOTE = "Base ERC-8004 registration. The registry-recorded URI is a web lin
 const ZERO_WIDTH = String.fromCharCode(0x200b);
 const BELL = String.fromCharCode(7);
 
-describe.skipIf(!dbReachable)("the Base, Arc, Ethereum, Monad and Gnosis name step against a real database", { timeout: 60_000 }, () => {
+describe.skipIf(!dbReachable)("the Base, Arc, Ethereum, Monad, Gnosis and Celo name step against a real database", { timeout: 60_000 }, () => {
   let names: typeof import("./chainNames");
   let listing: typeof import("./agentRegistryRows");
   let writer: MySql2Database;
@@ -58,6 +59,7 @@ describe.skipIf(!dbReachable)("the Base, Arc, Ethereum, Monad and Gnosis name st
     [ETHEREUM_CHAIN.chainKey, "src-ethereum"],
     [MONAD_CHAIN.chainKey, "src-monad"],
     [GNOSIS_CHAIN.chainKey, "src-gnosis"],
+    [CELO_CHAIN.chainKey, "src-celo"],
   ]);
   const idOf = (chain: Erc8004Chain) => sourceIds.get(chain.chainKey)!;
 
@@ -90,7 +92,7 @@ describe.skipIf(!dbReachable)("the Base, Arc, Ethereum, Monad and Gnosis name st
       sourceId: idOf(chain),
       externalKey: keyOf(chain, id),
       displayName: over.name ?? `Agent #${id}`,
-      protocol: chain.protocol as "erc8004_base" | "erc8004_arc" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis",
+      protocol: chain.protocol as "erc8004_base" | "erc8004_arc" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis" | "erc8004_celo",
       sourceSignalNote: over.note === undefined ? NOTE : over.note,
       profileUriHash: recorded === null ? null : uriHashOf(recorded),
       hidden: over.hidden ?? false,
@@ -121,10 +123,10 @@ describe.skipIf(!dbReachable)("the Base, Arc, Ethereum, Monad and Gnosis name st
     }
     await baselineReplay.end();
     await applyPendingMigrations(process.env.DATABASE_URL);
-    // Migrations 0046, 0051, 0053 and 0057 are the owner's to paste (the boot runner skips them): 0046 adds the protocol values of Ethereum, Base and Arc,
-    // 0053, which restates 0051's list, adds Monad's, and 0057 adds Gnosis's.
+    // Migrations 0046, 0051, 0053, 0057 and 0060 are the owner's to paste (the boot runner skips them): 0046 adds the protocol values of Ethereum, Base and Arc,
+    // 0053, which restates 0051's list, adds Monad's, 0057 adds Gnosis's and 0060 adds Celo's.
     const manual = await createConnection(process.env.DATABASE_URL);
-    for (const file of ["0046_multichain_erc8004_protocols.sql", "0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql", "0057_gnosis_erc8004_protocol.sql"]) {
+    for (const file of ["0046_multichain_erc8004_protocols.sql", "0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql", "0057_gnosis_erc8004_protocol.sql", "0060_celo_erc8004_protocol.sql"]) {
       for (const statement of splitMigrationStatements(await readFile(`drizzle/${file}`, "utf8"))) await manual.query(statement);
     }
     await manual.end();
@@ -138,13 +140,13 @@ describe.skipIf(!dbReachable)("the Base, Arc, Ethereum, Monad and Gnosis name st
     };
     await writer.insert(schema.users).values({ openId: "chain-names-operator", role: "admin" });
     const [operator] = await writer.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.openId, "chain-names-operator"));
-    for (const chain of [BASE_CHAIN, ARC_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN]) {
+    for (const chain of [BASE_CHAIN, ARC_CHAIN, ETHEREUM_CHAIN, MONAD_CHAIN, GNOSIS_CHAIN, CELO_CHAIN]) {
       const host = chain.provider.kind === "pinned" ? chain.provider.allowedHostname : "arc-node.example";
       await writer.insert(schema.ingestionSources).values({
         id: idOf(chain),
         sourceKey: chain.sourceKey,
         label: `${chain.label} names test`,
-        protocol: chain.protocol as "erc8004_base" | "erc8004_arc" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis",
+        protocol: chain.protocol as "erc8004_base" | "erc8004_arc" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis" | "erc8004_celo",
         rootUrl: `https://${host}`,
         allowedHostname: host,
         state: "active",
@@ -698,6 +700,45 @@ describe.skipIf(!dbReachable)("the Base, Arc, Ethereum, Monad and Gnosis name st
     }
     names.resetChainNamesClock();
     expect(await run({ ...only(GNOSIS_CHAIN), features: WITH_GNOSIS })).toMatchObject({ chain: "gnosis", chainRead: "read", entriesNamed: 1 });
+  });
+
+  it("takes Celo in its turn after Gnosis, and only while its switch is on", async () => {
+    await seedLink(BASE_CHAIN, 1600, linkOf("hosta.example", 1600), "Base Sixth");
+    await seedLink(ARC_CHAIN, 1601, linkOf("arc-agents.example", 1601), "Arc Sixth");
+    await seedLink(ETHEREUM_CHAIN, 1602, linkOf("eth-agents.example", 1602), "Ethereum Sixth");
+    await seedLink(MONAD_CHAIN, 1603, linkOf("monad-agents.example", 1603), "Monad Sixth");
+    await seedLink(GNOSIS_CHAIN, 1604, linkOf("gnosis-agents.example", 1604), "Gnosis Sixth");
+    await seedLink(CELO_CHAIN, 1605, linkOf("celo-agents.example", 1605), "Celo Sixth");
+    // Its switch is off: its entry is left alone however many runs there are, and the run it would have had goes unspent.
+    for (const chain of ["base", "arc", "ethereum", "monad", "gnosis"]) expect(await run({ features: WITH_GNOSIS })).toMatchObject({ chain, entriesNamed: 1 });
+    expect(await run({ features: WITH_GNOSIS })).toMatchObject({ chain: null, discovered: 0, read: 0 });
+    expect(chainCalls.map(call => call.chain)).toEqual(["base", "arc", "ethereum", "monad", "gnosis"]);
+    expect((await entry(CELO_CHAIN, 1605)).displayName).toBe("Agent #1605");
+    // Switched on, it takes the turn that came round to it, and it is named from its own file.
+    expect(await run({ features: WITH_CELO })).toMatchObject({ chain: "celo", chainRead: "read", discovered: 1, read: 1, entriesNamed: 1 });
+    expect((await entry(CELO_CHAIN, 1605)).displayName).toBe("Celo Sixth");
+    expect(chainCalls.map(call => call.chain)).toEqual(["base", "arc", "ethereum", "monad", "gnosis", "celo"]);
+    expect(asked).toContain(linkOf("celo-agents.example", 1605));
+  });
+
+  it("names Celo's agent id 0, the first registration on the chain, from the link the chain gives back for it", async () => {
+    await seedLink(CELO_CHAIN, 0, linkOf("celo-agents.example", 0), "Celo Zero");
+    expect(await run({ ...only(CELO_CHAIN), features: WITH_CELO })).toMatchObject({ chain: "celo", chainRead: "read", discovered: 1, read: 1, entriesNamed: 1 });
+    expect(chainCalls).toEqual([{ chain: "celo", ids: ["0"] }]);
+    expect((await entry(CELO_CHAIN, 0)).displayName).toBe("Celo Zero");
+  });
+
+  it("holds a Celo source to the official node's host, and leaves the chain alone when the row records another", async () => {
+    await seedLink(CELO_CHAIN, 1610, linkOf("celo-agents.example", 1610), "Celo Host");
+    await writer.update(schema.ingestionSources).set({ rootUrl: "https://elsewhere.example" }).where(eq(schema.ingestionSources.id, idOf(CELO_CHAIN)));
+    try {
+      expect(await run({ ...only(CELO_CHAIN), features: WITH_CELO })).toMatchObject({ chainRead: "skipped", discovered: 0, read: 0 });
+      expect(chainCalls).toEqual([]);
+    } finally {
+      await writer.update(schema.ingestionSources).set({ rootUrl: "https://forno.celo.org" }).where(eq(schema.ingestionSources.id, idOf(CELO_CHAIN)));
+    }
+    names.resetChainNamesClock();
+    expect(await run({ ...only(CELO_CHAIN), features: WITH_CELO })).toMatchObject({ chain: "celo", chainRead: "read", entriesNamed: 1 });
   });
 
   it("never lays one chain's name on another chain's entry, even for the same link", async () => {

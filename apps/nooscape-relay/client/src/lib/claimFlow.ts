@@ -1,5 +1,5 @@
 import { normalizeClaimEdit, CLAIM_LIMITS, type ClaimEdit, type ClaimField, type ClaimProfile } from "@shared/claimProfile";
-import { arcClaimsOn, baseClaimsOn, ethereumClaimsOn, gnosisClaimsOn, monadClaimsOn } from "@shared/features";
+import { EXTRA_CHAIN_SPECS, extraChainClaimsOn } from "@shared/chains";
 import { shortWallet } from "@shared/mapFleets";
 
 /**
@@ -20,24 +20,14 @@ type ClaimPanelView = "loading" | "hidden" | "open" | "claimed" | "yours" | "hel
 
 /**
  * The chain name for an entry that can be claimed, or null for any other protocol. The server holds the same (`CLAIM_CHAINS`) and decides.
- * Arc's, Base's, Ethereum's, Monad's and Gnosis's are named only while that chain's claims are on in the build.
+ * Arc's, Base's, Ethereum's, Monad's, Gnosis's and Celo's are named only while that chain's claims are on in the build.
  */
-export const claimChainLabel = (protocol: string, features: string | undefined = import.meta.env.VITE_FEATURES): string | null =>
-  protocol === "erc8004"
-    ? "Robinhood Chain"
-    : protocol === "erc8004_bsc"
-      ? "BNB Smart Chain"
-      : protocol === "erc8004_arc" && arcClaimsOn(features)
-        ? "Arc"
-        : protocol === "erc8004_base" && baseClaimsOn(features)
-          ? "Base"
-          : protocol === "erc8004_eth" && ethereumClaimsOn(features)
-            ? "Ethereum"
-            : protocol === "erc8004_monad" && monadClaimsOn(features)
-              ? "Monad"
-              : protocol === "erc8004_gnosis" && gnosisClaimsOn(features)
-                ? "Gnosis"
-                : null;
+export const claimChainLabel = (protocol: string, features: string | undefined = import.meta.env.VITE_FEATURES): string | null => {
+  if (protocol === "erc8004") return "Robinhood Chain";
+  if (protocol === "erc8004_bsc") return "BNB Smart Chain";
+  const extra = EXTRA_CHAIN_SPECS.find(spec => spec.protocol === protocol);
+  return extra && extraChainClaimsOn(extra.key, features) ? extra.label : null;
+};
 
 const sameWallet = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
@@ -148,14 +138,13 @@ export const FIELD_HINTS = {
 } as const;
 
 /** What the panel says is happening, for a screen reader and for the visitor. */
-export type ClaimStep = "idle" | "connecting" | "requesting" | "signing" | "checking" | "done";
+export type ClaimStep = "idle" | "connecting" | "requesting" | "signing" | "checking";
 export const STEP_LABEL: Record<ClaimStep, string> = {
   idle: "",
   connecting: "Waiting for your wallet to share an account…",
   requesting: "Asking Nooscape for the message to sign…",
   signing: "Waiting for your signature in your wallet…",
   checking: "Checking with the registry…",
-  done: "Done.",
 };
 
 // ---------------------------------------------------------------- what the owner wrote, and the history

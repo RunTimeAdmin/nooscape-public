@@ -9,17 +9,21 @@ const mocks = vi.hoisted(() => ({
   callEthereumRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
   callMonadRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
   callGnosisRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
+  callCeloRpcOnce: vi.fn(async (_method: string, _params: unknown[]): Promise<unknown> => "0x"),
 }));
 
 vi.mock("./ingestion/bscRpc", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/bscRpc")>()), callBscRpc: mocks.callBscRpc }));
 vi.mock("./ingestion/robinhood", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/robinhood")>()), callRobinhoodRpcOnce: mocks.callRobinhoodRpcOnce }));
 vi.mock("./ingestion/bscBudget", async importOriginal => ({ ...(await importOriginal<typeof import("./ingestion/bscBudget")>()), bscReadBucket: { take: mocks.take, spent: () => 0 } }));
 vi.mock("./claimsArc", () => ({ callArcRpcOnce: mocks.callArcRpcOnce }));
-vi.mock("./claimsPinned", () => ({ callBaseRpcOnce: mocks.callBaseRpcOnce, callEthereumRpcOnce: mocks.callEthereumRpcOnce, callMonadRpcOnce: mocks.callMonadRpcOnce, callGnosisRpcOnce: mocks.callGnosisRpcOnce }));
+vi.mock("./claimsPinned", () => {
+  const byChain: Record<number, (method: string, params: unknown[]) => Promise<unknown>> = { 8453: mocks.callBaseRpcOnce, 1: mocks.callEthereumRpcOnce, 143: mocks.callMonadRpcOnce, 100: mocks.callGnosisRpcOnce, 42220: mocks.callCeloRpcOnce };
+  return { PINNED_CLAIM_CHAIN_IDS: [8453, 1, 143, 100, 42220], callPinnedRpcOnce: (chainId: number, method: string, params: unknown[]) => byChain[chainId]!(method, params) };
+});
 
 import { BscRpcError } from "./ingestion/bscRpc";
 import { Erc8004RpcError } from "./ingestion/erc8004Rpc";
-import { callChain, callChainForWorker, CLAIM_CHAIN_READS_PER_MINUTE, CLAIM_CHAINS, ChainUnavailableError, claimableChains, claimChainOf, contractAcceptsSignature, isContractAddress, readOwnerOf, type EvmCall } from "./claimsChain";
+import { callChain, callChainForPayTo, callChainForWorker, CLAIM_CHAIN_READS_PER_MINUTE, CLAIM_CHAINS, ChainUnavailableError, claimableChains, claimChainOf, contractAcceptsSignature, isContractAddress, readOwnerOf, type EvmCall } from "./claimsChain";
 import { personalMessageHash } from "./claimsCrypto";
 import { resetRateLimits } from "./rateLimit";
 
@@ -168,6 +172,17 @@ describe("the production call", () => {
     expect(await callChainForWorker(56, "eth_call", [])).toEqual({ revert: false, result: word });
   });
 
+  it("gives a check's pay_to reads a budget of their own, so spending it leaves the claims' reads of the chain alone, and the other way round", async () => {
+    mocks.callBscRpc.mockResolvedValue(word);
+    for (let index = 0; index < CLAIM_CHAIN_READS_PER_MINUTE; index += 1) await callChainForPayTo(56, "eth_call", []);
+    await expect(callChainForPayTo(56, "eth_call", [])).rejects.toBeInstanceOf(ChainUnavailableError);
+    expect(await callChain(56, "eth_call", [])).toEqual({ revert: false, result: word });
+    resetRateLimits();
+    for (let index = 0; index < CLAIM_CHAIN_READS_PER_MINUTE; index += 1) await callChain(56, "eth_call", []);
+    await expect(callChain(56, "eth_call", [])).rejects.toBeInstanceOf(ChainUnavailableError);
+    expect(await callChainForPayTo(56, "eth_call", [])).toEqual({ revert: false, result: word });
+  });
+
   it("reads Arc once through the node's client, and takes a revert from the node's own words and anything else for an outage", async () => {
     mocks.callArcRpcOnce.mockReset();
     mocks.callArcRpcOnce.mockResolvedValueOnce(word);
@@ -222,13 +237,14 @@ describe.each([
   { label: "Ethereum", protocol: "erc8004_eth", chainId: 1, chain: "chain_ethereum", claims: "claims_ethereum", node: mocks.callEthereumRpcOnce },
   { label: "Monad", protocol: "erc8004_monad", chainId: 143, chain: "chain_monad", claims: "claims_monad", node: mocks.callMonadRpcOnce },
   { label: "Gnosis", protocol: "erc8004_gnosis", chainId: 100, chain: "chain_gnosis", claims: "claims_gnosis", node: mocks.callGnosisRpcOnce },
+  { label: "Celo", protocol: "erc8004_celo", chainId: 42220, chain: "chain_celo", claims: "claims_celo", node: mocks.callCeloRpcOnce },
 ])("$label's registry", ({ label, protocol, chainId, chain, claims, node }) => {
   const ON = `${chain},${claims}`;
 
   beforeEach(() => resetRateLimits());
 
   it("is a claim chain with the chain's own id and the registry's address", () => {
-    expect(CLAIM_CHAINS[protocol as "erc8004_base" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis"]).toMatchObject({ protocol, chainId, registry: REGISTRY, label });
+    expect(CLAIM_CHAINS[protocol as "erc8004_base" | "erc8004_eth" | "erc8004_monad" | "erc8004_gnosis" | "erc8004_celo"]).toMatchObject({ protocol, chainId, registry: REGISTRY, label });
   });
 
   it("can be claimed only while the chain is on and its claims are on, each named in the list, and no other chain's switches open it", () => {
@@ -285,10 +301,10 @@ describe.each([
 });
 
 describe("every extra chain's claims together", () => {
-  it("name the registries in the order Arc, Base, Ethereum, Monad, Gnosis after the first two, and the words for an entry that cannot be claimed follow", () => {
-    const all = "chain_arc,claims_arc,chain_base,claims_base,chain_ethereum,claims_ethereum,chain_monad,claims_monad,chain_gnosis,claims_gnosis";
-    expect(claimableChains(all).map(candidate => candidate.label)).toEqual(["Robinhood Chain", "BNB Smart Chain", "Arc", "Base", "Ethereum", "Monad", "Gnosis"]);
-    expect(claimableChains(all).map(candidate => candidate.chainId)).toEqual([4663, 56, 5042, 8453, 1, 143, 100]);
+  it("name the registries in the order the tabs list the extra chains (Ethereum, Base, Arc, Monad, Gnosis, Celo) after the first two, and the words for an entry that cannot be claimed follow", () => {
+    const all = "chain_arc,claims_arc,chain_base,claims_base,chain_ethereum,claims_ethereum,chain_monad,claims_monad,chain_gnosis,claims_gnosis,chain_celo,claims_celo";
+    expect(claimableChains(all).map(candidate => candidate.label)).toEqual(["Robinhood Chain", "BNB Smart Chain", "Ethereum", "Base", "Arc", "Monad", "Gnosis", "Celo"]);
+    expect(claimableChains(all).map(candidate => candidate.chainId)).toEqual([4663, 56, 1, 8453, 5042, 143, 100, 42220]);
     expect(claimableChains(undefined).map(candidate => candidate.label)).toEqual(["Robinhood Chain", "BNB Smart Chain"]);
   });
 });

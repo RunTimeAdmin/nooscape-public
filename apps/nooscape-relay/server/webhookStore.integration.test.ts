@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createConnection, createPool } from "mysql2/promise";
 import { and, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as schema from "../drizzle/schema";
 import { API_CHAINS } from "./apiChains";
 
@@ -100,6 +100,8 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
     await sourceRow("src-sol", "solana_8004");
     await sourceRow("src-paused", "erc8004", "paused");
     await sourceRow("src-bnb", "erc8004_bsc");
+    // The Robinhood registry's ratings are the rows of this source, and its entries carry the identity source above.
+    await sourceRow("src-rep", "erc8004_reputation");
     await sourceRow("src-arc", "erc8004_arc");
     await sourceRow("src-base", "erc8004_base");
     await sourceRow("src-eth", "erc8004_eth");
@@ -310,10 +312,10 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
       ]);
       const rating = (id: string, sourceId: string, kind: "new_feedback" | "feedback_revoked" | "response_appended", agentId: number, hash: string) => ({ id, sourceId, transactionHash: hash, logIndex: 0, kind, blockNumber: 500, agentId, clientAddress: OTHER, feedbackIndex: 1 });
       await writer.insert(schema.agentReputationEvents).values([
-        rating("rep-new", "src-rh", "new_feedback", 42, "0xnew"),
-        rating("rep-rev", "src-rh", "feedback_revoked", 42, "0xrev"),
-        rating("rep-resp", "src-rh", "response_appended", 42, "0xresp"),
-        rating("rep-other-agent", "src-rh", "new_feedback", 43, "0xother43"),
+        rating("rep-new", "src-rep", "new_feedback", 42, "0xnew"),
+        rating("rep-rev", "src-rep", "feedback_revoked", 42, "0xrev"),
+        rating("rep-resp", "src-rep", "response_appended", 42, "0xresp"),
+        rating("rep-other-agent", "src-rep", "new_feedback", 43, "0xother43"),
         rating("rep-other-source", "src-paused", "new_feedback", 42, "0xothersource"),
         { ...rating("rep-bnb", "src-bnb", "new_feedback", 9, "0xbnb") },
       ]);
@@ -563,7 +565,7 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
         move("pg-tie-a", 953, at(1)),
         move("pg-tie-c", 953, at(1)),
       ]);
-      const rate = (id: string, agentId: number, n: number) => ({ id, sourceId: "src-rh", transactionHash: `0x${id}`, logIndex: 0, kind: "new_feedback" as const, blockNumber: 500, agentId, clientAddress: OTHER, feedbackIndex: n, createdAt: at(n) });
+      const rate = (id: string, agentId: number, n: number) => ({ id, sourceId: "src-rep", transactionHash: `0x${id}`, logIndex: 0, kind: "new_feedback" as const, blockNumber: 500, agentId, clientAddress: OTHER, feedbackIndex: n, createdAt: at(n) });
       await writer.insert(schema.agentReputationEvents).values([...[1, 2, 3, 4, 5].map(n => rate(`pg-r${n}`, 950, n)), ...[1, 2, 3].map(n => rate(`pg-s${n}`, 952, n))]);
     });
 
@@ -652,7 +654,57 @@ describe.skipIf(!dbReachable)("webhooks against a real database", { timeout: 120
       const entries = await source.entries(["pg-tie"]);
       const page = await events.createDbEventSource(3).transfers(SINCE, entries);
       expect(page.rows.map(row => row.ref)).toEqual(["own:pg-tie-a", "own:pg-tie-b", "own:pg-tie-c"]);
-      expect(page).toMatchObject({ full: true, through: at(1).getTime() });
+      // A page that is all one second is widened to take the rest of it, so the whole second came and none is left.
+      expect(page).toMatchObject({ full: false });
+    });
+
+    it("passes a second that holds more rows than a page: the page widens to take the rest of it, and a resume never reads the same page again", async () => {
+      await entry("pg-hot", "src-rh", "erc8004", RH_KEY(960));
+      const move = (id: string, when: Date) => ({ id, sourceId: "src-rh", transactionHash: `0x${id}`, logIndex: 0, kind: "secondary" as const, blockNumber: 900_000, externalKey: RH_KEY(960), fromAddress: OTHER, toAddress: WALLET, createdAt: when });
+      await writer.insert(schema.agentDirectoryChainActivity).values([...Array.from({ length: 7 }, (_, n) => move(`hot-${n}`, at(1))), move("hot-later", at(2))]);
+      const entries = await source.entries(["pg-hot"]);
+      const small = events.createDbEventSource(3);
+      const refs: string[] = [];
+      let since = SINCE;
+      for (let pages = 1; ; pages += 1) {
+        const page = await small.transfers(since, entries);
+        refs.push(...page.rows.map(row => row.ref));
+        if (!page.full) break;
+        expect(page.through!).toBeGreaterThan(since.getTime());
+        since = new Date(page.through!);
+        expect(pages).toBeLessThan(6);
+      }
+      expect([...new Set(refs)].sort()).toEqual([...Array.from({ length: 7 }, (_, n) => `own:hot-${n}`), "own:hot-later"].sort());
+    });
+
+    it("goes on after a second that is wider than a page can grow to, resuming just after it", async () => {
+      await entry("pg-flood", "src-rh", "erc8004", RH_KEY(961));
+      const move = (id: string, when: Date) => ({ id, sourceId: "src-rh", transactionHash: `0x${id}`, logIndex: 0, kind: "secondary" as const, blockNumber: 900_000, externalKey: RH_KEY(961), fromAddress: OTHER, toAddress: WALLET, createdAt: when });
+      await writer.insert(schema.agentDirectoryChainActivity).values([...Array.from({ length: 40 }, (_, n) => move(`flood-${String(n).padStart(2, "0")}`, at(1))), move("flood-later", at(2))]);
+      const entries = await source.entries(["pg-flood"]);
+      const small = events.createDbEventSource(2);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const first = await small.transfers(SINCE, entries);
+        // A page of two grows to 4, 8 and 16 rows, and the second still fills it: the second is passed.
+        expect(first.full).toBe(true);
+        expect(first.rows).toHaveLength(16);
+        expect(first.through).toBe(at(1).getTime() + 1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        const next = await small.transfers(new Date(first.through!), entries);
+        expect(next.rows.map(row => row.ref)).toEqual(["own:flood-later"]);
+        expect(next.full).toBe(false);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("finds the listing of a rating by its token id: the ledger carries the reputation registry's source and the entry the identity registry's", async () => {
+      await entry("rep-1", "src-rh", "erc8004", RH_KEY(970));
+      await writer.insert(schema.agentReputationEvents).values({ id: "rep-r1", sourceId: "src-rep", transactionHash: "0xrep-r1", logIndex: 0, kind: "new_feedback", blockNumber: 500, agentId: 970, clientAddress: OTHER, feedbackIndex: 1, createdAt: at(1) });
+      const entries = await source.entries(["rep-1"]);
+      const found = await source.ratings(SINCE, entries);
+      expect(found.rows.map(row => [row.ref, row.entryId, row.kind])).toEqual([["fb:rep-r1", "rep-1", "added"]]);
     });
 
     it("works a backlog off over several runs of the real pass: every change told once, and the place it was working from cleared at the end", async () => {

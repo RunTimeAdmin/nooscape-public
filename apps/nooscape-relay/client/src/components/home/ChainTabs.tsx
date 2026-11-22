@@ -68,6 +68,9 @@ export function ChainTabs({ bnbProfile }: Props) {
       <div data-owl-avoid="" className="max-w-2xl">
         <p className="eyebrow"><Term k="regions">Regions</Term></p>
         <h2 id="chains-heading" className="mt-2 text-xl tracking-[-.04em] text-[#F1FFF3]">{regionsHeading(regions)}</h2>
+        <p className="mt-2 text-xs leading-5 text-[#A9B8AE]">
+          Across chains: <Link href="/field/validation-registry-2026-11-20" className="underline underline-offset-4 hover:text-ns-ink">the Validation Registry, counted on 20 November 2026</Link>.
+        </p>
         <p className="mt-2 text-sm leading-6 text-ns-ink-dim">The same public rules for every region: nothing hidden, withdrawn or unapproved is counted.</p>
         <nav aria-label="Explore a chain" className="mt-3 flex flex-wrap gap-2">
           {REGION_ORDER.map(chain => (
@@ -98,6 +101,11 @@ export function ChainTabs({ bnbProfile }: Props) {
           {regions.includes("gnosis") && (
             <Link href="/chains/gnosis" className={PAGE_LINK_CLASS}>
               Open the Gnosis page <span aria-hidden="true">&rarr;</span>
+            </Link>
+          )}
+          {regions.includes("celo") && (
+            <Link href="/chains/celo" className={PAGE_LINK_CLASS}>
+              Open the Celo page <span aria-hidden="true">&rarr;</span>
             </Link>
           )}
         </nav>
@@ -174,6 +182,12 @@ export function ChainTabs({ bnbProfile }: Props) {
                       <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
                         A dated count of what the registry holds: the{" "}
                         <Link href="/field/gnosis-registry-2026-11-06" className="underline underline-offset-4 hover:text-ns-ink">Gnosis registry census, 6 November 2026</Link>.
+                      </p>
+                    )}
+                    {chain === "celo" && (
+                      <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">
+                        A dated count of what the registry holds: the{" "}
+                        <Link href="/field/celo-registry-2026-11-20" className="underline underline-offset-4 hover:text-ns-ink">Celo registry census, 20 November 2026</Link>.
                       </p>
                     )}
                     {chain === "bnb" && bnbSentence(bnbProfile) && <p className="mt-3 text-xs leading-5 text-[#A9B8AE]">{bnbSentence(bnbProfile)}</p>}

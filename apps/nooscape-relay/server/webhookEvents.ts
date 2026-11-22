@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, gte, inArray, sql } from "drizzle-orm";
-import { agentClaimEdits, agentDirectoryChainActivity, agentDirectoryEntries, agentDirectoryRegistryRows, agentReputationEvents, agentSolanaActivity } from "../drizzle/schema";
+import { agentClaimEdits, agentDirectoryChainActivity, agentDirectoryEntries, agentDirectoryRegistryRows, agentReputationEvents, agentSolanaActivity, ingestionSources } from "../drizzle/schema";
 import { getDb, isHandoutEvent, listVisibleDirectoryKeys, requireDb, type DirectoryMintAnchor } from "./db";
+import { readPage } from "./webhookPaging";
 import { evmIdentityChain } from "./ingestion/evmIdentityChains";
 
 /**
@@ -108,7 +109,7 @@ export function createDbEventSource(limit: number = READ_LIMIT): EventSource {
       for (const part of chunks(evm)) {
         const byKey = new Map(part.map(entry => [`${entry.sourceId}\n${entry.externalKey}`, entry]));
         const keys = part.map(entry => entry.externalKey);
-        const rows = await db
+        const page = await readPage(size => db
           .select({
             id: agentDirectoryChainActivity.id,
             sourceId: agentDirectoryChainActivity.sourceId,
@@ -123,8 +124,9 @@ export function createDbEventSource(limit: number = READ_LIMIT): EventSource {
           .from(agentDirectoryChainActivity)
           .where(and(inArray(agentDirectoryChainActivity.externalKey, keys), inArray(agentDirectoryChainActivity.kind, ["mint", "secondary"]), gte(agentDirectoryChainActivity.createdAt, since)))
           .orderBy(asc(agentDirectoryChainActivity.createdAt), asc(agentDirectoryChainActivity.id))
-          .limit(limit);
-        if (rows.length >= limit) through = lowest(through, rows[rows.length - 1]!.createdAt.getTime());
+          .limit(size), limit, row => row.createdAt.getTime());
+        const rows = page.rows;
+        if (page.through !== undefined) through = lowest(through, page.through);
         // The mint of each listing, which the hand-out rule measures from. It may be older than the window, so it is read on its own.
         const anchors = new Map<string, DirectoryMintAnchor>();
         const mints = await db
@@ -151,7 +153,7 @@ export function createDbEventSource(limit: number = READ_LIMIT): EventSource {
       }
       for (const part of chunks(solana)) {
         const byKey = new Map(part.map(entry => [`${entry.sourceId}\n${entry.externalKey}`, entry]));
-        const rows = await db
+        const page = await readPage(size => db
           .select({
             id: agentSolanaActivity.id,
             sourceId: agentSolanaActivity.sourceId,
@@ -164,8 +166,9 @@ export function createDbEventSource(limit: number = READ_LIMIT): EventSource {
           .from(agentSolanaActivity)
           .where(and(inArray(agentSolanaActivity.externalKey, part.map(entry => entry.externalKey)), eq(agentSolanaActivity.kind, "transfer"), gte(agentSolanaActivity.createdAt, since)))
           .orderBy(asc(agentSolanaActivity.createdAt), asc(agentSolanaActivity.id))
-          .limit(limit);
-        if (rows.length >= limit) through = lowest(through, rows[rows.length - 1]!.createdAt.getTime());
+          .limit(size), limit, row => row.createdAt.getTime());
+        const rows = page.rows;
+        if (page.through !== undefined) through = lowest(through, page.through);
         for (const row of rows) {
           const entry = byKey.get(`${row.sourceId}\n${row.externalKey}`);
           if (entry) out.push({ ref: `own:${row.id}`, entryId: entry.id, from: row.fromOwner, to: row.toOwner, blockNumber: null, transactionRef: row.transactionSignature, isHandout: false, createdAt: row.createdAt });
@@ -180,9 +183,19 @@ export function createDbEventSource(limit: number = READ_LIMIT): EventSource {
       let through: number | undefined;
       // Only the Robinhood registry's ratings are shown by the public API (as counts), so only they are told about. BNB ratings are internal evidence.
       const wanted = entries.filter(entry => entry.protocol === "erc8004" && isEvm(entry) && Number.isSafeInteger(tokenIdOf(entry)));
+      if (wanted.length === 0) return { rows: out, full: false };
+      // The Robinhood registry's ratings are the rows of its reputation source, which is not the identity source its entries carry (the
+      // directory's own count of them is read the same way). Without an active reputation source nothing is read, as the count says nothing.
+      const [reputation] = await db
+        .select({ id: ingestionSources.id })
+        .from(ingestionSources)
+        .where(and(eq(ingestionSources.protocol, "erc8004_reputation"), eq(ingestionSources.state, "active")))
+        .limit(1);
+      if (!reputation) return { rows: out, full: false };
       for (const part of chunks(wanted)) {
-        const byKey = new Map(part.map(entry => [`${entry.sourceId}\n${tokenIdOf(entry)}`, entry]));
-        const rows = await db
+        // The ledger rows carry the reputation registry's source and the entries the identity registry's, so a row finds its listing by token id alone.
+        const byKey = new Map(part.map(entry => [tokenIdOf(entry), entry]));
+        const page = await readPage(size => db
           .select({
             id: agentReputationEvents.id,
             sourceId: agentReputationEvents.sourceId,
@@ -191,12 +204,13 @@ export function createDbEventSource(limit: number = READ_LIMIT): EventSource {
             createdAt: agentReputationEvents.createdAt,
           })
           .from(agentReputationEvents)
-          .where(and(inArray(agentReputationEvents.agentId, part.map(tokenIdOf)), inArray(agentReputationEvents.kind, ["new_feedback", "feedback_revoked"]), gte(agentReputationEvents.createdAt, since)))
+          .where(and(eq(agentReputationEvents.sourceId, reputation.id), inArray(agentReputationEvents.agentId, part.map(tokenIdOf)), inArray(agentReputationEvents.kind, ["new_feedback", "feedback_revoked"]), gte(agentReputationEvents.createdAt, since)))
           .orderBy(asc(agentReputationEvents.createdAt), asc(agentReputationEvents.id))
-          .limit(limit);
-        if (rows.length >= limit) through = lowest(through, rows[rows.length - 1]!.createdAt.getTime());
+          .limit(size), limit, row => row.createdAt.getTime());
+        const rows = page.rows;
+        if (page.through !== undefined) through = lowest(through, page.through);
         for (const row of rows) {
-          const entry = byKey.get(`${row.sourceId}\n${Number(row.agentId)}`);
+          const entry = byKey.get(Number(row.agentId));
           if (entry) out.push({ ref: `fb:${row.id}`, entryId: entry.id, kind: row.kind === "new_feedback" ? "added" : "revoked", createdAt: row.createdAt });
         }
       }

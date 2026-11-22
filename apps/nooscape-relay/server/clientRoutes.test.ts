@@ -95,6 +95,27 @@ describe("isClientRoutePath", () => {
     expect(isClientRoutePath("/chains/monad", "chain_gnosis")).toBe(false);
   });
 
+  it("serves Celo's page and its census report only while its own switch is on, and no other chain's switch opens them", () => {
+    expect(isClientRoutePath("/field/celo-registry-2026-11-20", undefined)).toBe(false);
+    expect(isClientRoutePath("/field/celo-registry-2026-11-20", "chain_arc,chain_base,chain_ethereum,chain_monad,chain_gnosis")).toBe(false);
+    expect(isClientRoutePath("/field/celo-registry-2026-11-20", "chain_celo")).toBe(true);
+    expect(isClientRoutePath("/field/celo-registry-2026-11-20/", "chain_celo")).toBe(false);
+    expect(isClientRoutePath("/chains/celo", undefined)).toBe(false);
+    expect(isClientRoutePath("/chains/celo", "chain_arc,chain_base,chain_ethereum,chain_monad,chain_gnosis")).toBe(false);
+    expect(isClientRoutePath("/chains/celo", "chain_celo")).toBe(true);
+    expect(isClientRoutePath("/chains/celo", "chain_base,chain_ethereum,chain_arc,chain_monad,chain_gnosis,chain_celo")).toBe(true);
+    expect(isClientRoutePath("/chains/celo/", "chain_celo")).toBe(false);
+    expect(isClientRoutePath("/chains/Celo", "chain_celo")).toBe(false);
+    // Its switch opens no other chain's page or census report, and no other chain's switch opens its report.
+    expect(isClientRoutePath("/field/celo-registry-2026-11-20", "chain_gnosis")).toBe(false);
+    expect(isClientRoutePath("/chains/arc", "chain_celo")).toBe(false);
+    expect(isClientRoutePath("/chains/base", "chain_celo")).toBe(false);
+    expect(isClientRoutePath("/chains/ethereum", "chain_celo")).toBe(false);
+    expect(isClientRoutePath("/chains/monad", "chain_celo")).toBe(false);
+    expect(isClientRoutePath("/chains/gnosis", "chain_celo")).toBe(false);
+    expect(isClientRoutePath("/field/gnosis-registry-2026-11-06", "chain_celo")).toBe(false);
+  });
+
   it("serves Base's page and its census report only while its switch is on", () => {
     expect(isClientRoutePath("/chains/base", undefined)).toBe(false);
     expect(isClientRoutePath("/chains/base", "chain_arc,chain_ethereum")).toBe(false);

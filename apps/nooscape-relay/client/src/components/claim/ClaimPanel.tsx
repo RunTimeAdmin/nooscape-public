@@ -85,7 +85,8 @@ export function ClaimPanel({ entryId, chainLabel }: { entryId: string; chainLabe
     if (prepared) signButton.current?.focus();
   }, [prepared]);
 
-  if (stateQuery.isError || view === "loading" || view === "hidden") return null;
+  // A read that fails after one succeeded keeps the view it had: the query holds its data, and the panel stays. With no data there is no view yet, and it is "loading".
+  if (view === "loading" || view === "hidden") return null;
 
   async function connect() {
     setError(null);
@@ -132,6 +133,8 @@ export function ClaimPanel({ entryId, chainLabel }: { entryId: string; chainLabe
       setPrepared({ nonce: issued.nonce, message: issued.message, action, ...(change ? { edit: change } : {}) });
     } catch (failure) {
       setError(messageOf(failure));
+      // A refusal can mean the claim changed under the visitor (another wallet claimed it, or the operator put it on hold): read it again.
+      void utils.claim.state.invalidate({ entryId });
     } finally {
       setStep("idle");
     }
@@ -162,6 +165,7 @@ export function ClaimPanel({ entryId, chainLabel }: { entryId: string; chainLabe
     } catch (failure) {
       // A message that failed its checks is spent: the visitor starts again for a new one.
       setError(messageOf(failure));
+      void utils.claim.state.invalidate({ entryId });
     } finally {
       setPrepared(null);
       setStep("idle");

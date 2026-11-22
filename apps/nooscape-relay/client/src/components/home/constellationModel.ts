@@ -14,8 +14,8 @@
  * those facts decide how it looks.
  */
 
-import { CHAIN_LABEL, EXTRA_CHAIN_LABEL, extraProtocolOf, listedChainLabel, listedChainOf, parseProtocolList, type ListedChainKey } from "@shared/chains";
-import { ARC_LIGHTS_LIMIT, BASE_LIGHTS_LIMIT, ETHEREUM_LIGHTS_LIMIT, fleetKindLabel, fleetShape, fleetTitle, GNOSIS_LIGHTS_LIMIT, MONAD_LIGHTS_LIMIT, type MapFleet, type MapFleets, type RegistryFleets } from "@shared/mapFleets";
+import { CHAIN_LABEL, EXTRA_CHAIN_LABEL, extraProtocolOf, isExtraChainKey, listedChainLabel, type ExtraChainKey, listedChainOf, parseProtocolList, type ListedChainKey } from "@shared/chains";
+import { EXTRA_CHAIN_LIGHTS, extraChainLights, fleetKindLabel, fleetShape, fleetTitle, type MapFleet, type MapFleets, type RegistryFleets } from "@shared/mapFleets";
 
 export const MAX_NODES = 400;
 
@@ -28,12 +28,12 @@ export const isAcknowledged = (node: Pick<ConstellationNode, "kind">) => node.ki
 export const FLEET_TIER = "fleet";
 export const isFleet = (node: Pick<ConstellationNode, "kind">) => node.kind === "fleet";
 
-/** The chains a node of the map can be on: the original three, and Ethereum, Base, Arc, Monad and Gnosis, whose groups have lights while their switches are on. */
+/** The chains a node of the map can be on: the original three, and Ethereum, Base, Arc, Monad, Gnosis and Celo, whose groups have lights while their switches are on. */
 export type MapChainKey = ListedChainKey;
 
-/** The protocol a light sits on, which gives its node the chain it is drawn in: BNB Chain for the groups, the registry's own for a Solana owner wallet, Robinhood Chain's for a registering wallet, the chain's own for an Arc, Base, Ethereum, Monad or Gnosis group. */
+/** The protocol a light sits on, which gives its node the chain it is drawn in: BNB Chain for the groups, the registry's own for a Solana owner wallet, Robinhood Chain's for a registering wallet, the chain's own for an Arc, Base, Ethereum, Monad, Gnosis or Celo group. */
 const lightProtocol = (fleet: MapFleet) =>
-  fleet.chain === "arc" || fleet.chain === "base" || fleet.chain === "ethereum" || fleet.chain === "monad" || fleet.chain === "gnosis"
+  isExtraChainKey(fleet.chain)
     ? extraProtocolOf(fleet.chain)
     : fleet.chain === "robinhood"
       ? "erc8004"
@@ -48,42 +48,19 @@ function largestGroups(registry: Pick<RegistryFleets, "fleets"> | null | undefin
   return [...(registry?.fleets ?? [])].sort((a, b) => b.count - a.count || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, limit);
 }
 
-/** The Arc lights: at most {@link ARC_LIGHTS_LIMIT}. */
-export function arcLights(arc: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
-  return largestGroups(arc, ARC_LIGHTS_LIMIT);
+/** An extra chain's lights: its largest groups, at most the chain's own limit (shared/mapFleets.ts). */
+export function registryLights(chain: ExtraChainKey, registry: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
+  return largestGroups(registry, extraChainLights(chain).limit);
 }
 
-/** The Base lights: at most {@link BASE_LIGHTS_LIMIT}. */
-export function baseLights(base: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
-  return largestGroups(base, BASE_LIGHTS_LIMIT);
-}
+/** Each extra chain's groups, from `liveData.registryFleets`, by chain. A chain that is off, or whose read failed, is absent or null. */
+export type RegistryFleetsByChain = Partial<Record<ExtraChainKey, Pick<RegistryFleets, "fleets"> | null | undefined>>;
 
-/** The Ethereum lights: at most {@link ETHEREUM_LIGHTS_LIMIT}. */
-export function ethereumLights(ethereum: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
-  return largestGroups(ethereum, ETHEREUM_LIGHTS_LIMIT);
-}
-
-/** The Monad lights: at most {@link MONAD_LIGHTS_LIMIT}. */
-export function monadLights(monad: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
-  return largestGroups(monad, MONAD_LIGHTS_LIMIT);
-}
-
-/** The Gnosis lights: at most {@link GNOSIS_LIGHTS_LIMIT}. */
-export function gnosisLights(gnosis: Pick<RegistryFleets, "fleets"> | null | undefined): MapFleet[] {
-  return largestGroups(gnosis, GNOSIS_LIGHTS_LIMIT);
-}
-
-/** The fleets as nodes for the map: the group's own title, its kind in words, the chain's protocol, and marked as a fleet. BNB Chain groups first, then the Solana owner wallets, the Robinhood Chain registering wallets and the Arc, Base, Ethereum, Monad and Gnosis groups. */
-export function fleetRecords(
-  sample: MapFleets | null | undefined,
-  arc: Pick<RegistryFleets, "fleets"> | null | undefined = null,
-  base: Pick<RegistryFleets, "fleets"> | null | undefined = null,
-  ethereum: Pick<RegistryFleets, "fleets"> | null | undefined = null,
-  monad: Pick<RegistryFleets, "fleets"> | null | undefined = null,
-  gnosis: Pick<RegistryFleets, "fleets"> | null | undefined = null
-): ConstellationRecord[] {
-  // `solana` is read defensively: a map must never fail to draw because an answer lacks a field.
-  return [...(sample?.fleets ?? []), ...(sample?.solana?.fleets ?? []), ...(sample?.robinhood?.fleets ?? []), ...arcLights(arc), ...baseLights(base), ...ethereumLights(ethereum), ...monadLights(monad), ...gnosisLights(gnosis)].map(fleet => ({
+/** The fleets as nodes for the map: the group's own title, its kind in words, the chain's protocol, and marked as a fleet. BNB Chain groups first, then the Solana owner wallets, the Robinhood Chain registering wallets and the Arc, Base, Ethereum, Monad, Gnosis and Celo groups. */
+export function fleetRecords(sample: MapFleets | null | undefined, registries: RegistryFleetsByChain = {}): ConstellationRecord[] {
+  // `solana` is read defensively: a map must never fail to draw because an answer lacks a field. The extra chains follow in world order.
+  const extra = EXTRA_CHAIN_LIGHTS.flatMap(lights => registryLights(lights.chain, registries[lights.chain]));
+  return [...(sample?.fleets ?? []), ...(sample?.solana?.fleets ?? []), ...(sample?.robinhood?.fleets ?? []), ...extra].map(fleet => ({
     agentId: fleet.id,
     displayName: fleetTitle(fleet),
     handle: fleetKindLabel(fleet),
@@ -164,7 +141,7 @@ const TIER_COLOR: Record<string, string> = {
 export const UNKNOWN_TIER_COLOR = "#7E8B93";
 export const tierColor = (tier: string) => TIER_COLOR[tier] ?? UNKNOWN_TIER_COLOR;
 
-/** The chain a record's protocols name: the first protocol on a chain, or null when none is. The identity registries of Ethereum, Base, Arc, Monad and Gnosis count, so a group's light is on its own chain. */
+/** The chain a record's protocols name: the first protocol on a chain, or null when none is. The identity registries of Ethereum, Base, Arc, Monad, Gnosis and Celo count, so a group's light is on its own chain. */
 export function recordChain(protocols: string): MapChainKey | null {
   for (const protocol of parseProtocolList(protocols)) {
     const chain = listedChainOf(protocol);
@@ -178,7 +155,7 @@ export function recordChain(protocols: string): MapChainKey | null {
  * shape, so the map reads in greys, and the legend and the card name the chain in words.
  */
 export type ChainStyleKey = MapChainKey | "none";
-export type MarkerShape = "circle" | "diamond" | "square" | "triangle" | "dome" | "cross" | "pentagon" | "star" | "octagon";
+export type MarkerShape = "circle" | "diamond" | "square" | "triangle" | "dome" | "cross" | "pentagon" | "star" | "octagon" | "arrow";
 export const CHAIN_STYLE: Record<ChainStyleKey, { label: string; color: string; shape: MarkerShape }> = {
   robinhood: { label: CHAIN_LABEL.robinhood, color: "#C3F53C", shape: "circle" },
   solana: { label: CHAIN_LABEL.solana, color: "#A78BFA", shape: "diamond" },
@@ -189,6 +166,7 @@ export const CHAIN_STYLE: Record<ChainStyleKey, { label: string; color: string; 
   ethereum: { label: listedChainLabel("ethereum"), color: "#7DD3FC", shape: "pentagon" },
   monad: { label: EXTRA_CHAIN_LABEL.monad, color: "#FB7185", shape: "star" },
   gnosis: { label: EXTRA_CHAIN_LABEL.gnosis, color: "#2DD4BF", shape: "octagon" },
+  celo: { label: EXTRA_CHAIN_LABEL.celo, color: "#35D07F", shape: "arrow" },
   none: { label: "No chain", color: "#9AA8B8", shape: "triangle" },
 };
 export const chainStyleKey = (node: Pick<ConstellationNode, "chain">): ChainStyleKey => node.chain ?? "none";
@@ -214,6 +192,8 @@ export function markerPath(shape: MarkerShape): string {
       return "M0 -1.3L0.35 -0.35L1.3 0L0.35 0.35L0 1.3L-0.35 0.35L-1.3 0L-0.35 -0.35Z";
     case "octagon":
       return "M-0.52 -1.25L0.52 -1.25L1.25 -0.52L1.25 0.52L0.52 1.25L-0.52 1.25L-1.25 0.52L-1.25 -0.52Z";
+    case "arrow":
+      return "M0 -1.3L1.25 1.1L0 0.45L-1.25 1.1Z";
   }
 }
 
@@ -227,7 +207,7 @@ type LegendEntry = { key: ChainStyleKey; label: string; color: string; shape: Ma
 function legendOf(nodes: readonly ConstellationNode[]): LegendEntry[] {
   const counts = new Map<ChainStyleKey, number>();
   for (const node of nodes) counts.set(chainStyleKey(node), (counts.get(chainStyleKey(node)) ?? 0) + 1);
-  return (["robinhood", "solana", "bnb", "arc", "base", "ethereum", "monad", "gnosis", "none"] as const)
+  return (["robinhood", "solana", "bnb", "arc", "base", "ethereum", "monad", "gnosis", "celo", "none"] as const)
     .filter(key => (counts.get(key) ?? 0) > 0)
     .map(key => ({ key, ...CHAIN_STYLE[key], count: counts.get(key)! }));
 }
@@ -365,9 +345,9 @@ const LIGHT_ATTEMPTS = 24;
 
 function placeFleetNodes(records: readonly ConstellationRecord[], obstacles: readonly ConstellationNode[], aspect: number, place = true): ConstellationNode[] {
   const placed: ConstellationNode[] = [];
-  // The BNB Chain lights are placed first, so they are exactly where they were before there were Solana lights, and the Solana lights next, so they are where they were before there were Robinhood Chain lights; those find room around them, then the Arc lights, and the Base, Ethereum, Monad and Gnosis lights find room last.
+  // The BNB Chain lights are placed first, so they are exactly where they were before there were Solana lights, and the Solana lights next, so they are where they were before there were Robinhood Chain lights; those find room around them, then the Arc lights, and the Base, Ethereum, Monad, Gnosis and Celo lights find room last.
   const lightOrder = (record: ConstellationRecord) =>
-    record.fleet?.chain === "gnosis" ? 7 : record.fleet?.chain === "monad" ? 6 : record.fleet?.chain === "ethereum" ? 5 : record.fleet?.chain === "base" ? 4 : record.fleet?.chain === "arc" ? 3 : record.fleet?.chain === "robinhood" ? 2 : record.fleet?.chain === "solana" ? 1 : 0;
+    record.fleet && isExtraChainKey(record.fleet.chain) ? 3 + EXTRA_CHAIN_LIGHTS.findIndex(lights => lights.chain === record.fleet!.chain) : record.fleet?.chain === "robinhood" ? 2 : record.fleet?.chain === "solana" ? 1 : 0;
   const ordered = [...records].sort((a, b) => lightOrder(a) - lightOrder(b) || (b.fleet?.count ?? 0) - (a.fleet?.count ?? 0) || (a.agentId < b.agentId ? -1 : a.agentId > b.agentId ? 1 : 0));
   for (const record of ordered) {
     const radius = fleetReach(record.fleet);
@@ -614,11 +594,6 @@ export function constellationSummary(nodes: readonly ConstellationNode[]): strin
   const lights = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "circle").length;
   const diamonds = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "diamond").length;
   const hexagons = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "hexagon").length;
-  const domes = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "dome").length;
-  const crosses = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "cross").length;
-  const pentagons = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "pentagon").length;
-  const stars = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "star").length;
-  const octagons = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === "octagon").length;
   const counts = new Map<string, number>();
   for (const node of reviewed) counts.set(node.tier, (counts.get(node.tier) ?? 0) + 1);
   const tiers = Array.from(counts.entries())
@@ -634,16 +609,12 @@ export function constellationSummary(nodes: readonly ConstellationNode[]): strin
   const wallets = diamonds > 0 ? ` Also ${plural(diamonds, "large diamond")}: each is one owner wallet that a ${CHAIN_LABEL.solana} registry records as holding many registrations, with its count. A diamond is a wallet, not an agent.` : "";
   // The Robinhood Chain lights are registering wallets: a hexagon is one wallet, not an agent.
   const registrants = hexagons > 0 ? ` Also ${plural(hexagons, "large hexagon")}: each is one registering wallet that the directory records against many ${CHAIN_LABEL.robinhood} registrations, with its count. A hexagon is a wallet, not an agent.` : "";
-  // The Arc lights are groups that share a wallet, a host or a profile link: a dome is a group, not an agent.
-  const arcGroups = domes > 0 ? ` Also ${plural(domes, "large dome")}: each is a group of ${EXTRA_CHAIN_LABEL.arc} registrations that share one wallet, host or profile link, with its count. A dome is a group, not an agent, and no single ${EXTRA_CHAIN_LABEL.arc} registration is drawn.` : "";
-  // The Base lights are groups too: a cross is a group, not an agent.
-  const baseGroups = crosses > 0 ? ` Also ${plural(crosses, "large cross", "large crosses")}: each is a group of ${EXTRA_CHAIN_LABEL.base} registrations that share one wallet, host or profile link, with its count. A cross is a group, not an agent, and no single ${EXTRA_CHAIN_LABEL.base} registration is drawn.` : "";
-  // And the Ethereum lights: a pentagon is a group, not an agent.
-  const ethereumGroups = pentagons > 0 ? ` Also ${plural(pentagons, "large pentagon")}: each is a group of ${listedChainLabel("ethereum")} registrations that share one wallet, host or profile link, with its count. A pentagon is a group, not an agent, and no single ${listedChainLabel("ethereum")} registration is drawn.` : "";
-  // And the Monad lights: a star is a group, not an agent.
-  const monadGroups = stars > 0 ? ` Also ${plural(stars, "large star")}: each is a group of ${listedChainLabel("monad")} registrations that share one wallet, host or profile link, with its count. A star is a group, not an agent, and no single ${listedChainLabel("monad")} registration is drawn.` : "";
-  // And the Gnosis lights: an octagon is a group, not an agent.
-  const gnosisGroups = octagons > 0 ? ` Also ${plural(octagons, "large octagon")}: each is a group of ${listedChainLabel("gnosis")} registrations that share one wallet, host or profile link, with its count. An octagon is a group, not an agent, and no single ${listedChainLabel("gnosis")} registration is drawn.` : "";
+  // Each extra chain's lights are groups that share a wallet, a host or a profile link: a dome, a cross and the rest are a group, not an agent.
+  const extraGroups = EXTRA_CHAIN_LIGHTS.map(({ chain, shape, one, many, article }) => {
+    const drawn = nodes.filter(node => isFleet(node) && fleetShape(node.fleet) === shape).length;
+    const label = listedChainLabel(chain);
+    return drawn > 0 ? ` Also ${plural(drawn, `large ${one}`, `large ${many}`)}: each is a group of ${label} registrations that share one wallet, host or profile link, with its count. ${article} ${one} is a group, not an agent, and no single ${label} registration is drawn.` : "";
+  }).join("");
   const lead = reviewed.length > 0 ? `Map of ${plural(reviewed.length, "reviewed record")}. By chain: ${chains.join(", ")}. By evidence tier: ${tiers.join(", ")}.` : "No reviewed records to show.";
-  return `${lead}${apart}${groups}${wallets}${registrants}${arcGroups}${baseGroups}${ethereumGroups}${monadGroups}${gnosisGroups} Each dot is one record. Tab to the map, use the arrow keys to move between records and Enter to pin one.`;
+  return `${lead}${apart}${groups}${wallets}${registrants}${extraGroups} Each dot is one record. Tab to the map, use the arrow keys to move between records and Enter to pin one.`;
 }

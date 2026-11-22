@@ -4,6 +4,7 @@ import { verifyEvidencePacket, type RelayKey, type VerifyResult } from "../verif
 import { CHECK_MIN_TIER, tierAtLeast, type ApiTier } from "@shared/apiKey";
 import { listedChainLabel } from "@shared/chains";
 import { AGENT_ID_MAX_CHARS, API_CHAINS, agentIdOfKey, apiChainOfProtocol, servedChains, type ApiChain } from "./apiChains";
+import { EXPORT_DATE, exportDates, exportsDirFromEnv, NO_EXPORT_DAY_MESSAGE, NO_EXPORT_MESSAGE } from "./apiExports";
 import { API_LICENSE } from "./apiLicense";
 import { readStats, statsAnswer, type StatsRead } from "./apiStats";
 import { apiV1SpecFor } from "./apiV1Spec";
@@ -23,11 +24,13 @@ import {
   type MeterResult,
   type UsageReport,
 } from "./apiKeys";
-import { checkFlags, checkRequestSchemaFor, CHECK_RESULT_LIMIT, CHECK_STATEMENT, hostOfUrl, type CheckFlagsInput } from "./apiCheck";
+import { readAgentWalletOnChain, WALLET_NOT_READ, type WalletRead } from "./agentWallet";
+import { checkFlags, checkRequestSchemaFor, CHECK_RESULT_LIMIT, CHECK_STATEMENT, hostOfUrl, payToResult, type CheckFlagsInput, type PayToResult } from "./apiCheck";
 import { findVisibleDirectoryEntriesByKey, getAgentDirectoryEntry, listVisibleDirectoryKeys, MAX_AGENT_ENTRY_ACTIVITY_EVENTS, readAgentCheckFacts, searchAgentDirectory } from "./db";
 import { readDatabaseRoom, type DatabaseRoom } from "./databaseRoom";
 import { isCircuitOpenError } from "./dbBreaker";
 import { listRelayKeys } from "./evidence";
+import { agentsExportFiles } from "./exportRetention";
 import { evidencePacketSchema } from "./evidencePacketSchema";
 import { clientKeyFrom, consumeRateLimit, peekRateLimit, retryAfterSeconds } from "./rateLimit";
 import { railsOf, takesContractWallets, usdOf, type Rail, type Reply, type X402Config, type X402Endpoint } from "./x402";
@@ -113,6 +116,8 @@ export type ApiV1Deps = {
   claimHistory: (entryId: string, req: Request) => Promise<ClaimHistoryRead | null>;
   /** The ledger facts a check needs beyond the entry: where the identity ledger stands, and the Solana ledger's transfers. */
   checkFacts: (entryId: string) => Promise<CheckFlagsInput["facts"] | null>;
+  /** The wallet an agent's registry holds now, for a check's pay_to: one read of the agent's chain. Never throws. Absent: a pay_to is answered "not read". */
+  agentWallet?: (chain: ApiChain, id: string, caller: string) => Promise<WalletRead>;
   /** What the directory holds on each chain: the figures the site's chain tabs show. Throws when they cannot be read. */
   stats: (req: Request) => Promise<StatsRead>;
   keys: KeyAccess;
@@ -124,6 +129,8 @@ export type ApiV1Deps = {
   databaseRoom?: () => Promise<DatabaseRoom | null>;
   /** The relay's own key list, which the free verify endpoint checks a packet's key against (the list /.well-known/nooscape-keys.json publishes). */
   relayKeys?: () => readonly RelayKey[];
+  /** The folder the daily agents export is read from (stage D6), or null when none is set. Absent: no export is offered. */
+  exportsDir?: () => string | null;
 };
 
 const callerFor = (req: Request) => appRouter.createCaller({ req, res: {}, user: null } as unknown as TrpcContext);
@@ -132,6 +139,7 @@ export const defaultApiV1Deps: ApiV1Deps = {
   now: () => new Date(),
   databaseRoom: readDatabaseRoom,
   relayKeys: listRelayKeys,
+  exportsDir: exportsDirFromEnv,
   findEntries: findVisibleDirectoryEntriesByKey,
   getEntry: getAgentDirectoryEntry,
   search: searchAgentDirectory,
@@ -152,6 +160,8 @@ export const defaultApiV1Deps: ApiV1Deps = {
     }
   },
   checkFacts: readAgentCheckFacts,
+  // Through the claims' paced clients, with a budget of their own and a cap for each caller (server/agentWallet.ts).
+  agentWallet: (chain, id, caller) => readAgentWalletOnChain(API_CHAINS[chain], id, caller),
   // Through the public procedures, as the claims are: the same figures as the site's chain tabs, from the counts those reads keep for five
   // minutes. No cache of its own on top: it would make the answer older than as_of says.
   stats: req => {
@@ -384,7 +394,7 @@ function checkResult(chain: ApiChain, externalKey: string, entry: Entry, facts: 
   };
 }
 
-export type CheckResult = ReturnType<typeof checkResult>;
+export type CheckResult = ReturnType<typeof checkResult> & { pay_to?: PayToResult };
 
 function checkAnswer(subject: { type: "agent" | "wallet" | "url"; value: string; host: string | null }, results: CheckResult[], matchedTotal: number, capped: boolean, now: Date): ApiEnvelope<Record<string, unknown>> {
   return {
@@ -498,6 +508,9 @@ export function indexAnswer(
         summary: `Pre-flight facts for an agent, a wallet or an endpoint URL, with their dates. Needs a Pro key${pay ? `, or ${usdOf(pay.prices.check)} a call with no key` : ""}.`,
       },
       { method: "POST", path: "/api/v1/verify", summary: "Check a signed evidence packet: its digest, its signature and the key that signed it. Free, needs no key." },
+      { method: "GET", path: "/api/v1/exports/agents/latest", summary: "The signed manifest of the newest daily export of every listed agent. Free, needs no key." },
+      { method: "GET", path: "/api/v1/exports/agents/{date}", summary: "The signed manifest of one day's export, kept for 30 days. Free, needs no key." },
+      { method: "GET", path: "/api/v1/exports/agents/{date}/data", summary: "That day's export: one JSON line per listed agent, gzip-compressed. Free, needs no key." },
       { method: "GET", path: "/api/v1/watches", summary: "The listings this key watches. Needs a Builder key." },
       { method: "POST", path: "/api/v1/watches", summary: "Watch up to 25 more listings, up to 100 in all. Needs a Builder key." },
       { method: "DELETE", path: "/api/v1/watches/{nooscape_id}", summary: "Stop watching a listing. Needs a Builder key." },
@@ -649,6 +662,7 @@ export function endpointOf(path: string): string {
   if (path === "/agents/batch") return "batch";
   if (path === "/check") return "check";
   if (path === "/verify") return "verify";
+  if (path.startsWith("/exports/")) return "exports";
   if (isWebhookPath(path)) return path.startsWith("/watches") ? "watches" : "webhook";
   if (/^\/agents\/[^/]+\/[^/]+\/history$/.test(path)) return "history";
   if (/^\/agents\/[^/]+\/[^/]+$/.test(path)) return "agent";
@@ -954,7 +968,20 @@ export function apiV1Router(deps: ApiV1Deps = defaultApiV1Deps): Router {
         const found = await lookupAgent(deps, req, request.agent.chain, request.agent.id, request.agent.registry);
         if (!found.ok) return problem(res, found.error);
         const result = await forRegistry(found.chain, found.key, found.entry);
-        return void (await respond(deps, res, `agent|${found.chain}|${agentIdOfKey(found.chain, found.key)}|${request.agent.registry ?? ""}`, checkAnswer({ type: "agent", value: `${found.chain}/${agentIdOfKey(found.chain, found.key)}`, host: null }, [result], 1, false, now)));
+        const agentId = agentIdOfKey(found.chain, found.key);
+        // pay_to: one read of the agent's registry, made only for an agent that is listed. As with the ledger facts, a read that could not be made
+        // is answered as "not read" to a key and is not given to a payment, so no one is charged for it.
+        let payTo: PayToResult | null = null;
+        if (request.pay_to) {
+          // A key's reads are counted against the key, a caller with no key against its address.
+          const caller = (res.locals.apiKey as ApiKeyRecord | null)?.id ?? clientKeyFrom(req);
+          const wallet: WalletRead = deps.agentWallet ? await deps.agentWallet(found.chain, agentId, caller) : { status: "not_read", reason: WALLET_NOT_READ.chain };
+          payTo = payToResult(request.pay_to, wallet, now);
+          if (payTo.outcome === "not_read" && res.locals.pay) throw new Error("the agent wallet could not be read");
+        }
+        // A payment is for the one question it was made for, so the address is part of it.
+        const subject = `agent|${found.chain}|${agentId}|${request.agent.registry ?? ""}${payTo ? `|pay_to=${payTo.address}` : ""}`;
+        return void (await respond(deps, res, subject, checkAnswer({ type: "agent", value: `${found.chain}/${agentId}`, host: null }, [payTo ? { ...result, pay_to: payTo } : result], 1, false, now)));
       }
 
       // A wallet or an endpoint URL: the listings it matches exactly, newest first, up to the limit.
@@ -994,6 +1021,51 @@ export function apiV1Router(deps: ApiV1Deps = defaultApiV1Deps): Router {
       const result = verifyEvidencePacket(packet, packet.envelope.relayKeyId ? (deps.relayKeys ?? listRelayKeys)() : []);
       res.set("Cache-Control", "no-store");
       res.json(verifyAnswer(result, deps.now()));
+    })
+  );
+
+  // The daily export (stage D6): a day's signed manifest, and its data file. The same for every caller and free. A day's two files do not
+  // change once written, and the newest day changes once a day.
+  const exportDay = async (res: Response, date: string | null): Promise<{ dir: string; date: string } | null> => {
+    const dir = deps.exportsDir?.() ?? null;
+    const dates = dir ? await exportDates(dir) : [];
+    const day = date ?? dates[0];
+    if (dir && day && dates.includes(day)) return { dir, date: day };
+    fail(res, "not_found", date === null ? NO_EXPORT_MESSAGE : NO_EXPORT_DAY_MESSAGE);
+    return null;
+  };
+  const sendExportFile = (res: Response, dir: string, name: string, cacheControl: string, headers: Record<string, string> = {}) =>
+    new Promise<void>((resolve, reject) =>
+      res.sendFile(name, { root: dir, dotfiles: "deny", headers: { "Cache-Control": cacheControl, ...headers } }, error => (error && !res.headersSent ? reject(error) : resolve()))
+    );
+  const exportDateOf = (res: Response, raw: string | undefined): string | null => {
+    if (raw && EXPORT_DATE.test(raw)) return raw;
+    fail(res, "bad_request", "date must be a day, as YYYY-MM-DD");
+    return null;
+  };
+
+  router.get("/exports/agents/latest", (_req, res) =>
+    guarded(res, async () => {
+      const day = await exportDay(res, null);
+      if (day) await sendExportFile(res, day.dir, agentsExportFiles(day.date).manifest, "public, max-age=300");
+    })
+  );
+
+  router.get("/exports/agents/:date", (req, res) =>
+    guarded(res, async () => {
+      const date = exportDateOf(res, req.params.date);
+      const day = date && (await exportDay(res, date));
+      if (day) await sendExportFile(res, day.dir, agentsExportFiles(day.date).manifest, "public, max-age=3600");
+    })
+  );
+
+  router.get("/exports/agents/:date/data", (req, res) =>
+    guarded(res, async () => {
+      const date = exportDateOf(res, req.params.date);
+      const day = date && (await exportDay(res, date));
+      if (!day) return;
+      const name = agentsExportFiles(day.date).data;
+      await sendExportFile(res, day.dir, name, "public, max-age=3600", { "Content-Disposition": `attachment; filename="${name}"` });
     })
   );
 

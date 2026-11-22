@@ -83,6 +83,7 @@ type MockChainSnapshot = {
   deferredCount: number;
   closedAcknowledgedCount: number;
   deferredAttributionCount: number;
+  metadataLeftOutCount: number;
   unanchoredClosureCount: number;
   unanchoredCount: number;
   resolutions: MockResolutionDraft[];
@@ -176,6 +177,7 @@ function chainSnapshot(overrides: Partial<MockChainSnapshot> = {}): MockChainSna
     deferredCount: 0,
     closedAcknowledgedCount: 0,
     deferredAttributionCount: 0,
+    metadataLeftOutCount: 0,
     unanchoredClosureCount: 1,
     unanchoredCount: 0,
     resolutions: [
@@ -325,6 +327,22 @@ describe("runApproved8004SolanaSource", () => {
       expect(warn.mock.calls[0]![0]).toBe(
         "[8004] pass 4242: 2 change(s) and 1 closure(s) recorded without a ledger anchor, 3 event(s) deferred by the attribution budget, 4 account(s) deferred by the per-pass event cap."
       );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("says in the log how many metadata entries past the per-pass ceiling were left out, and nothing when none were", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      mocks.fetchSolana8004ChainState.mockResolvedValue(chainSnapshot({ unanchoredClosureCount: 0, metadataLeftOutCount: 0 }));
+      await runApproved8004SolanaSource(activeSource, "manual");
+      expect(warn).not.toHaveBeenCalled();
+
+      mocks.fetchSolana8004ChainState.mockResolvedValue(chainSnapshot({ unanchoredClosureCount: 0, metadataLeftOutCount: 50 }));
+      await runApproved8004SolanaSource(activeSource, "manual");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toBe("[8004] pass 4242: metadata entries past the per-pass ceiling left out: 50.");
     } finally {
       warn.mockRestore();
     }

@@ -58,4 +58,10 @@ export const ENV = {
    * only, never printed, unset means the Gnosis pass refuses to run.
    */
   gnosisRpcUrl: process.env.GNOSIS_RPC_URL ?? "",
+  /**
+   * Celo mainnet endpoint for the ERC-8004 identity pass: the Celo Foundation's public node (https://forno.celo.org), which needs no key. The
+   * pass walks the registry's history from block 58,396,724 in windows of 5,000 blocks, the most that node answers. Same rules as the others:
+   * environment only, never printed, unset means the Celo pass refuses to run.
+   */
+  celoRpcUrl: process.env.CELO_RPC_URL ?? "",
 };

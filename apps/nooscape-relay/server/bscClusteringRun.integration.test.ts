@@ -250,6 +250,43 @@ describe.skipIf(!dbReachable)("the BNB clustering against a real database", { ti
       for (let i = 1; i < 6; i += 1) await writer.delete(schema.agentDirectoryRegistryRows).where(eq(schema.agentDirectoryRegistryRows.locatorHost, `w${i}.example.io`));
       expect(await go(new Map()).result).toMatchObject({ state: "completed", fleetsRefreshed: true, clusters: { wallet: 0, platform_host: 1, shared_link: 1 } });
     });
+
+    it("stores a host group whose host is longer than the label column, with the label cut to fit, and refreshes the rest", async () => {
+      await clear();
+      // 241 characters: a locator host may be 255, the label column holds 200.
+      const longHost = `${"h".repeat(230)}.example.io`;
+      await seed([
+        ...Array.from({ length: 55 }, (_, i) => draft(6000 + i, `https://long.example.io/${i}.json`, { locatorHost: longHost })),
+        ...Array.from({ length: 55 }, (_, i) => draft(7000 + i, `https://platform.example.io/${i}.json`, { locatorHost: "platform.example.io" })),
+      ]);
+      await classify();
+      const outcome = await go(new Map()).result;
+      expect(outcome).toMatchObject({ state: "completed", fleetsRefreshed: true, clusters: { platform_host: 2 } });
+      const hosts = await clusters("platform_host");
+      const long = hosts.find(row => row.clusterKey === longHost)!;
+      expect([long.memberCount, long.label]).toEqual([55, longHost.slice(0, 200)]);
+      expect(hosts.find(row => row.clusterKey === "platform.example.io")!.label).toBe("platform.example.io");
+    });
+
+    it("leaves a hidden or suppressed registration out of the fleets, as every public read of the registry does", async () => {
+      await clear();
+      await seed([
+        // 55 registrations by one wallet on a suppressed domain: inserted hidden, so no wallet and no host.
+        ...Array.from({ length: 55 }, (_, i) => draft(8000 + i, `https://suppressed.example.io/${i}.json`, { registrant: WALLET(901), locatorHost: "api.agentrank.info" })),
+        // 55 by another wallet on a visible host, five of them hidden by the operator: 50 are counted.
+        ...Array.from({ length: 55 }, (_, i) => draft(9000 + i, `https://visible.example.io/${i}.json`, { registrant: WALLET(902), locatorHost: "visible.example.io" })),
+      ]);
+      for (let i = 0; i < 5; i += 1) {
+        await writer.update(schema.agentDirectoryRegistryRows).set({ hidden: true }).where(eq(schema.agentDirectoryRegistryRows.externalKey, keyOf(9000 + i)));
+      }
+      await classify();
+      const outcome = await go(new Map()).result;
+      expect(outcome).toMatchObject({ state: "completed", fleetsRefreshed: true, clusters: { wallet: 1, platform_host: 1, shared_link: 0 } });
+      const wallet = (await clusters("wallet"))[0]!;
+      expect([wallet.clusterKey, wallet.memberCount]).toEqual([WALLET(902), 50]);
+      const host = (await clusters("platform_host"))[0]!;
+      expect([host.clusterKey, host.memberCount]).toEqual(["visible.example.io", 50]);
+    });
   });
 
   describe("the evidence of the listed entries", () => {
@@ -337,6 +374,37 @@ describe.skipIf(!dbReachable)("the BNB clustering against a real database", { ti
       const later = await go(new Map([[1, current]]), { refreshMs: 60_000 }).result;
       expect(later).toMatchObject({ read: 1 });
       expect((await evidence())[0]).toMatchObject({ g1: "independent" });
+    });
+
+    it("leaves a hidden entry out of a template group, and out of the name that labels it", async () => {
+      await clear();
+      const uris = new Map<number, string | null>([
+        [1, template(1)],
+        [2, template(2)],
+        [3, template(3)],
+      ]);
+      await seed([1, 2, 3].map(n => draft(n, uris.get(n)!, { displayName: `Trader Bot ${n}` })));
+      await classify();
+      await writer.update(schema.agentDirectoryRegistryRows).set({ hidden: true }).where(eq(schema.agentDirectoryRegistryRows.externalKey, keyOf(1)));
+      const outcome = await go(uris).result;
+      expect(outcome).toMatchObject({ state: "completed", clusters: { template: 1 } });
+      const [group] = await clusters("template");
+      expect(group).toMatchObject({ memberCount: 2, listedCount: 2, label: "Trader Bot 2" });
+    });
+
+    it("stores no host for an entry whose address names one longer than the column, and reads the rest of the batch", async () => {
+      await clear();
+      const uris = new Map<number, string | null>([
+        [1, inline({ name: "Long Host Bot", description: "One registration with a very long host", services: [{ name: "web", endpoint: `https://${"h".repeat(300)}.example.io/api` }] })],
+        [2, lone("Solo Desk")],
+      ]);
+      await seed([draft(1, uris.get(1)!, { displayName: "Long Host Bot" }), draft(2, uris.get(2)!, { displayName: "Solo Desk" })]);
+      await classify();
+      const outcome = await go(uris).result;
+      expect(outcome).toMatchObject({ state: "completed", read: 2, unreadable: 0, pendingAfter: 0 });
+      const rows = await evidence();
+      expect(rows.find(row => row.externalKey === keyOf(1))).toMatchObject({ readStatus: "inline", endpointHost: null });
+      expect(rows.find(row => row.externalKey === keyOf(2))).toMatchObject({ readStatus: "inline", endpointHost: "solo-desk.example.io" });
     });
   });
 

@@ -1,4 +1,4 @@
-import { extraChainsOn, type ChainKey, type ChainStat, type ExtraChainKey, type ExtraChainStat, type ListedChainKey } from "@shared/chains";
+import { extraChainsOn, isExtraChainKey, type ChainKey, type ChainStat, type ExtraChainKey, type ExtraChainStat, type ListedChainKey } from "@shared/chains";
 import { CHAIN_STYLE, markerPath, type MarkerShape } from "./constellationModel";
 
 /**
@@ -68,7 +68,7 @@ export function registrySplitText(registries: ReadonlyArray<{ protocol: string; 
 export const REGION_ORDER: readonly ChainKey[] = ["robinhood", "bnb", "solana"];
 
 /**
- * The regions the tabs show: the three above, then each extra chain (Ethereum, Base, Arc, Monad, Gnosis) that is switched on in this build. Once the
+ * The regions the tabs show: the three above, then each extra chain (Ethereum, Base, Arc, Monad, Gnosis, Celo) that is switched on in this build. Once the
  * server has answered, an extra chain it sent no row for is left out too, so a switch that is on in the build and off on the server
  * shows nothing. `extras` is null until the answer is in, and the list is then the one the build asks for, so the heading does not
  * change when the figures arrive.
@@ -78,15 +78,15 @@ export function regionsShown(extras: readonly Pick<ExtraChainStat, "chain">[] | 
   return [...REGION_ORDER, ...planned.filter(chain => extras === null || extras.some(row => row.chain === chain))];
 }
 
-const REGION_NAME: Record<ListedChainKey, string> = { robinhood: "Robinhood", bnb: "BNB", solana: "Solana", ethereum: "Ethereum", base: "Base", arc: "Arc", monad: "Monad", gnosis: "Gnosis" };
-const SKY_COUNT = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+const REGION_NAME: Record<ListedChainKey, string> = { robinhood: "Robinhood", bnb: "BNB", solana: "Solana", ethereum: "Ethereum", base: "Base", arc: "Arc", monad: "Monad", gnosis: "Gnosis", celo: "Celo" };
+const SKY_COUNT = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
 
 /** The heading over the tabs: the regions by name, in order. With the original three it is the sentence the page has always had. */
 export function regionsHeading(regions: readonly ListedChainKey[]): string {
   return `${regions.map(region => REGION_NAME[region]).join(", ")}. Same Owl, ${SKY_COUNT[regions.length] ?? String(regions.length)} skies.`;
 }
 
-type RegionShape = MarkerShape | "pentagon" | "cross" | "dome" | "star" | "octagon";
+type RegionShape = MarkerShape | "pentagon" | "cross" | "dome" | "star" | "octagon" | "arrow";
 
 /**
  * The icons of the extra chains. They have no lights on the map, so these are not the map key's shapes: each is its own, drawn in the
@@ -98,11 +98,12 @@ const EXTRA_ICON: Record<ExtraChainKey, { shape: RegionShape; path: string }> = 
   arc: { shape: "dome", path: "M-1.2 0.9A1.2 1.2 0 0 1 1.2 0.9Z" },
   monad: { shape: "star", path: "M0 -1.3L0.35 -0.35L1.3 0L0.35 0.35L0 1.3L-0.35 0.35L-1.3 0L-0.35 -0.35Z" },
   gnosis: { shape: "octagon", path: "M-0.52 -1.25L0.52 -1.25L1.25 -0.52L1.25 0.52L0.52 1.25L-0.52 1.25L-1.25 0.52L-1.25 -0.52Z" },
+  celo: { shape: "arrow", path: "M0 -1.3L1.25 1.1L0 0.45L-1.25 1.1Z" },
 };
 
 /** A region's icon: the same shape its lights have on the map for the original three, so a tab reads like the map's key and colour is never the only way to tell the regions apart. */
 export function regionIcon(chain: ListedChainKey): { shape: RegionShape; path: string } {
-  if (chain === "ethereum" || chain === "base" || chain === "arc" || chain === "monad" || chain === "gnosis") return EXTRA_ICON[chain];
+  if (isExtraChainKey(chain)) return EXTRA_ICON[chain];
   const { shape } = CHAIN_STYLE[chain];
   return { shape, path: markerPath(shape) };
 }

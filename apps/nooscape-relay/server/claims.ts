@@ -375,7 +375,9 @@ export async function verifyAndClaim(input: { nonce: string; message: string; si
           if (existing.status === "frozen") throw fail("FROZEN");
           // The same owner claiming again is done already. Another owner is the new owner of an agent that changed hands: the old claim ends.
           if (existing.wallet === row.wallet) return { claimId: existing.id, status: "active" as const, wallet: row.wallet };
-          await revokeInTransaction(tx, existing, "owner_changed", row.wallet, now);
+          // The old claim changed after it was read (an operator's hold, or another process ending it): nothing is written, the nonce is not
+          // used, and the claimer asks again and is answered for the claim as it is now.
+          if (!(await revokeInTransaction(tx, existing, "owner_changed", row.wallet, now))) throw fail("ALREADY_CLAIMED");
         }
         const claimId = randomUUID();
         await tx.insert(agentClaims).values({
@@ -410,10 +412,18 @@ export async function verifyAndClaim(input: { nonce: string; message: string; si
  * publish every edit the operator was withholding (outside audit 2026-11-05, finding R10). The withholding is therefore written
  * down as a removal is: the text is cleared and one "redact" row is added for each field.
  */
-async function revokeInTransaction(tx: Tx, claim: ClaimRow, reason: "owner_changed" | "token_gone", wallet: string | null, now: Date): Promise<void> {
-  await tx.update(agentClaims).set({ status: "revoked", inForceEntryId: null, statusChangedAt: now }).where(eq(agentClaims.id, claim.id));
+async function revokeInTransaction(tx: Tx, claim: ClaimRow, reason: "owner_changed" | "token_gone", wallet: string | null, now: Date): Promise<boolean> {
+  // Conditional on the claim still having the status it was read with, as an edit is. An operator's hold that lands between that read and this
+  // write wins and nothing here is written: the redaction below is decided by the status that was read, and ending a claim that went on hold
+  // meanwhile would publish the text the hold was withholding. False says the claim is not as it was read; the caller decides what that means.
+  const [ended] = await tx
+    .update(agentClaims)
+    .set({ status: "revoked", inForceEntryId: null, statusChangedAt: now })
+    .where(and(eq(agentClaims.id, claim.id), eq(agentClaims.status, claim.status)));
+  if (ended.affectedRows !== 1) return false;
   await tx.insert(agentClaimEdits).values({ id: randomUUID(), claimId: claim.id, entryId: claim.entryId, kind: "revoke", wallet, reason, occurredAt: now });
   if (claim.status === "frozen") await redactInTransaction(tx, claim, CLAIM_FIELDS, "nooscape", now);
+  return true;
 }
 
 /** Clears a claim's current text for the fields, and adds one "redact" row per field to the history, so every earlier edit of the field shows without its text. */
@@ -704,7 +714,10 @@ export async function setClaimHeld(claimId: string, held: boolean, now: Date = n
       const next = held ? "frozen" : "active";
       if (claim.status === next) return { status: next };
       const at = wholeSeconds(now);
-      await tx.update(agentClaims).set({ status: next, statusChangedAt: at }).where(eq(agentClaims.id, claimId));
+      // Conditional on the claim still having the status it was read with, so a claim that was ended between the read and this write is not
+      // put on hold with no entry in force (status and inForceEntryId must agree).
+      const [written] = await tx.update(agentClaims).set({ status: next, statusChangedAt: at }).where(and(eq(agentClaims.id, claimId), eq(agentClaims.status, claim.status)));
+      if (written.affectedRows !== 1) throw fail("NO_CLAIM");
       await tx.insert(agentClaimEdits).values({ id: randomUUID(), claimId, entryId: claim.entryId, kind: held ? "freeze" : "unfreeze", reason: "operator", occurredAt: at });
       return { status: next };
     });

@@ -4,8 +4,8 @@ import { readFile } from "node:fs/promises";
 import { createConnection, createPool } from "mysql2/promise";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../drizzle/schema";
-import { ARC_CHAIN, BASE_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
-import { ARC_FIXTURES, BASE_FIXTURES, ETHEREUM_FIXTURES, GNOSIS_FIXTURES, MONAD_FIXTURES, type ChainFixtureLog, type ChainFixtures } from "./ingestion/erc8004ChainFixtures";
+import { ARC_CHAIN, BASE_CHAIN, CELO_CHAIN, ETHEREUM_CHAIN, GNOSIS_CHAIN, MONAD_CHAIN, type Erc8004Chain } from "./ingestion/erc8004Chains";
+import { ARC_FIXTURES, BASE_FIXTURES, CELO_FIXTURES, ETHEREUM_FIXTURES, GNOSIS_FIXTURES, MONAD_FIXTURES, type ChainFixtureLog, type ChainFixtures } from "./ingestion/erc8004ChainFixtures";
 
 /**
  * The identity pass on Ethereum, Base and Arc against a real database, with a fake node that serves the REAL registry logs
@@ -37,6 +37,7 @@ const CASES: Array<[string, Erc8004Chain, ChainFixtures]> = [
   ["Arc", ARC_CHAIN, ARC_FIXTURES],
   ["Monad", MONAD_CHAIN, MONAD_FIXTURES],
   ["Gnosis", GNOSIS_CHAIN, GNOSIS_FIXTURES],
+  ["Celo", CELO_CHAIN, CELO_FIXTURES],
 ];
 
 /** The URI an agent ends the walk with: its latest recorded update, else the one it registered with. */
@@ -51,7 +52,7 @@ function finalFacts(fixtures: ChainFixtures, agentId: string) {
 /** What the listing rules do to one registration: a web link, an IPFS reference or inline JSON that parsed is listed (nothing here is shared); the rest is held out. */
 const expectedListing = (kind: string) => (kind === "web" || kind === "ipfs" || kind === "inline-json" ? 1 : 0);
 
-describe.skipIf(!dbReachable)("the Ethereum, Base, Arc, Monad and Gnosis identity passes against a real database", { timeout: 120_000 }, () => {
+describe.skipIf(!dbReachable)("the Ethereum, Base, Arc, Monad, Gnosis and Celo identity passes against a real database", { timeout: 120_000 }, () => {
   type Db = typeof import("./db");
   let db: Db;
   let writer: MySql2Database;
@@ -137,7 +138,7 @@ describe.skipIf(!dbReachable)("the Ethereum, Base, Arc, Monad and Gnosis identit
     await admin.end();
 
     process.env.DATABASE_URL = `${BASE_URL}/${TEST_DB}`;
-    process.env.VITE_FEATURES = "chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis";
+    process.env.VITE_FEATURES = "chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis,chain_celo";
     const { applyPendingMigrations, collectMigrationFiles, splitMigrationStatements } = await import("./dbMigrations");
     const baselineReplay = await createConnection(process.env.DATABASE_URL);
     for (const file of (await collectMigrationFiles("drizzle")).filter(f => f.version <= 14)) {
@@ -186,9 +187,9 @@ describe.skipIf(!dbReachable)("the Ethereum, Base, Arc, Monad and Gnosis identit
     for (const statement of splitMigrationStatements(content)) await connection.query(statement);
     await connection.end();
     columnTypes.afterSecond = await columnTypesNow(process.env.DATABASE_URL);
-    // Monad's value arrives with migration 0053 and Gnosis's with 0057, each restating the list the one before ended, so all are pasted after 0046, as production has them.
+    // Monad's value arrives with migration 0053, Gnosis's with 0057 and Celo's with 0060, each restating the list the one before ended, so all are pasted after 0046, as production has them.
     const later = await createConnection(process.env.DATABASE_URL);
-    for (const migrationFile of ["0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql", "0057_gnosis_erc8004_protocol.sql"]) {
+    for (const migrationFile of ["0051_solana_agenc_protocol.sql", "0053_monad_erc8004_protocol.sql", "0057_gnosis_erc8004_protocol.sql", "0060_celo_erc8004_protocol.sql"]) {
       for (const statement of splitMigrationStatements(await readFile(`drizzle/${migrationFile}`, "utf8"))) await later.query(statement);
     }
     await later.end();
@@ -392,7 +393,7 @@ describe.skipIf(!dbReachable)("the Ethereum, Base, Arc, Monad and Gnosis identit
 
     it("shows each protocol once in the directory, with no entry under BNB Chain's", async () => {
       const rows = await writer.select({ protocol: schema.agentDirectoryEntries.protocol, total: sql<number>`count(*)` }).from(schema.agentDirectoryEntries).groupBy(schema.agentDirectoryEntries.protocol);
-      expect(rows.map(row => row.protocol).sort()).toEqual(["erc8004_arc", "erc8004_base", "erc8004_eth", "erc8004_gnosis", "erc8004_monad"]);
+      expect(rows.map(row => row.protocol).sort()).toEqual(["erc8004_arc", "erc8004_base", "erc8004_celo", "erc8004_eth", "erc8004_gnosis", "erc8004_monad"]);
     });
   });
 });

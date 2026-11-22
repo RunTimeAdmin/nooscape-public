@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildChainStats,
@@ -43,7 +43,7 @@ describe("the extra chains' model", () => {
       expect(EXTRA_CHAIN_SWITCH[key]).toBe(chain.feature);
       expect(FEATURES).toContain(chain.feature);
     }
-    expect(EXTRA_CHAIN_LABEL).toEqual({ ethereum: "Ethereum", base: "Base", arc: "Arc", monad: "Monad", gnosis: "Gnosis" });
+    expect(EXTRA_CHAIN_LABEL).toEqual({ ethereum: "Ethereum", base: "Base", arc: "Arc", monad: "Monad", gnosis: "Gnosis", celo: "Celo" });
   });
 
   it("leaves BNB Chain, the chain of the pass with no switch, where it was", () => {
@@ -81,16 +81,17 @@ describe("the extra chains' model", () => {
   });
 
   it("names the protocols to leave out of every public read: those of the chains whose switch is off", () => {
-    expect(protocolsOfChainsOff(undefined).sort()).toEqual(["erc8004_arc", "erc8004_base", "erc8004_eth", "erc8004_gnosis", "erc8004_monad"]);
+    expect(protocolsOfChainsOff(undefined).sort()).toEqual(["erc8004_arc", "erc8004_base", "erc8004_celo", "erc8004_eth", "erc8004_gnosis", "erc8004_monad"]);
     expect(protocolsOfChainsOff("claims")).toEqual(protocolsOfChainsOff(undefined));
-    expect(protocolsOfChainsOff("chain_base").sort()).toEqual(["erc8004_arc", "erc8004_eth", "erc8004_gnosis", "erc8004_monad"]);
-    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc")).toEqual(["erc8004_monad", "erc8004_gnosis"]);
-    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc,chain_monad")).toEqual(["erc8004_gnosis"]);
-    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis")).toEqual([]);
+    expect(protocolsOfChainsOff("chain_base").sort()).toEqual(["erc8004_arc", "erc8004_celo", "erc8004_eth", "erc8004_gnosis", "erc8004_monad"]);
+    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc")).toEqual(["erc8004_monad", "erc8004_gnosis", "erc8004_celo"]);
+    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc,chain_monad")).toEqual(["erc8004_gnosis", "erc8004_celo"]);
+    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis")).toEqual(["erc8004_celo"]);
+    expect(protocolsOfChainsOff("chain_ethereum,chain_base,chain_arc,chain_monad,chain_gnosis,chain_celo")).toEqual([]);
   });
 
   it("names every listed chain", () => {
-    expect([...CHAINS, ...EXTRA_CHAINS].map(listedChainLabel)).toEqual(["Robinhood Chain", "Solana", "BNB Chain", "Ethereum", "Base", "Arc", "Monad", "Gnosis"]);
+    expect([...CHAINS, ...EXTRA_CHAINS].map(listedChainLabel)).toEqual(["Robinhood Chain", "Solana", "BNB Chain", "Ethereum", "Base", "Arc", "Monad", "Gnosis", "Celo"]);
   });
 });
 
@@ -219,7 +220,12 @@ describe("the figures of an extra chain", () => {
 });
 
 describe("the public reads in db.ts", () => {
-  const source = readFileSync(new URL("./db.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  // The database layer is one module per part of it in server/db/ (server/db.ts re-exports them); its reads are read together.
+  const source = readdirSync(new URL("./db/", import.meta.url))
+    .sort()
+    .map(file => readFileSync(new URL(`./db/${file}`, import.meta.url), "utf8"))
+    .join("\n")
+    .replace(/\r\n/g, "\n");
 
   it("leave out a chain whose switch is off through the one visibility rule every directory read uses", () => {
     const rule = source.slice(source.indexOf("function directoryVisibilityCondition()"), source.indexOf("export function sanitizeDirectoryEntry"));

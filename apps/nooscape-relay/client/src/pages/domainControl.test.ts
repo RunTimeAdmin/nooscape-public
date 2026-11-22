@@ -33,7 +33,7 @@ describe("the domain control page", () => {
   it("says a challenge lasts 48 hours, Tier 3 lasts 90 days and at most 4 KiB is read, as the code does", () => {
     expect(read(join(app, "server", "routers", "liveData.ts"))).toContain("new Date(Date.now() + 48 * 60 * 60 * 1_000)");
     expect(text).toContain("good for 48 hours");
-    expect(read(join(app, "server", "db.ts"))).toContain("export const DOMAIN_VERIFICATION_VALIDITY_DAYS = 90;");
+    expect(read(join(app, "server", "db", "core.ts"))).toContain("export const DOMAIN_VERIFICATION_VALIDITY_DAYS = 90;");
     expect(text).toContain("Tier 3 lasts 90 days");
     expect(read(join(app, "server", "domainVerification.ts"))).toContain("const MAX_PROOF_BYTES = 4 * 1024;");
     expect(text).toContain("at most 4 KiB");

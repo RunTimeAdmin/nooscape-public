@@ -15,6 +15,8 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/mysql-core";
+// One list for the three tables that carry a source protocol, so a new value is added once (it still needs its own migration).
+import { INGESTION_PROTOCOLS } from "../server/ingestion/types";
 
 /**
  * Core user table backing auth flow.
@@ -49,7 +51,7 @@ export const ingestionSources = mysqlTable(
     id: varchar("id", { length: 36 }).primaryKey(),
     sourceKey: varchar("sourceKey", { length: 64 }).notNull(),
     label: varchar("label", { length: 160 }).notNull(),
-    protocol: mysqlEnum("protocol", ["a2a", "anp", "agntcy", "erc8004", "erc8004_reputation", "catalog", "census", "solana_registry", "solana_8004", "usdg_settlement", "solana_said", "erc8004_bsc", "erc8004_base", "erc8004_eth", "erc8004_arc", "solana_agenc", "erc8004_monad", "erc8004_gnosis"]).notNull(),
+    protocol: mysqlEnum("protocol", INGESTION_PROTOCOLS).notNull(),
     rootUrl: varchar("rootUrl", { length: 2048 }).notNull(),
     allowedHostname: varchar("allowedHostname", { length: 255 }).notNull(),
     state: mysqlEnum("state", ["review", "active", "paused", "rejected"])
@@ -143,7 +145,7 @@ const directoryEntryColumns = {
     externalKey: varchar("externalKey", { length: 512 }).notNull(),
     displayName: varchar("displayName", { length: 255 }).notNull(),
     locatorHost: varchar("locatorHost", { length: 255 }),
-    protocol: mysqlEnum("protocol", ["a2a", "anp", "agntcy", "erc8004", "erc8004_reputation", "catalog", "census", "solana_registry", "solana_8004", "usdg_settlement", "solana_said", "erc8004_bsc", "erc8004_base", "erc8004_eth", "erc8004_arc", "solana_agenc", "erc8004_monad", "erc8004_gnosis"]).notNull(),
+    protocol: mysqlEnum("protocol", INGESTION_PROTOCOLS).notNull(),
     /** Why this entry is directory-only (e.g. no upstream signals, inline data: metadata). */
     sourceSignalNote: varchar("sourceSignalNote", { length: 512 }),
     /**
@@ -637,7 +639,7 @@ export const sourceObservations = mysqlTable(
     sourceId: varchar("sourceId", { length: 36 })
       .notNull()
       .references(() => ingestionSources.id),
-    protocol: mysqlEnum("protocol", ["a2a", "anp", "agntcy", "erc8004", "erc8004_reputation", "catalog", "census", "solana_registry", "solana_8004", "usdg_settlement", "solana_said", "erc8004_bsc", "erc8004_base", "erc8004_eth", "erc8004_arc", "solana_agenc", "erc8004_monad", "erc8004_gnosis"]).notNull(),
+    protocol: mysqlEnum("protocol", INGESTION_PROTOCOLS).notNull(),
     canonicalLocator: varchar("canonicalLocator", { length: 2048 }).notNull(),
     locatorHash: varchar("locatorHash", { length: 64 }).notNull(),
     contentHash: varchar("contentHash", { length: 64 }).notNull(),

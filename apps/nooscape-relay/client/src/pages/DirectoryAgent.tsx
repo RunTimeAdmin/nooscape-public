@@ -1,3 +1,4 @@
+import type { ExtraChainSpec } from "@shared/chains";
 import { useEffect, type ReactNode } from "react";
 import { ExternalLink, Search, ShieldCheck } from "lucide-react";
 import { Link, useRoute } from "wouter";
@@ -34,7 +35,8 @@ const CLAIMS_ON = featureOn("claims", import.meta.env.VITE_FEATURES);
 
 // The acknowledged layer never assigns trust, so the avatar tone is protocol-
 // derived: a stable, honest color rather than a capability or tier signal.
-const protocolTones: Record<string, string> = {
+// Every extra chain must have its tone: the type asks for each of their protocols (shared/chains.ts).
+const protocolTones: Record<string, string> & Record<ExtraChainSpec["protocol"], string> = {
   a2a: "#BFFF76",
   anp: "#66E8FF",
   agntcy: "#66E8FF",
@@ -51,6 +53,7 @@ const protocolTones: Record<string, string> = {
   erc8004_arc: "#ACC6E9",
   erc8004_monad: "#FB7185",
   erc8004_gnosis: "#2DD4BF",
+  erc8004_celo: "#35D07F",
 };
 
 function protocolLabel(protocol: string) {
@@ -481,7 +484,7 @@ export default function DirectoryAgent() {
                     )}
                   </Section>
 
-                  {CLAIMS_ON && claimChainLabel(entry.protocol) && <ClaimPanel entryId={entry.id} chainLabel={claimChainLabel(entry.protocol) ?? ""} />}
+                  {CLAIMS_ON && claimChainLabel(entry.protocol) && <ClaimPanel key={entry.id} entryId={entry.id} chainLabel={claimChainLabel(entry.protocol) ?? ""} />}
 
                   <Section id="dossier-host" title="Host and links">
                     <Facts>

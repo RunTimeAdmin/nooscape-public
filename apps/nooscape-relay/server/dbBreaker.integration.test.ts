@@ -40,15 +40,35 @@ const tlsAvailable = await (async () => {
   }
 })();
 
-/** The server's own count of connection attempts, successful or refused. */
-async function serverConnectionAttempts() {
-  const root = await createConnection(`${BASE_URL}/mysql`);
-  try {
-    const [rows] = await root.query("SHOW GLOBAL STATUS LIKE 'Connections'");
-    return Number((rows as Array<{ Value: string }>)[0]!.Value);
-  } finally {
-    await root.end();
-  }
+/**
+ * A TCP proxy in front of the server that counts the connections dialled through it. The server's own count (`Connections`) took in
+ * every client of the server, and in a full run the other test files' connections to the same server landed inside the measured span
+ * (the breaker test read 5 dials where the pool made at most 2). Only the pool under test dials through the proxy.
+ */
+async function countingProxy() {
+  const sockets = new Set<net.Socket>();
+  let dialled = 0;
+  const server = net.createServer(client => {
+    dialled += 1;
+    const upstream = net.connect(Number(port), hostname);
+    for (const socket of [client, upstream]) {
+      sockets.add(socket);
+      socket.on("error", () => {});
+      socket.on("close", () => sockets.delete(socket));
+    }
+    client.on("close", () => upstream.destroy());
+    upstream.on("close", () => client.destroy());
+    client.pipe(upstream).pipe(client);
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  return {
+    port: (server.address() as net.AddressInfo).port,
+    dialled: () => dialled,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    },
+  };
 }
 
 const quietLog = { error: () => {}, warn: () => {} };
@@ -65,22 +85,30 @@ const errorCodes = (results: PromiseSettledResult<unknown>[]) => results.map(res
 describe.skipIf(!dbReachable)("an account that has used its connections for the hour", { timeout: 60_000 }, () => {
   const users: string[] = [];
   const pools: Pool[] = [];
+  const proxies: Array<{ close: () => Promise<void> }> = [];
 
   afterEach(async () => {
     for (const pool of pools.splice(0)) await pool.promise().end().catch(() => {});
+    for (const proxy of proxies.splice(0)) await proxy.close();
     const root = await createConnection(`${BASE_URL}/mysql`);
     for (const user of users.splice(0)) await root.query(`DROP USER IF EXISTS '${user}'@'%'`);
     await root.end();
   });
 
-  /** An account allowed `perHour` new connections an hour, like the host's. */
-  async function limitedAccount(perHour: number) {
+  /** An account allowed `perHour` new connections an hour, like the host's, reached directly or through a counting proxy's port. */
+  async function limitedAccount(perHour: number, viaPort?: number) {
     const user = `cap_${Math.random().toString(36).slice(2, 10)}`;
     const root = await createConnection(`${BASE_URL}/mysql`);
     await root.query(`CREATE USER '${user}'@'%' IDENTIFIED BY 'pw' WITH MAX_CONNECTIONS_PER_HOUR ${perHour}`);
     await root.end();
     users.push(user);
-    return `mysql://${user}:pw@${hostname}:${port}`;
+    return viaPort === undefined ? `mysql://${user}:pw@${hostname}:${port}` : `mysql://${user}:pw@127.0.0.1:${viaPort}`;
+  }
+
+  async function proxied() {
+    const proxy = await countingProxy();
+    proxies.push(proxy);
+    return proxy;
   }
 
   async function flushHourlyCounters() {
@@ -132,34 +160,37 @@ describe.skipIf(!dbReachable)("an account that has used its connections for the 
   }
 
   it("without the breaker, every request that needs a connection dials the host again (the control)", async () => {
-    const uri = await limitedAccount(2);
+    const proxy = await proxied();
+    const uri = await limitedAccount(2, proxy.port);
     const pool = guardedPool(uri, 2, null);
     pools.push(pool);
     await kill(await open(pool, 2));
-    const before = await serverConnectionAttempts();
+    const before = proxy.dialled();
     const results = await settled(pool, 40);
-    const dialled = (await serverConnectionAttempts()) - before;
+    const dialled = proxy.dialled() - before;
     expect(errorCodes(results).every(code => code === "ER_USER_LIMIT_REACHED")).toBe(true);
-    // Each failed attempt frees the pool slot for the next, so the host sees an attempt per request (the 40, plus this probe's own).
-    expect(dialled).toBeGreaterThanOrEqual(30);
+    // Each failed attempt frees the pool slot for the next, so the host is dialled once a request.
+    expect(dialled).toBe(40);
   });
 
   it("with the breaker, the host is dialled once, then the requests fail at once without dialling", async () => {
-    const uri = await limitedAccount(2);
+    const proxy = await proxied();
+    const uri = await limitedAccount(2, proxy.port);
     const breaker = new ConnectionBreaker({ baseCooldownMs: 600_000, log: quietLog });
     const pool = guardedPool(uri, 2, breaker);
     pools.push(pool);
     await kill(await open(pool, 2));
-    const before = await serverConnectionAttempts();
+    const before = proxy.dialled();
     const results = await settled(pool, 40);
-    const dialled = (await serverConnectionAttempts()) - before;
+    const dialled = proxy.dialled() - before;
     const codes = errorCodes(results);
     expect(breaker.isOpen()).toBe(true);
     expect(codes.filter(code => code === "ER_USER_LIMIT_REACHED").length).toBeGreaterThanOrEqual(1);
     expect(codes.filter(code => code === "DB_CIRCUIT_OPEN").length).toBeGreaterThanOrEqual(30);
     expect(codes.every(code => code === "ER_USER_LIMIT_REACHED" || code === "DB_CIRCUIT_OPEN")).toBe(true);
-    // The probe that measures the host's own count is one attempt of its own; the pool made at most two more.
-    expect(dialled).toBeLessThanOrEqual(4);
+    // The pool dials at most once for each of its two slots before the first refusal opens the breaker.
+    expect(dialled).toBeGreaterThanOrEqual(1);
+    expect(dialled).toBeLessThanOrEqual(2);
     for (const result of results) if (result.status === "rejected") expect(isCircuitOpenError(result.reason) || (result.reason as { code?: string }).code === "ER_USER_LIMIT_REACHED").toBe(true);
   });
 

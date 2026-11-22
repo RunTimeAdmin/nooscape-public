@@ -8,6 +8,7 @@ import { createContext } from "./context";
 import { registerApiCachePolicy, registerSecurityHeaders } from "./securityHeaders";
 import { logUnexpectedTrpcError } from "./trpc";
 import { serveStatic, setupVite } from "./vite";
+import { registerWwwRedirect } from "../wwwRedirect";
 import { rateLimitExpress } from "../rateLimit";
 import { registerApiV1 } from "../apiV1";
 import { registerSecurityTxt } from "../securityTxt";
@@ -83,6 +84,8 @@ async function startServer() {
   // hop so req.ip / req.secure reflect the real client.
   app.set("trust proxy", 1);
   registerSecurityHeaders(app);
+  // www.nooscape.si is one 301 away from nooscape.si, before anything else answers it but the security headers (server/wwwRedirect.ts).
+  registerWwwRedirect(app);
   // Mounted before the rate limiter and routers so even 429/error responses
   // carry the policy; static assets are served outside /api and stay cacheable.
   registerApiCachePolicy(app);

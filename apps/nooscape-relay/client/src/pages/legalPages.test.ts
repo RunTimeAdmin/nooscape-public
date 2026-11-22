@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { REPLY_WITHIN, SECURITY_EMAIL, SUPPORT_EMAIL, TRUST_EMAIL } from "../lib/contacts";
 import { KEY_PREFIX_LENGTH } from "../../../shared/apiKey";
+import { extraChainClaimsOn } from "../../../shared/chains";
+import { claimChainLabel } from "../lib/claimFlow";
+import { arcClaimsOn, baseClaimsOn, celoClaimsOn, ethereumClaimsOn, gnosisClaimsOn, monadClaimsOn } from "../../../shared/features";
 
 /**
  * The pages that say how Nooscape treats people (disputes, privacy, terms, contact) make claims the code can break: an
@@ -123,6 +126,13 @@ describe("what the privacy page says about the browser and the network, held to 
   });
 });
 
+/** Switch lists that turn each extra chain and its claims on and off in every pairing, with an empty and a missing list. */
+const SWITCH_LISTS: Array<string | undefined> = [
+  undefined,
+  "",
+  ...["ethereum", "base", "arc", "monad", "gnosis", "celo"].flatMap(chain => [`chain_${chain}`, `claims_${chain}`, `chain_${chain},claims_${chain}`, ` CHAIN_${chain.toUpperCase()} , claims_${chain} `]),
+];
+
 describe("what the privacy and terms pages say about claiming an agent, held to the code", () => {
   const privacy = page("Privacy");
   const terms = page("Terms");
@@ -142,7 +152,8 @@ describe("what the privacy and terms pages say about claiming an agent, held to 
 
   it("names the two chains a claim can be made on, which are the two the claim code names", () => {
     expect(privacy).toContain("Robinhood Chain or BNB Smart Chain registry");
-    const chains = read(join(app, "server", "claimsChain.ts"));
+    // The claim code names Robinhood Chain itself and takes every other chain's name from the chain pass's entry.
+    const chains = read(join(app, "server", "claimsChain.ts")) + read(join(app, "server", "ingestion", "erc8004Chains.ts"));
     for (const label of ["Robinhood Chain", "BNB Smart Chain"]) {
       expect(chains, label).toContain(`label: "${label}"`);
       expect(flow, label).toContain(`"${label}"`);
@@ -155,49 +166,62 @@ describe("what the privacy and terms pages say about claiming an agent, held to 
     // The sentence that has always been there is as it was, and the date on the page changes only with the new sentence.
     expect(privacy).toContain("The owner of an agent on the Robinhood Chain or BNB Smart Chain registry can claim it by signing one message with their wallet.");
     expect(privacy).toContain('ARC_CLAIMS ? "20 October 2026" : "19 October 2026"');
-    const chains = read(join(app, "server", "claimsChain.ts"));
+    const chains = read(join(app, "server", "ingestion", "erc8004Chains.ts"));
     expect(chains).toContain('label: "Arc"');
-    expect(flow).toContain('"Arc"');
     // The claim code and the page ask the same question: Arc is on and its claims are on.
     expect(read(join(app, "shared", "features.ts"))).toContain('featureOn("chain_arc", list) && featureOn("claims_arc", list)');
-    expect(chains).toContain("arcClaimsOn(features)");
-    expect(flow).toContain("arcClaimsOn(features)");
+    expect(read(join(app, "server", "claimsChain.ts"))).toContain("extraChainClaimsOn(spec.key, features)");
+    for (const list of SWITCH_LISTS) {
+      expect(arcClaimsOn(list), list).toBe(extraChainClaimsOn("arc", list));
+      // The claim flow names Arc exactly when the page says Arc can be claimed.
+      expect(claimChainLabel("erc8004_arc", list), list).toBe(arcClaimsOn(list) ? "Arc" : null);
+    }
+    expect(flow).toContain("extraChainClaimsOn(extra.key, features)");
   });
 
-  it("says in one more sentence for each, only while that chain's claims are on in the build, that the owner of an agent on Base, on Ethereum, on Monad or on Gnosis can claim it the same way", () => {
+  it("says in one more sentence for each, only while that chain's claims are on in the build, that the owner of an agent on Base, on Ethereum, on Monad, on Gnosis or on Celo can claim it the same way", () => {
     expect(privacy).toContain('const BASE_CLAIMS = baseClaimsOn(import.meta.env.VITE_FEATURES);');
     expect(privacy).toContain('const ETHEREUM_CLAIMS = ethereumClaimsOn(import.meta.env.VITE_FEATURES);');
     expect(privacy).toContain('const MONAD_CLAIMS = monadClaimsOn(import.meta.env.VITE_FEATURES);');
     expect(privacy).toContain('const GNOSIS_CLAIMS = gnosisClaimsOn(import.meta.env.VITE_FEATURES);');
+    expect(privacy).toContain('const CELO_CLAIMS = celoClaimsOn(import.meta.env.VITE_FEATURES);');
     expect(privacy).toContain('{BASE_CLAIMS && " The owner of an agent on the Base registry can claim it in the same way."}');
     expect(privacy).toContain('{ETHEREUM_CLAIMS && " The owner of an agent on the Ethereum registry can claim it in the same way."}');
     expect(privacy).toContain('{MONAD_CLAIMS && " The owner of an agent on the Monad registry can claim it in the same way."}');
     expect(privacy).toContain('{GNOSIS_CLAIMS && " The owner of an agent on the Gnosis registry can claim it in the same way."}');
+    expect(privacy).toContain('{CELO_CLAIMS && " The owner of an agent on the Celo registry can claim it in the same way."}');
     // The date on the page is the day the newest sentence was written, and the older dates are kept for the older builds.
-    expect(privacy).toContain('changed={GNOSIS_CLAIMS ? "6 November 2026" : MONAD_CLAIMS ? "1 November 2026" : BASE_CLAIMS || ETHEREUM_CLAIMS ? "28 October 2026" : ARC_CLAIMS ? "20 October 2026" : "19 October 2026"}');
-    const chains = read(join(app, "server", "claimsChain.ts"));
+    expect(privacy).toContain('changed={CELO_CLAIMS ? "20 November 2026" : GNOSIS_CLAIMS ? "6 November 2026" : MONAD_CLAIMS ? "1 November 2026" : BASE_CLAIMS || ETHEREUM_CLAIMS ? "28 October 2026" : ARC_CLAIMS ? "20 October 2026" : "19 October 2026"}');
+    const chains = read(join(app, "server", "ingestion", "erc8004Chains.ts"));
     expect(chains).toContain('label: "Base"');
     expect(chains).toContain('label: "Ethereum"');
     expect(chains).toContain('label: "Monad"');
     expect(chains).toContain('label: "Gnosis"');
-    expect(flow).toContain('"Base"');
-    expect(flow).toContain('"Ethereum"');
-    expect(flow).toContain('"Monad"');
-    expect(flow).toContain('"Gnosis"');
+    expect(chains).toContain('label: "Celo"');
     // The claim code and the page ask the same question: the chain is on and its claims are on.
     const features = read(join(app, "shared", "features.ts"));
     expect(features).toContain('featureOn("chain_base", list) && featureOn("claims_base", list)');
     expect(features).toContain('featureOn("chain_ethereum", list) && featureOn("claims_ethereum", list)');
     expect(features).toContain('featureOn("chain_monad", list) && featureOn("claims_monad", list)');
     expect(features).toContain('featureOn("chain_gnosis", list) && featureOn("claims_gnosis", list)');
-    expect(chains).toContain("baseClaimsOn(features)");
-    expect(chains).toContain("ethereumClaimsOn(features)");
-    expect(chains).toContain("monadClaimsOn(features)");
-    expect(chains).toContain("gnosisClaimsOn(features)");
-    expect(flow).toContain("baseClaimsOn(features)");
-    expect(flow).toContain("ethereumClaimsOn(features)");
-    expect(flow).toContain("monadClaimsOn(features)");
-    expect(flow).toContain("gnosisClaimsOn(features)");
+    expect(features).toContain('featureOn("chain_celo", list) && featureOn("claims_celo", list)');
+    // The claim code asks shared/chains.ts's question for each chain; each of the page's helpers answers it the same on every switch list.
+    expect(read(join(app, "server", "claimsChain.ts"))).toContain("extraChainClaimsOn(spec.key, features)");
+    for (const list of SWITCH_LISTS) {
+      expect(baseClaimsOn(list), list).toBe(extraChainClaimsOn("base", list));
+      expect(ethereumClaimsOn(list), list).toBe(extraChainClaimsOn("ethereum", list));
+      expect(monadClaimsOn(list), list).toBe(extraChainClaimsOn("monad", list));
+      expect(gnosisClaimsOn(list), list).toBe(extraChainClaimsOn("gnosis", list));
+      expect(celoClaimsOn(list), list).toBe(extraChainClaimsOn("celo", list));
+    }
+    // The claim flow names each chain exactly when the page says it can be claimed.
+    for (const list of SWITCH_LISTS) {
+      expect(claimChainLabel("erc8004_base", list), list).toBe(baseClaimsOn(list) ? "Base" : null);
+      expect(claimChainLabel("erc8004_eth", list), list).toBe(ethereumClaimsOn(list) ? "Ethereum" : null);
+      expect(claimChainLabel("erc8004_monad", list), list).toBe(monadClaimsOn(list) ? "Monad" : null);
+      expect(claimChainLabel("erc8004_gnosis", list), list).toBe(gnosisClaimsOn(list) ? "Gnosis" : null);
+      expect(claimChainLabel("erc8004_celo", list), list).toBe(celoClaimsOn(list) ? "Celo" : null);
+    }
   });
 
   it("keeps the one-time request for at least two days after it expires, which is when the daily step deletes it", () => {

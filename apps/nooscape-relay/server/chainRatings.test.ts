@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countRatingLogs } from "./chainRatings";
+import { chainRatingsTooLate, countRatingLogs } from "./chainRatings";
 import { ERC8004_REPUTATION_REGISTRY } from "./ingestion/erc8004Chains";
 import { ROBINHOOD_FEEDBACK_REVOKED_TOPIC, ROBINHOOD_NEW_FEEDBACK_TOPIC } from "./ingestion/robinhoodReputation";
 
@@ -46,5 +46,13 @@ describe("countRatingLogs", () => {
     ["of a kind that was not asked for", log(150, "0x" + "cd".repeat(32))],
   ])("refuses the window when a log is %s", (_label, bad) => {
     expect(() => count([log(120, "rating"), bad])).toThrow();
+  });
+});
+
+describe("when a tick is too late for the ratings step", () => {
+  it("is after 100 seconds of the tick, and not at 100 seconds", () => {
+    expect(chainRatingsTooLate(1_000, 1_000 + 100_000)).toBe(false);
+    expect(chainRatingsTooLate(1_000, 1_000 + 100_001)).toBe(true);
+    expect(chainRatingsTooLate(1_000, 1_000)).toBe(false);
   });
 });

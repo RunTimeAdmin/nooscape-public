@@ -179,6 +179,8 @@ export function skillText(index: Index): string {
     ...CHECK_FLAGS.map(([name, meaning]) => `- \`${name}\`: ${meaning}.`),
     "",
     "Each flag has `present` (true, false, or null when it is not measured for this agent) and a `basis` that says what it rests on and what it does not mean.",
+    "",
+    "For an agent on an EVM chain, `pay_to` (an address, such as the payTo of a payment requirement) is set against the wallet the agent's registry holds, which is read from the chain when you ask. The result then has a `pay_to` block whose `outcome` is `matches_agent_wallet`, `differs_from_agent_wallet`, `no_agent_wallet` (the registry holds none, which is common) or `not_read` (nothing is said either way).",
   ];
   if (pay) {
     const smartOnBase = pay.networks.some(item => item.network === BASE_MAINNET && item.wallets.includes("smart_contract"));

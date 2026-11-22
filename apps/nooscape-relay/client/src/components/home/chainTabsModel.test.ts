@@ -4,6 +4,23 @@ import { CHAIN_LABEL, CHAINS, EXTRA_CHAINS, type ChainStat } from "@shared/chain
 import { asOfSentence, bnbSentence, chainColorVar, formatAsOf, ratingsNote, REGION_ORDER, regionIcon, regionsHeading, regionsShown, registrySentence, registrySplitText, tabState } from "./chainTabsModel";
 import { CHAIN_STYLE, markerPath } from "./constellationModel";
 
+describe("each extra chain's tab icon", () => {
+  it("is the chain's own outline, as on its page, and no two extra chains share one", () => {
+    const shapes = EXTRA_CHAINS.map(chain => regionIcon(chain).shape);
+    expect(shapes).toEqual(["pentagon", "cross", "dome", "star", "octagon", "arrow"]);
+    expect(new Set(EXTRA_CHAINS.map(chain => regionIcon(chain).path)).size).toBe(EXTRA_CHAINS.length);
+    // The outline each tab draws, as drawn for that chain's tab (Ethereum's is the map's pentagon; the others are their own).
+    expect(EXTRA_CHAINS.map(chain => regionIcon(chain).path)).toEqual([
+      "M0 -1.25L1.19 -0.39L0.73 1.01L-0.73 1.01L-1.19 -0.39Z",
+      "M-0.4 -1.2H0.4V-0.4H1.2V0.4H0.4V1.2H-0.4V0.4H-1.2V-0.4H-0.4Z",
+      "M-1.2 0.9A1.2 1.2 0 0 1 1.2 0.9Z",
+      "M0 -1.3L0.35 -0.35L1.3 0L0.35 0.35L0 1.3L-0.35 0.35L-1.3 0L-0.35 -0.35Z",
+      "M-0.52 -1.25L0.52 -1.25L1.25 -0.52L1.25 0.52L0.52 1.25L-0.52 1.25L-1.25 0.52L-1.25 -0.52Z",
+      "M0 -1.3L1.25 1.1L0 0.45L-1.25 1.1Z",
+    ]);
+  });
+});
+
 const row = (over: Partial<ChainStat> = {}): ChainStat => ({ chain: "robinhood", indexed: true, acknowledged: 10, reviewed: 2, feedbackEvents: 3, registries: [], asOf: "2026-10-14T15:30:00.000Z", ...over });
 
 describe("tabState", () => {
@@ -131,7 +148,7 @@ describe("the regions", () => {
     expect(REGION_ORDER.map(chain => CHAIN_LABEL[chain].split(" ")[0])).toEqual(["Robinhood", "BNB", "Solana"]);
   });
 
-  it("link to a page of their own for the original three, and for Arc, Base, Ethereum, Monad and Gnosis while their switches are on", () => {
+  it("link to a page of their own for the original three, and for Arc, Base, Ethereum, Monad, Gnosis and Celo while their switches are on", () => {
     // The page links are the only use of REGION_ORDER in the component besides the import.
     expect(tabs.match(/REGION_ORDER\.map\(/g)).toHaveLength(1);
     expect(tabs).toContain("href={`/chains/${chain}`}");
@@ -145,6 +162,8 @@ describe("the regions", () => {
     expect(tabs).toContain('href="/chains/monad"');
     expect(tabs).toContain('regions.includes("gnosis")');
     expect(tabs).toContain('href="/chains/gnosis"');
+    expect(tabs).toContain('regions.includes("celo")');
+    expect(tabs).toContain('href="/chains/celo"');
   });
 });
 
@@ -159,12 +178,13 @@ describe("the extra chains' tabs", () => {
     }
   });
 
-  it("appear after the original three for each switch that is on, in the order Ethereum, Base, Arc, Monad, Gnosis", () => {
+  it("appear after the original three for each switch that is on, in the order Ethereum, Base, Arc, Monad, Gnosis, Celo", () => {
     expect(regionsShown(extraRows, "chain_base")).toEqual(["robinhood", "bnb", "solana", "base"]);
     expect(regionsShown(extraRows, "chain_arc, chain_ethereum")).toEqual(["robinhood", "bnb", "solana", "ethereum", "arc"]);
     expect(regionsShown(extraRows, "claims,chain_base,chain_ethereum,chain_arc")).toEqual(["robinhood", "bnb", "solana", "ethereum", "base", "arc"]);
     expect(regionsShown(null, "chain_monad,chain_arc,chain_base,chain_ethereum")).toEqual(["robinhood", "bnb", "solana", "ethereum", "base", "arc", "monad"]);
     expect(regionsShown(null, "chain_gnosis,chain_monad,chain_arc,chain_base,chain_ethereum")).toEqual(["robinhood", "bnb", "solana", "ethereum", "base", "arc", "monad", "gnosis"]);
+    expect(regionsShown(null, "chain_celo,chain_gnosis,chain_monad,chain_arc,chain_base,chain_ethereum")).toEqual(["robinhood", "bnb", "solana", "ethereum", "base", "arc", "monad", "gnosis", "celo"]);
   });
 
   it("are left out when the server sent no row for them, and are all planned from the switches before the answer is in", () => {
@@ -178,6 +198,7 @@ describe("the extra chains' tabs", () => {
     expect(regionsHeading(["robinhood", "bnb", "solana", "ethereum", "base", "arc"])).toBe("Robinhood, BNB, Solana, Ethereum, Base, Arc. Same Owl, six skies.");
     expect(regionsHeading(["robinhood", "bnb", "solana", "ethereum", "base", "arc", "monad"])).toBe("Robinhood, BNB, Solana, Ethereum, Base, Arc, Monad. Same Owl, seven skies.");
     expect(regionsHeading(["robinhood", "bnb", "solana", "ethereum", "base", "arc", "monad", "gnosis"])).toBe("Robinhood, BNB, Solana, Ethereum, Base, Arc, Monad, Gnosis. Same Owl, eight skies.");
+    expect(regionsHeading(["robinhood", "bnb", "solana", "ethereum", "base", "arc", "monad", "gnosis", "celo"])).toBe("Robinhood, BNB, Solana, Ethereum, Base, Arc, Monad, Gnosis, Celo. Same Owl, nine skies.");
   });
 
   it("each have a shape and a colour of their own, different from the three on the map and from each other", () => {

@@ -40,8 +40,9 @@ const BASELINE_VERSION = 14;
  * 51: the `solana_agenc` protocol value on the four tables that carry the protocol list, for the AgenC registry pass (docs/agenc-solana-2026-10-26.md, "The migration (0051) is run by hand"). It restates the whole list, which ends with the 0046 values, so it needs 0046 first.
  * 53: the `erc8004_monad` protocol value on the four tables that carry the protocol list, for the Monad identity pass (docs/monad-erc8004-2026-11-01.md, "The migration (0053) is run by hand"). It restates the whole list, which ends with the 0046 and 0051 values, so it needs both first.
  * 57: the `erc8004_gnosis` protocol value on the four tables that carry the protocol list, for the Gnosis identity pass (docs/gnosis-erc8004-2026-11-06.md, "The migration (0057) is run by hand"). It restates the whole list, which ends with the 0046, 0051 and 0053 values, so it needs all three first.
+ * 60: the `erc8004_celo` protocol value on the four tables that carry the protocol list, for the Celo identity pass (docs/celo-erc8004-2026-11-20.md, "The migration (0060) is run by hand"). It restates the whole list, which ends with the 0046, 0051, 0053 and 0057 values, so it needs all four first.
  */
-export const MANUAL_MIGRATIONS: readonly number[] = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 49, 51, 53, 57];
+export const MANUAL_MIGRATIONS: readonly number[] = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 49, 51, 53, 57, 60];
 
 /**
  * Versions an operator recorded by hand under a name other than their file's, and left so. The runner counts a recorded version as applied and

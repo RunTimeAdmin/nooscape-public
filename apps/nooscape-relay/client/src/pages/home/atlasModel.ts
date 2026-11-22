@@ -247,6 +247,20 @@ export function formatObservedTime(timestamp: string) {
   return elapsedSeconds < 60 ? `T-${elapsedSeconds}S` : `T-${Math.floor(elapsedSeconds / 60)}M`;
 }
 
+/** The map's two trust controls say one thing: the Trusted switch means the allowlisted state. They move together, so they never disagree. */
+export type MapTrustFilters = { trustedOnly: boolean; publisherState: PublisherState | "all" };
+
+/** Turning Trusted on filters to the allowlisted state. Turning it off lifts that state, and leaves any other chosen state alone. */
+export function withTrustedOnly(current: MapTrustFilters, trustedOnly: boolean): MapTrustFilters {
+  if (trustedOnly) return { trustedOnly: true, publisherState: "allowlisted" };
+  return { trustedOnly: false, publisherState: current.publisherState === "allowlisted" ? "all" : current.publisherState };
+}
+
+/** Choosing any state other than allowlisted switches Trusted off. */
+export function withPublisherState(current: MapTrustFilters, publisherState: PublisherState | "all"): MapTrustFilters {
+  return { trustedOnly: publisherState === "allowlisted" ? current.trustedOnly : false, publisherState };
+}
+
 export type ClusterMarker = { id: string; position: { x: number; y: number }; count: number; capability: string };
 
 export function ingressMatchesFramework(framework: string, protocol: string) {

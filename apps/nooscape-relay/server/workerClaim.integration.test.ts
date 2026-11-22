@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { readFile } from "node:fs/promises";
 import { createConnection } from "mysql2/promise";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import * as schema from "../drizzle/schema";
 
 /**
@@ -45,6 +45,11 @@ describe.skipIf(!dbReachable)("the worker's claim of a tick against a real datab
     }
     await baseline.end();
     await applyPendingMigrations(process.env.DATABASE_URL);
+    // The protocol values of Ethereum, Base and Arc come with a manual migration (0046) that the runner leaves to the owner: run it as the owner
+    // would, for the tests of a source of a chain that is switched off.
+    const manual = await createConnection(process.env.DATABASE_URL);
+    for (const statement of splitMigrationStatements(await readFile("drizzle/0046_multichain_erc8004_protocols.sql", "utf8"))) await manual.query(statement);
+    await manual.end();
 
     db = await import("./db");
     // The claim reads and writes times through the app's own connection, so the test sets them through it too.
@@ -161,6 +166,41 @@ describe.skipIf(!dbReachable)("the worker's claim of a tick against a real datab
       await addSource("newcomer", { nextRunAt: ago(5 * 60) });
       const claim = await db.claimDueIngestionSources();
       expect(claim.sources.map(source => source.id)).toEqual(["old-1", "old-2"]);
+    });
+  });
+
+  describe("a source of a chain that is switched off", () => {
+    const features = process.env.VITE_FEATURES;
+    afterEach(() => {
+      if (features === undefined) delete process.env.VITE_FEATURES;
+      else process.env.VITE_FEATURES = features;
+    });
+    const claimed = async () => (await db.claimDueIngestionSources()).sources.map(source => source.id);
+
+    it("is not claimed, so that it does not take a place at every tick for good, and the sources behind it are", async () => {
+      // Its pass refuses before it opens a run, and only a finished run moves a source's next run, so it stays the oldest due source. With the
+      // switch off it used to be claimed first at every tick, and with two places in a tick, one source like it halved the worker.
+      await addSource("arc-source", { protocol: "erc8004_arc", nextRunAt: ago(3 * 3600) });
+      await addSource("src-b", { nextRunAt: ago(1200) });
+      await addSource("src-c", { nextRunAt: ago(600) });
+      delete process.env.VITE_FEATURES;
+      expect(await claimed()).toEqual(["src-b", "src-c"]);
+    });
+
+    it("is claimed again, oldest first, once its switch is on", async () => {
+      await addSource("arc-source", { protocol: "erc8004_arc", nextRunAt: ago(3 * 3600) });
+      await addSource("src-b", { nextRunAt: ago(1200) });
+      await addSource("src-c", { nextRunAt: ago(600) });
+      process.env.VITE_FEATURES = "chain_arc";
+      expect(await claimed()).toEqual(["arc-source", "src-b"]);
+    });
+
+    it("leaves a chain that is on, and BNB Chain, which has no switch, as they were, and skips only the chain that is off", async () => {
+      await addSource("base-source", { protocol: "erc8004_base", nextRunAt: ago(3 * 3600) });
+      await addSource("bnb-source", { protocol: "erc8004_bsc", nextRunAt: ago(2 * 3600) });
+      await addSource("arc-source", { protocol: "erc8004_arc", nextRunAt: ago(3600) });
+      process.env.VITE_FEATURES = "chain_arc";
+      expect(await claimed()).toEqual(["bnb-source", "arc-source"]);
     });
   });
 });

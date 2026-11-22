@@ -61,6 +61,7 @@ The reader and the file step were run from the operator's machine on 2026-10-26 
 - **Ethereum.** It joined this step on 2026-10-27 (see the addendum at the end).
 - **Monad.** It joined this step on 2026-11-01 (see the second addendum at the end).
 - **Gnosis.** It joined on 2026-11-06 (see the third addendum at the end).
+- **Celo.** It joined on 2026-11-20 (see the fourth addendum at the end).
 - **Held-out registrations,** which have no entry and so no name.
 - **Anything but the name** (see above).
 - **A check of the name against anything.** A name is whatever the file says, so an entry can call itself after a known project. The note says it is the registrant's own claim, as on the other chains, and the name changes nothing about the entry's tier, whether it is listed, or its place on the map. Search by name will now find these names, which makes this more visible than it was with "Agent #n".
@@ -70,8 +71,8 @@ The reader and the file step were run from the operator's machine on 2026-10-26 
 A run that did anything writes one `nooscape_chain_names` line to the runtime log, and a failure one `nooscape_chain_names_failed` line. Progress, read-only:
 
 ```sql
-SELECT protocol, COUNT(*) AS still_nameless FROM agent_directory_entries WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad', 'erc8004_gnosis') AND displayName REGEXP '^Agent #[0-9]+$' GROUP BY protocol;
-SELECT s.protocol, r.uriKind, r.status, COUNT(*) AS links FROM agent_registration_resolutions r JOIN ingestion_sources s ON s.id = r.sourceId WHERE s.protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad', 'erc8004_gnosis') GROUP BY s.protocol, r.uriKind, r.status;
+SELECT protocol, COUNT(*) AS still_nameless FROM agent_directory_entries WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad', 'erc8004_gnosis', 'erc8004_celo') AND displayName REGEXP '^Agent #[0-9]+$' GROUP BY protocol;
+SELECT s.protocol, r.uriKind, r.status, COUNT(*) AS links FROM agent_registration_resolutions r JOIN ingestion_sources s ON s.id = r.sourceId WHERE s.protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad', 'erc8004_gnosis', 'erc8004_celo') GROUP BY s.protocol, r.uriKind, r.status;
 ```
 
 To stop it without a deploy, pause the chain's source. To undo it, revert the change, then put the placeholders back and clear the reads:
@@ -80,8 +81,8 @@ To stop it without a deploy, pause the chain's source. To undo it, revert the ch
 UPDATE agent_directory_entries
 SET sourceSignalNote = REGEXP_REPLACE(sourceSignalNote, ' Its name was read from its registration link on [0-9]{4}-[0-9]{2}-[0-9]{2}; it is the registrant''s own claim[.]', ''),
     displayName = CONCAT('Agent #', SUBSTRING_INDEX(externalKey, ':', -1))
-WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad', 'erc8004_gnosis') AND sourceSignalNote LIKE '% Its name was read from its registration link on %';
-DELETE FROM agent_registration_resolutions WHERE sourceId IN (SELECT id FROM ingestion_sources WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad', 'erc8004_gnosis'));
+WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad', 'erc8004_gnosis', 'erc8004_celo') AND sourceSignalNote LIKE '% Its name was read from its registration link on %';
+DELETE FROM agent_registration_resolutions WHERE sourceId IN (SELECT id FROM ingestion_sources WHERE protocol IN ('erc8004_base', 'erc8004_arc', 'erc8004_eth', 'erc8004_monad', 'erc8004_gnosis', 'erc8004_celo'));
 ```
 
 An entry that was named at registration, from JSON inside its link, has no such sentence in its note and is not touched. An entry named from JSON set after its registration has the sentence and goes back to "Agent #n", which is what it showed before.
@@ -153,3 +154,19 @@ The names are the registrants' own claims, as on the other chains. A sample read
 - [ ] The rest of the 95. Two more runs, at 07:00Z and 11:00Z, named 5 and 11 more. Counted on the public API against the 95 ids noted before the first run, 19 now carry a name, 76 still show "Agent #n" and no entry outside the 95 does; that agrees with the 3, 5 and 11 the log reports. Both later runs stopped at the 20-second budget with entries waiting, which the next turn takes. The final count goes here when the step has nothing left to read.
 
 **What differed from the forecast.** The turn is kept in memory, so a restart of the app sends it back to Base. The log shows the app starting again without a deploy at 08:30Z (twice), 09:18Z, 09:49Z and 11:06Z, and Monad had 3 turns between 05:30Z and 12:00Z (at 05:30Z, 07:00Z and 11:00Z). A restart delays Monad's next turn and changes nothing about which entries are waiting. What started the app again is not known. Update 2026-11-01 (later): the step now works the turn out from the data when the app has started, as the chain after the one tried last, so a start no longer sends it back to Base.
+
+## Addendum, 2026-11-20: Celo joins the step
+
+**Decided:** 2026-11-20, by the operator, in chat ("all in order", on my list of what Celo still lacked after it went live: the daily run, then names and ratings, then the page, card and lights, the census, `pay_to` and claims, and the copy). The Celo record (`docs/celo-erc8004-2026-11-20.md`, section 7) said Celo's entries would stay "Agent #n" until this step read it.
+**Changes:** Celo is added to the chains the step takes in turn, sixth after Base, Arc, Ethereum, Monad and Gnosis. Four sentences on `/checker` and one on the sources page that name the chains now name it, and the checker page's test holds them to the step's own chain list. Nothing in the table of limits above changes: the same sixteen reads a run, six to a host, a run every thirty minutes at most, one attempt at the chain, the same pauses. No migration (0060 is already applied for the pass), no new source and no new setting: the step asks Celo's own node through `CELO_RPC_URL`, the variable the pass reads, and the chain's switch (`chain_celo`) and an active source decide, as they do for the other five. The node is the Celo Foundation's public one (`forno.celo.org`), which takes no key.
+**Does not change:** which registrations are listed, any tier, BNB Chain and Robinhood Chain, and the home page's hero sentence and the page descriptions, which a later stage of the Celo work changes.
+
+**Checked against the real chain on 2026-11-20.** The step's own chain read (`readTokenUrisFromChain`, one Multicall3 `eth_call` at the finalized block, 16 ids a call as the step makes it) was run on Celo through the official node for 40 agent ids: id 0, which is the first registration on the chain, ids 1, 2, 3, 4 and 9, six whose link was replaced after they were registered, and 28 more drawn at random from the registry's history. It answered for all 40. For all 40 the link was the same as a plain `tokenURI` call at the finalized block gave, and the same as the latest link in the registry's own events, so the read is of the link now and not the first one. That matters more on Celo than on the other chains: the registry has recorded 10,091 URI updates, on 7,382 agents, and 29 of the 40 carry a link other than the one they were registered with. The 40 links were 32 held inside the link itself, 6 web addresses, 1 ipfs address and 1 of another kind. Multicall3 is deployed on Celo at the usual address (3,808 bytes of code).
+
+**What it has to do.** 286 of the 517 listed entries show "Agent #n": the registration carries no name inside its link. All of them have the hash of a profile link, and 144 have a host. 89 percent of Celo registrations carry their file inside the link, and the other 231 of the 517 listed entries were named from what their registration carries when they were listed, so the step's work is the 286. The registry is nearly still (94 registrations in the 30 days to 2026-11-20), so the backlog does not grow much.
+
+**Pace.** The six chains share the same sixteen reads every thirty minutes, 768 files a day in all, and a chain with nothing to ask leaves the run to the next. Celo's 286 take about eighteen of its turns, and once it has nothing waiting it costs the others nothing.
+
+**Chosen by Claude, so the operator can say no.** Celo last in the turn, so the other five keep their order, and no limit of its own.
+
+**Undo.** As above: the SQL there now lists `erc8004_celo` too. Pausing the source stops the names along with its pass.

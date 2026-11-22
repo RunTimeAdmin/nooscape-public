@@ -1,5 +1,4 @@
-import { CHAINS, parseProtocolList, type ChainKey } from "@shared/chains";
-import { featureOn } from "@shared/features";
+import { CHAINS, extraChainsOn, extraProtocolOf, isExtraChainKey, parseProtocolList, type ChainKey, type ExtraChainKey } from "@shared/chains";
 import { FLEET_KIND_LABEL, fleetKindLabel, fleetTitle, ROBINHOOD_LIGHT_MIN, type MapFleet } from "@shared/mapFleets";
 import type { Arrangement } from "./chainWorldLayout";
 
@@ -84,28 +83,31 @@ export const CHAIN_WORLDS = {
     terrain: "Lantern observatory",
     registry: "ERC-8004 / Gnosis",
   },
+  celo: {
+    title: "The jade compass",
+    subtitle: "A crowded registry, read in groups.",
+    description: "Inspect the groups of Celo registrations that share a wallet, a link or a host. A group is not an agent, and a registration is not an endorsement. Individual registrations are not drawn here.",
+    accent: "#35D07F",
+    secondary: "#FDE68A",
+    number: "09",
+    terrain: "Compass observatory",
+    registry: "ERC-8004 / Celo",
+  },
 } as const;
 export const isChainWorld = (value: string): value is ChainKey => (CHAINS as readonly string[]).includes(value);
 
-/** The chains that have a page of their own: the original three, and Arc, Base, Ethereum, Monad and Gnosis while their switches are on. */
-export type WorldKey = ChainKey | "arc" | "base" | "ethereum" | "monad" | "gnosis";
+/** The chains that have a page of their own: the original three, and Arc, Base, Ethereum, Monad, Gnosis and Celo while their switches are on. */
+export type WorldKey = ChainKey | ExtraChainKey;
 
-/** The worlds a build offers, in the order their pages are numbered. Arc, Base, Ethereum, Monad and Gnosis are there only while `chain_arc`, `chain_base`, `chain_ethereum`, `chain_monad` and `chain_gnosis` are in the build's switch list (shared/features.ts). */
-export const worldsOn = (features: string | undefined): WorldKey[] => [
-  ...CHAINS,
-  ...(featureOn("chain_arc", features) ? (["arc"] as const) : []),
-  ...(featureOn("chain_base", features) ? (["base"] as const) : []),
-  ...(featureOn("chain_ethereum", features) ? (["ethereum"] as const) : []),
-  ...(featureOn("chain_monad", features) ? (["monad"] as const) : []),
-  ...(featureOn("chain_gnosis", features) ? (["gnosis"] as const) : []),
-];
+/** The worlds a build offers, in the order their pages are numbered. Arc, Base, Ethereum, Monad, Gnosis and Celo are there only while `chain_arc`, `chain_base`, `chain_ethereum`, `chain_monad`, `chain_gnosis` and `chain_celo` are in the build's switch list (shared/features.ts). */
+export const worldsOn = (features: string | undefined): WorldKey[] => [...CHAINS, ...extraChainsOn(features).sort((a, b) => CHAIN_WORLDS[a].number.localeCompare(CHAIN_WORLDS[b].number))];
 
 /**
  * The worlds that have no feed of their own: a recorded event is shown only for the entry that is selected, from the entry's own activity.
- * BNB Chain has no global feed, and Base, Ethereum, Monad and Gnosis have none yet. Arc's page has one (docs/arc-feed-2026-11-02.md), as Robinhood Chain's
+ * BNB Chain has no global feed, and Base, Ethereum, Monad, Gnosis and Celo have none yet. Arc's page has one (docs/arc-feed-2026-11-02.md), as Robinhood Chain's
  * and Solana's have.
  */
-export const ENTRY_EVENT_WORLDS: readonly WorldKey[] = ["bnb", "base", "ethereum", "monad", "gnosis"];
+export const ENTRY_EVENT_WORLDS: readonly WorldKey[] = ["bnb", "base", "ethereum", "monad", "gnosis", "celo"];
 
 /** Only protocols that register identities belong in the character field. Reputation and settlement ledgers are separate. */
 export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {
@@ -117,6 +119,7 @@ export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {
   ethereum: ["erc8004_eth"],
   monad: ["erc8004_monad"],
   gnosis: ["erc8004_gnosis"],
+  celo: ["erc8004_celo"],
 };
 
 /**
@@ -127,8 +130,9 @@ export const CHAIN_IDENTITY_PROTOCOLS: Record<WorldKey, readonly string[]> = {
  * the directory lists 9.4 percent of its registrations (docs/ethereum-go-live-2026-10-27.md), and most of those still show a number for a name.
  * Monad is groups only too: the directory lists 1.4 percent of its registrations (docs/monad-erc8004-2026-11-01.md), and many of those still show a number for a name.
  * Gnosis is groups only as well: the directory lists 1.0 percent of its registrations (docs/gnosis-erc8004-2026-11-06.md), and 10 of those 41 show a number for a name.
+ * Celo is groups only as well: the directory lists 5.1 percent of its registrations (docs/celo-erc8004-2026-11-20.md), and 286 of those 517 show a number for a name.
  */
-export const CHAIN_SHOWS_ACKNOWLEDGED: Record<WorldKey, boolean> = { robinhood: true, solana: true, bnb: false, arc: true, base: false, ethereum: false, monad: false, gnosis: false };
+export const CHAIN_SHOWS_ACKNOWLEDGED: Record<WorldKey, boolean> = { robinhood: true, solana: true, bnb: false, arc: true, base: false, ethereum: false, monad: false, gnosis: false, celo: false };
 
 /** The dated report that describes a chain's groups, where there is one. */
 export const CHAIN_GROUP_REPORT: Record<WorldKey, { href: string; label: string } | null> = {
@@ -140,6 +144,7 @@ export const CHAIN_GROUP_REPORT: Record<WorldKey, { href: string; label: string 
   ethereum: { href: "/field/ethereum-registry-2026-10-28", label: "Ethereum registry census, 28 October 2026" },
   monad: { href: "/field/monad-registry-2026-11-01", label: "Monad registry census, 1 November 2026" },
   gnosis: { href: "/field/gnosis-registry-2026-11-06", label: "Gnosis registry census, 6 November 2026" },
+  celo: { href: "/field/celo-registry-2026-11-20", label: "Celo registry census, 20 November 2026" },
 };
 
 export type ChainWorldEvent = {
@@ -261,25 +266,27 @@ export function normalizeSolanaEvents(rows: readonly SolanaWorldEvent[]): ChainW
     .sort((a, b) => (a.observedAt ?? "").localeCompare(b.observedAt ?? "") || a.height - b.height || a.id.localeCompare(b.id));
 }
 
+/** The chains whose page reads its groups from the chain's own registry (registryFleets): every extra chain. The other three read the map's. */
+export const registryWorldOf = (chain: WorldKey): ExtraChainKey | null => (isExtraChainKey(chain) ? chain : null);
+
+/** What the chain page says is drawn for illustration: Arc has characters and formations, BNB Chain and the other extra chains formations, the rest characters. */
+export const illustrationNote = (chain: WorldKey): string =>
+  chain === "arc" ? "Characters and formations are illustrations." : chain === "bnb" || isExtraChainKey(chain) ? "Formations are illustrations." : "Characters are illustrations.";
+
+/** Where the chain page's counts come from: Nooscape's grouping of the registry for BNB Chain and the extra chains, the ledgers for the rest. */
+export const countsNote = (chain: WorldKey): string => (chain === "bnb" || isExtraChainKey(chain) ? "Counts are Nooscape’s grouping of the registry." : "Activity comes from the ledgers.");
+
 /** The protocol a group of this chain sits on, so it filters and is labelled with the registry it counts. */
 const groupProtocol = (chain: WorldKey, group: MapFleet): string =>
   chain === "bnb"
     ? "erc8004_bsc"
-    : chain === "arc"
-      ? "erc8004_arc"
-      : chain === "base"
-        ? "erc8004_base"
-        : chain === "ethereum"
-          ? "erc8004_eth"
-          : chain === "monad"
-            ? "erc8004_monad"
-            : chain === "gnosis"
-              ? "erc8004_gnosis"
-              : chain === "robinhood"
-                ? "erc8004"
-                : group.registry === "8004"
-                  ? "solana_8004"
-                  : "solana_registry";
+    : isExtraChainKey(chain)
+      ? extraProtocolOf(chain)
+      : chain === "robinhood"
+        ? "erc8004"
+        : group.registry === "8004"
+          ? "solana_8004"
+          : "solana_registry";
 
 /** Only real, visible record IDs become selectable entities. No hash-only samples or invented agents. */
 export function buildWorldEntities(
@@ -389,6 +396,7 @@ export function worldProtocolLabel(protocol: string) {
         erc8004_eth: "ERC-8004 / Ethereum",
         erc8004_monad: "ERC-8004 / Monad",
         erc8004_gnosis: "ERC-8004 / Gnosis",
+        erc8004_celo: "ERC-8004 / Celo",
         solana_registry: "Metaplex",
         solana_8004: "8004 Solana",
         solana_said: "SAID",
@@ -411,7 +419,7 @@ export function sampledRegistryNote(chain: WorldKey, registries: ReadonlyArray<{
 }
 
 /** How each world sets its zones out: Robinhood Chain a narrow plate of wallets beside a wide plate of identities, the others in a row of lanes or platforms. */
-export const WORLD_ARRANGEMENT: Record<WorldKey, Arrangement> = { robinhood: "split", solana: "columns", bnb: "columns", arc: "columns", base: "columns", ethereum: "columns", monad: "columns", gnosis: "columns" };
+export const WORLD_ARRANGEMENT: Record<WorldKey, Arrangement> = { robinhood: "split", solana: "columns", bnb: "columns", arc: "columns", base: "columns", ethereum: "columns", monad: "columns", gnosis: "columns", celo: "columns" };
 
 /** A zone of a world: a plate with a name, the formations of its groups and the figures of its records. */
 export type WorldZone = { id: string; label: string; sublabel: string | null; groups: ChainWorldEntity[]; figures: ChainWorldEntity[] };
@@ -435,6 +443,8 @@ const ETHEREUM_PLATFORMS = BASE_PLATFORMS;
 const MONAD_PLATFORMS = BASE_PLATFORMS;
 /** The same for a Gnosis group. Gnosis has no template groups. */
 const GNOSIS_PLATFORMS = BASE_PLATFORMS;
+/** The same for a Celo group. Celo has no template groups. */
+const CELO_PLATFORMS = BASE_PLATFORMS;
 
 /**
  * The zones of a world, and what stands in each. A place means only what its zone says: on Solana a registry (the one a record or a wallet
@@ -464,11 +474,11 @@ export function worldZones(chain: WorldKey, entities: readonly ChainWorldEntity[
     }
     zones.push({ id: "entries", label: "Entries", sublabel: "Reviewed records first, then a fixed sample of the entries the directory lists", groups: [], figures });
   } else {
-    for (const kind of chain === "base" ? BASE_PLATFORMS : chain === "ethereum" ? ETHEREUM_PLATFORMS : chain === "monad" ? MONAD_PLATFORMS : chain === "gnosis" ? GNOSIS_PLATFORMS : BNB_PLATFORMS) {
+    for (const kind of chain === "base" ? BASE_PLATFORMS : chain === "ethereum" ? ETHEREUM_PLATFORMS : chain === "monad" ? MONAD_PLATFORMS : chain === "gnosis" ? GNOSIS_PLATFORMS : chain === "celo" ? CELO_PLATFORMS : BNB_PLATFORMS) {
       const here = groups.filter(entity => entity.fleet?.kind === kind);
       zones.push({ id: kind, label: FLEET_KIND_LABEL[kind], sublabel: `${here.length} ${here.length === 1 ? "group" : "groups"} drawn`, groups: here, figures: [] });
     }
-    // A reviewed BNB Chain, Base, Ethereum, Monad or Gnosis record would stand on a plate of its own. There is none today, and no unreviewed registration is ever drawn.
+    // A reviewed BNB Chain, Base, Ethereum, Monad, Gnosis or Celo record would stand on a plate of its own. There is none today, and no unreviewed registration is ever drawn.
     zones.push({ id: "records", label: "Reviewed records", sublabel: null, groups: [], figures });
   }
   return zones.filter(zone => zone.groups.length + zone.figures.length > 0);

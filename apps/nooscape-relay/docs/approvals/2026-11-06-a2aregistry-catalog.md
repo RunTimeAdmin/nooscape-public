@@ -77,7 +77,7 @@ After the first run, an operator must recompute the stored-object SHA-256 and co
 - [x] Registered in production (2026-11-08 02:02:43 UTC)
 - [x] Approved active by an operator (2026-11-08, before the first run)
 - [x] First bounded snapshot completed (run `310e2bd7`, 2026-11-08 02:02:52 UTC: 7 requests, 655 read, 290 qualified, 96 taken)
-- [ ] Retained raw objects passed independent SHA-256 recomputation and retention checks (the operator ran Verify evidence before publishing; the result is to be recorded here)
+- [x] Retained raw objects passed independent SHA-256 recomputation and retention checks (the operator ran Verify evidence before publishing and reported the chips green, 2026-11-08)
 - [x] Source-level projection decision recorded (public, run `310e2bd7`, 2026-11-08 02:03:35 UTC)
 
 **Update, 2026-11-07.** "None on a party that already holds a reviewed record from another source" held at this run only against sources whose records carry an endpoint row. 25 of this run's 96 records repeat an agent that Agenstry or api.a2a-registry.org already showed. It is fixed by migration 0059 ([the record](../catalog-party-rule-2026-11-07.md)); this source's run has to be run and published again to benefit.

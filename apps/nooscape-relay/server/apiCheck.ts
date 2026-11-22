@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { WalletRead } from "./agentWallet";
 import { AGENT_ID_MAX_CHARS, API_CHAINS, CHAIN_KEYS, type ApiChain } from "./apiChains";
 import { CHAIN_BLOCKS_PER_DAY } from "./db";
 import { canonicalHost } from "./hostName";
@@ -28,9 +29,12 @@ const walletText = z
   .trim()
   .regex(/^(0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/, "wallet must be a wallet address");
 
+const payToText = z.string().trim().regex(/^0x[0-9a-fA-F]{40}$/, "pay_to must be an address");
+
 /**
  * Exactly one subject: an agent by chain and id, the wallet that registered agents, or the host of an endpoint URL. `chains` are the
- * chains the API serves now, which the router reads from the switches on each request (server/apiChains.ts).
+ * chains the API serves now, which the router reads from the switches on each request (server/apiChains.ts). An agent may carry `pay_to`,
+ * an address that is compared with the wallet the agent's registry holds (docs/check-pay-to-2026-11-20.md).
  */
 export const checkRequestSchemaFor = (chains: readonly ApiChain[]) =>
   z
@@ -39,10 +43,15 @@ export const checkRequestSchemaFor = (chains: readonly ApiChain[]) =>
       wallet: walletText.optional(),
       url: z.string().trim().min(8).max(2048).optional(),
       chain: z.enum(chains as [ApiChain, ...ApiChain[]]).optional(),
+      pay_to: payToText.optional(),
     })
     .strict()
     .refine(value => [value.agent, value.wallet, value.url].filter(item => item !== undefined).length === 1, { message: "give exactly one of agent, wallet or url" })
-    .refine(value => value.chain === undefined || value.agent === undefined, { message: "chain narrows a wallet or a url, and an agent already names its chain" });
+    .refine(value => value.chain === undefined || value.agent === undefined, { message: "chain narrows a wallet or a url, and an agent already names its chain" })
+    .refine(value => value.pay_to === undefined || value.agent !== undefined, { message: "pay_to goes with an agent: it is compared with that agent's wallet" })
+    .refine(value => value.pay_to === undefined || value.agent === undefined || API_CHAINS[value.agent.chain as ApiChain]?.chainId !== null, {
+      message: "pay_to is compared with an EVM registry's agent wallet, and this chain has none",
+    });
 
 /** The request as it reads with every extra chain off: the three chains the API has always served. */
 const checkRequestSchema = checkRequestSchemaFor(CHAIN_KEYS);
@@ -61,6 +70,33 @@ export function hostOfUrl(raw: string): string | null {
   if (url.username || url.password) return null;
   // Every trailing dot goes, as it does where a host is stored (hostName.ts): a host registered as "a.example." is "a.example".
   return canonicalHost(url.hostname);
+}
+
+// ---------------------------------------------------------------- pay_to
+
+/** What is said beside every comparison of an address with an agent's wallet: what was read, and what a match does not show. */
+export const PAY_TO_BASIS =
+  "The address you gave, compared with the wallet that the agent's registry returned for getAgentWallet when the check ran. A registry holds a wallet only when the agent's owner registered one or set one with that wallet's signature, and it clears the wallet when the agent changes hands, so none is common. A match shows only that the registry lists that address as the agent's wallet. It does not show that the endpoint, the network of the payment or the payee a payment names is the agent's, and a delegation from the wallet is not read.";
+
+export type PayToOutcome = "matches_agent_wallet" | "differs_from_agent_wallet" | "no_agent_wallet" | "not_read";
+
+export type PayToResult = {
+  address: string;
+  outcome: PayToOutcome;
+  agent_wallet: string | null;
+  read_at: string | null;
+  reason: string | null;
+  basis: string;
+};
+
+/** A pay_to set against what the agent's registry holds. A read that was not made has no date and no wallet, and says why. */
+export function payToResult(payTo: string, read: WalletRead, now: Date): PayToResult {
+  const address = payTo.toLowerCase();
+  if (read.status === "not_read") return { address, outcome: "not_read", agent_wallet: null, read_at: null, reason: read.reason, basis: PAY_TO_BASIS };
+  const wallet = read.status === "held" ? read.wallet.toLowerCase() : null;
+  const outcome: PayToOutcome = wallet === null ? "no_agent_wallet" : wallet === address ? "matches_agent_wallet" : "differs_from_agent_wallet";
+  // A kept answer says when it was read, not when it was given.
+  return { address, outcome, agent_wallet: wallet, read_at: new Date(read.readAt ?? now.getTime()).toISOString(), reason: null, basis: PAY_TO_BASIS };
 }
 
 // ---------------------------------------------------------------- the flags

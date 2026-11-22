@@ -79,6 +79,19 @@ describe("chain world components", () => {
     expect(mark("hexagon", 100)).toContain('width="100"');
     expect(mark("hexagon", 60)).toContain('width="60"');
   });
+  it("draws a formation for each of the nine chains in a plate of its own, and Celo's is the arrowhead", () => {
+    const all = ["circle", "diamond", "hexagon", "dome", "cross", "pentagon", "star", "octagon", "arrow"] as const;
+    const marks = all.map(shape => renderToStaticMarkup(createElement(FormationMark, { shape, size: 80, tone: "#35D07F" })));
+    // The plate is the first path of the mark: its outline, which no two chains share.
+    const outline = (markup: string) => markup.match(/<path d="([^"]+)"/)![1]!;
+    expect(new Set(marks.map(outline)).size).toBe(all.length);
+    const arrow = marks[all.indexOf("arrow")]!;
+    expect(arrow).toContain('data-shape="arrow"');
+    // A tip, the two corners of the base and the notch between them: the arrowhead of the Celo tab's icon, flattened to a plate.
+    expect(outline(arrow)).toBe("M0 -24L44 20L0 8L-44 20Z");
+    expect(outline(arrow)).not.toBe(outline(marks[all.indexOf("octagon")]!));
+    expect(outline(arrow)).not.toBe(outline(marks[all.indexOf("pentagon")]!));
+  });
   it("shows only the recorded endpoints/anchor and identifies the feed as historical", () => {
     const markup = rail("ready", [event]);
     for (const fact of [
@@ -270,5 +283,12 @@ describe("the share of the registrations the registering wallets are recorded ag
     expect(markup).toContain("No global Gnosis activity feed is published. No event is shown in its place.");
     expect(markup).not.toMatch(/BNB|Base|Arc|Monad|census|Select an entry/);
     expect(markup).toContain("Gnosis");
+  });
+
+  it("words the Celo event rail's missing feed as Celo's, with no census to point at and no entry to select", () => {
+    const markup = renderToStaticMarkup(createElement(ChainEventRail, { chain: "celo", events: [], activeId: null, playing: false, onSelect: noop, onTogglePlayback: noop, motionReduced: false, status: "unsupported", coverage: "Global feed not published" }));
+    expect(markup).toContain("No global Celo activity feed is published. No event is shown in its place.");
+    expect(markup).not.toMatch(/BNB|Base|Arc|Monad|Gnosis|census|Select an entry/);
+    expect(markup).toContain("Celo");
   });
 });

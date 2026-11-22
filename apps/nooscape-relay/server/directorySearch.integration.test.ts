@@ -120,6 +120,19 @@ describe.skipIf(!dbReachable)("directory search against a real database", { time
        SELECT UUID(), 'src-active', CONCAT('twin-', n), 'Agent twin', 'twin.example.net', 'catalog', TIMESTAMP('2026-03-01')
        FROM t`
     );
+    // A full-text index can take in a large insert a little after it commits: in a full run the oracle's first query once read no rows
+    // at all beside a search that read twelve. So the battery starts only when each word's full-text count is the count of the names
+    // that carry it, read by the oracle's own connection.
+    for (const word of WORDS) {
+      const [[named]] = (await raw.query("SELECT COUNT(*) AS total FROM agent_directory_entries WHERE displayName LIKE ?", [`% ${word}`])) as unknown as [[{ total: number }]];
+      let indexed = -1;
+      for (let attempt = 0; attempt < 100 && indexed !== Number(named.total); attempt += 1) {
+        if (attempt > 0) await pause(200);
+        const [[counted]] = (await raw.query("SELECT COUNT(*) AS total FROM agent_directory_entries WHERE MATCH(displayName, locatorHost) AGAINST(? IN BOOLEAN MODE)", [`+${word}*`])) as unknown as [[{ total: number }]];
+        indexed = Number(counted.total);
+      }
+      if (indexed !== Number(named.total)) throw new Error(`the full-text index never held every ${word}: ${indexed} of ${named.total}`);
+    }
     // Building the schema and 7,200 rows is database work, and on a loaded or throttled server it has run past the config's 60 second
     // hook limit (a skipped file, with nothing wrong in the search). The limit is for a hung hook, so it is set well past a slow one.
   }, 180_000);

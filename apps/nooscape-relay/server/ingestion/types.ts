@@ -1,5 +1,8 @@
-export const INGESTION_PROTOCOLS = ["a2a", "anp", "agntcy", "erc8004", "erc8004_reputation", "catalog", "census", "solana_registry", "solana_8004", "usdg_settlement", "solana_said", "erc8004_bsc", "erc8004_base", "erc8004_eth", "erc8004_arc", "solana_agenc", "erc8004_monad", "erc8004_gnosis"] as const;
+export const INGESTION_PROTOCOLS = ["a2a", "anp", "agntcy", "erc8004", "erc8004_reputation", "catalog", "census", "solana_registry", "solana_8004", "usdg_settlement", "solana_said", "erc8004_bsc", "erc8004_base", "erc8004_eth", "erc8004_arc", "solana_agenc", "erc8004_monad", "erc8004_gnosis", "erc8004_celo"] as const;
 export type IngestionProtocol = (typeof INGESTION_PROTOCOLS)[number];
+
+/** The protocol of a chain the ERC-8004 identity pass reads (server/ingestion/erc8004Chains.ts): an `erc8004_` value other than the reputation ledger. */
+export type Erc8004ChainProtocol = Exclude<Extract<IngestionProtocol, `erc8004_${string}`>, "erc8004_reputation">;
 
 export type A2aNormalizedCandidate = {
   displayName: string;

@@ -187,10 +187,14 @@ const text = (value: unknown, cap: number): string | null => {
   return trimmed.length > 0 ? trimmed.slice(0, cap) : null;
 };
 
+/** The longest host kept: the columns that keep a host hold 255 characters, and a DNS name is at most 253, so a longer "host" is not one. */
+const HOST_MAX_CHARS = 255;
+
 const httpsHostOf = (value: string): string | null => {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.hostname.length === 0) return null;
+    if (url.hostname.length > HOST_MAX_CHARS) return null;
     return url.hostname.toLowerCase().replace(/\.$/, "");
   } catch {
     return null;
