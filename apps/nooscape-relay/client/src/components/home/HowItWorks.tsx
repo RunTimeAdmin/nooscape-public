@@ -36,7 +36,7 @@ export function HowItWorks() {
         <div>
           <div data-owl-avoid="" className="max-w-3xl">
             <p className="eyebrow"><Term k="howTheOwlSees">How the Owl sees</Term></p>
-            <h2 id="how-it-works-heading" className="mt-2 text-xl tracking-[-.04em] text-[#F1FFF3]">Read the registries. Group the fleets. Show the evidence.</h2>
+            <h2 id="how-it-works-heading" className="mt-2 text-xl tracking-[-.02em] text-[#F1FFF3]">Read the registries. Group the fleets. Show the evidence.</h2>
           </div>
           <ol className="mt-4 grid gap-4 md:grid-cols-3">
             {steps.map((step, index) => (

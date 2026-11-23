@@ -16,7 +16,7 @@ import { buildProtocolPopulation, extraChainTotals, listingRulesSentence, review
 import { evidenceGroup, evidenceRank, type PublisherState } from "@/lib/evidenceReadout";
 import { recordsWithIsoDates } from "./home/liveRecords";
 import { type AtlasAgent, type BnbRegistryProfile, type DirectoryBreakdown, type DirectoryFunnel, type DirectoryUsdgSettlements, type DirectoryWalletCensus, EVIDENCE_POLL, type EvidenceEnvelope, type IngestionEvent, type LiveAtlasCoverage, type LiveAtlasRecord, type TrustFilter, ingressMatchesFramework, mapLiveRecord, positionForLiveAgent, protocolsForLiveAgent, withPublisherState, withTrustedOnly } from "./home/atlasModel";
-import { DEFAULT_FILTERS, filtersFromSearch, liveFramework, searchWithFilters, searchWithout, type SortMode } from "./home/homeFilters";
+import { DEFAULT_FILTERS, filtersFromSearch, liveFramework, searchWith, searchWithFilters, searchWithout, type SortMode } from "./home/homeFilters";
 
 // The scan map loads after the first paint, so the Atlas below it does not wait on it.
 const LandingHero = lazy(() => import("./home/LandingHero"));
@@ -82,6 +82,8 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
   // A search costs the server a second or more, so it waits for the typing to pause instead of sending one per keystroke.
   const settledSearch = useDebouncedValue(agentSearch.trim(), 350);
   const directorySearchQuery = trpc.liveData.directorySearch.useQuery({ query: settledSearch }, { enabled: settledSearch.length >= 2 });
+  // The directory's results are shown only for the words in the box: while the visitor is still typing, the last ones answered older words.
+  const directoryHits = settledSearch === agentSearch.trim() ? (directorySearchQuery.data ?? undefined) : undefined;
   // Wallet concentration over acks that record a wallet, ranked by how many
   // identities each wallet is recorded against. Locator-class chain facts; the
   // endpoint fails closed to empty.
@@ -317,9 +319,9 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
   useEffect(() => {
     if (!deepSpace || !selected) return;
     const url = new URL(window.location.href);
-    url.searchParams.set("agent", selected.id);
+    url.search = searchWith(url.search, "agent", selected.id);
     url.hash = "deep-space";
-    window.history.replaceState({}, "", url);
+    window.history.replaceState(window.history.state, "", url);
   }, [deepSpace, selected]);
 
   // One opener for the ⌘K shortcut and the header Search button: deep map open,
@@ -403,8 +405,7 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
   const shareComparison = async () => {
     if (compareIds.length !== 2) return;
     const url = new URL(window.location.href);
-    url.searchParams.set("compare", compareIds.join("~"));
-    url.searchParams.set("agent", selected.id);
+    url.search = searchWith(searchWith(url.search, "compare", compareIds.join("~")), "agent", selected.id);
     url.hash = "deep-space";
     try {
       await navigator.clipboard.writeText(url.toString());
@@ -425,7 +426,7 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
 
   const shareSelectedAgent = async () => {
     const url = new URL(window.location.href);
-    url.searchParams.set("agent", selected.id);
+    url.search = searchWith(url.search, "agent", selected.id);
     url.hash = "deep-space";
     const link = url.toString();
     try {
@@ -518,7 +519,7 @@ export default function Home({ view = "home" }: { view?: "home" | "field" }) {
 
       {deepSpaceOpen && (
         <Suspense fallback={<DeepSpaceOpening />}>
-          <DeepSpaceMap opener={deepSpaceOpener} agents={deepVisibleAgents} allAgents={visibleAgents} selected={deepSelected} onSelect={setSelectedId} onClose={closeDeepSpace} zoom={zoom} pan={pan} onZoom={setZoom} onPan={setPan} onReset={resetView} ingress={verifiedIngress} showIngress={showIngress && !trustedOnly && publisherStateFilter === "all"} evidence={activeEvidence} evidenceLoading={evidenceQuery.isLoading} evidenceAsOf={evidenceStaleSince} frameworks={frameworks} frameworkFilter={frameworkFilter} onFrameworkFilter={setFrameworkFilter} sortMode={sortMode} onSortMode={setSortMode} onShare={shareSelectedAgent} shareState={shareState} agentSearch={agentSearch} onAgentSearch={setAgentSearch} searchOpen={searchOpen} onSearchOpen={setSearchOpen} searchRef={agentSearchRef} suggestions={agentSuggestions.filter(agent => deepVisibleAgents.some(visible => visible.id === agent.id))} onLocateAgent={locateAgent} drawerOpen={drawerOpen} onCloseDrawer={() => { setDrawerOpen(false); setSpotlight(null); }} pinned={compareIds.includes(selected.id)} onPin={() => toggleAgentPin(selected.id)} onOpenComparison={() => setComparisonOpen(true)} compareCount={compareIds.length} onDownloadEvidence={downloadEvidence} directoryTotal={directoryAckTotal} directoryHits={directorySearchQuery.data ?? undefined} directoryWallets={directoryWalletCensus} pinPulseId={pinPulseId} comparisonPulse={comparisonPulse} pinnedIds={compareIds} spotlight={spotlight} trustedOnly={trustedOnly} onTrustedOnly={setMapTrustedOnly} publisherStateFilter={publisherStateFilter} onPublisherStateFilter={setMapPublisherState}>
+          <DeepSpaceMap opener={deepSpaceOpener} agents={deepVisibleAgents} allAgents={visibleAgents} selected={deepSelected} onSelect={setSelectedId} onClose={closeDeepSpace} zoom={zoom} pan={pan} onZoom={setZoom} onPan={setPan} onReset={resetView} ingress={verifiedIngress} showIngress={showIngress && !trustedOnly && publisherStateFilter === "all"} evidence={activeEvidence} evidenceLoading={evidenceQuery.isLoading} evidenceAsOf={evidenceStaleSince} frameworks={frameworks} frameworkFilter={frameworkFilter} onFrameworkFilter={setFrameworkFilter} sortMode={sortMode} onSortMode={setSortMode} onShare={shareSelectedAgent} shareState={shareState} agentSearch={agentSearch} onAgentSearch={setAgentSearch} searchOpen={searchOpen} onSearchOpen={setSearchOpen} searchRef={agentSearchRef} suggestions={agentSuggestions.filter(agent => deepVisibleAgents.some(visible => visible.id === agent.id))} onLocateAgent={locateAgent} drawerOpen={drawerOpen} onCloseDrawer={() => { setDrawerOpen(false); setSpotlight(null); }} pinned={compareIds.includes(selected.id)} onPin={() => toggleAgentPin(selected.id)} onOpenComparison={() => setComparisonOpen(true)} compareCount={compareIds.length} onDownloadEvidence={downloadEvidence} directoryTotal={directoryAckTotal} directoryHits={directoryHits} directoryWallets={directoryWalletCensus} pinPulseId={pinPulseId} comparisonPulse={comparisonPulse} pinnedIds={compareIds} spotlight={spotlight} trustedOnly={trustedOnly} onTrustedOnly={setMapTrustedOnly} publisherStateFilter={publisherStateFilter} onPublisherStateFilter={setMapPublisherState}>
             {comparisonOpen && <Suspense fallback={null}><AgentComparisonPanel agents={comparedAgents} onRemove={id => setCompareIds(current => current.filter(agentId => agentId !== id))} onClose={() => setComparisonOpen(false)} onSelect={locateAgent} onShare={shareComparison} shareState={comparisonShareState} comparisonPulse={comparisonPulse} /></Suspense>}
           </DeepSpaceMap>
         </Suspense>

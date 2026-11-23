@@ -67,7 +67,7 @@ export function ChainTabs({ bnbProfile }: Props) {
     <section aria-labelledby="chains-heading" className="regions rounded-2xl p-5">
       <div data-owl-avoid="" className="max-w-2xl">
         <p className="eyebrow"><Term k="regions">Regions</Term></p>
-        <h2 id="chains-heading" className="mt-2 text-xl tracking-[-.04em] text-[#F1FFF3]">{regionsHeading(regions)}</h2>
+        <h2 id="chains-heading" className="mt-2 text-xl tracking-[-.02em] text-[#F1FFF3]">{regionsHeading(regions)}</h2>
         <p className="mt-2 text-xs leading-5 text-[#A9B8AE]">
           Across chains: <Link href="/field/validation-registry-2026-11-20" className="underline underline-offset-4 hover:text-ns-ink">the Validation Registry, counted on 20 November 2026</Link>.
         </p>

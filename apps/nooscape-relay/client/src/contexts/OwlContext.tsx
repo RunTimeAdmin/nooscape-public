@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 
 const STORAGE_KEY = "nooscape:owl";
 
@@ -37,6 +37,14 @@ export function OwlProvider({ children }: { children: ReactNode }) {
   const setEnabled = useCallback((next: boolean) => {
     setEnabledState(next);
     storeChoice(next);
+  }, []);
+  // The choice made in another tab of this site reaches this one: the browser tells every other tab when the stored value changes.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY) setEnabledState(event.newValue !== "off");
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
   const value = useMemo(() => ({ enabled, setEnabled, position, scanning }), [enabled, setEnabled]);
   return <OwlContext.Provider value={value}>{children}</OwlContext.Provider>;

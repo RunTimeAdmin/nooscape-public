@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { ALL_PROTOCOLS, DEFAULT_FILTERS, filtersFromSearch, liveFramework, searchWithFilters, searchWithout, type HomeFilters } from "./homeFilters";
+import { ALL_PROTOCOLS, DEFAULT_FILTERS, filtersFromSearch, liveFramework, searchWith, searchWithFilters, searchWithout, type HomeFilters } from "./homeFilters";
 
 /** The home page's filters in the address: a refresh, a shared link and Back keep them. */
 const set: HomeFilters = { query: "weather bot", framework: "A2A", evidence: "owner", sort: "evidence", trustedOnly: true, publisherState: "allowlisted" };
@@ -52,6 +52,15 @@ describe("the home page's filters in the address", () => {
     expect(page).toContain('window.history.pushState({ nooscapeDeepSpace: true }, "", url);');
   });
 
+  it("can set one key and leave the rest exactly as written, a comparison's ~ included", () => {
+    expect(searchWith("?compare=a~b&q=x", "agent", "abc")).toBe("?compare=a~b&q=x&agent=abc");
+    expect(searchWith("?agent=old&compare=a~b", "agent", "new")).toBe("?compare=a~b&agent=new");
+    expect(searchWith("", "compare", "a~b")).toBe("?compare=a~b");
+    const page = readFileSync(new URL("../Home.tsx", import.meta.url), "utf8");
+    // Nothing on the page rewrites the address through searchParams, which turns "~" into "%7E".
+    expect(page).not.toContain("searchParams.set(");
+  });
+
   it("can take one key out and leave the rest exactly as written", () => {
     expect(searchWithout("?agent=abc&compare=a~b&q=x", "agent")).toBe("?compare=a~b&q=x");
     expect(searchWithout("?agent=abc", "agent")).toBe("");
@@ -69,7 +78,7 @@ describe("Deep Space in the browser's history", () => {
     expect(open).toContain('window.addEventListener("popstate", onPop);');
     expect(open).toContain('const open = window.location.hash === "#deep-space";');
     // The entry is added before the agent is written into it.
-    expect(page.indexOf("window.history.pushState(")).toBeLessThan(page.indexOf('url.searchParams.set("agent", selected.id);'));
+    expect(page.indexOf("window.history.pushState(")).toBeLessThan(page.indexOf('url.search = searchWith(url.search, "agent", selected.id);'));
   });
 
   it("closes by going back over its own entry, or else takes the hash and the agent out in place", () => {

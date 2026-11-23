@@ -12,11 +12,23 @@ const home = read("../../pages/Home.tsx");
 const fleets = read("./FleetCards.tsx");
 
 describe("the headline", () => {
-  it("has one accent, radar mint toward white, and none of the chain colours", () => {
-    const rule = /\.holographic-text \{([^}]*)\}/.exec(css)?.[1] ?? "";
-    expect(rule).toContain("var(--ns-radar)");
-    expect(rule).toContain("-webkit-background-clip: text");
-    for (const colour of ["#bfff76", "#d7cbff", "#65ecff"]) expect(rule.toLowerCase(), colour).not.toContain(colour);
+  it("sets its second sentence as a subhead in solid ink, with no gradient, here and on the first screen", () => {
+    const rule = /\.hero-headline > \.hero-headline-sub \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("font-size: .55em;");
+    expect(rule).toContain("font-weight: 400;");
+    expect(rule).toContain("color: var(--ns-ink);");
+    expect(rule).not.toMatch(/gradient|background-clip/);
+    expect(read("./HeroScene.tsx")).toContain('<span className="hero-headline-sub">{HERO_COPY.headline[1]}</span>');
+    // The static first screen in index.html draws the same headline until the page takes over, so it matches.
+    const boot = read("../../../index.html");
+    const bootSub = /\.ns-boot-headline span \+ span \{([^}]*)\}/.exec(boot)?.[1] ?? "";
+    expect(bootSub).toContain("font-size: 0.55em;");
+    expect(bootSub).not.toMatch(/gradient|background-clip/);
+  });
+
+  it("is tracked by hand at -0.02em, not the tight default of a UI face blown up", () => {
+    expect(/\.hero-headline \{([^}]*)\}/.exec(css)?.[1]).toContain("letter-spacing: -.02em;");
+    expect(/\.ns-boot-headline \{([^}]*)\}/.exec(read("../../../index.html"))?.[1]).toContain("letter-spacing: -0.02em;");
   });
 });
 

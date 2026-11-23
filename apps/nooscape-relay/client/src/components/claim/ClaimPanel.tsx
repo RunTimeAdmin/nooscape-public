@@ -78,7 +78,8 @@ export function ClaimPanel({ entryId, chainLabel }: { entryId: string; chainLabe
   // The form starts from what the owner has saved, and starts again from the new text once an edit is saved.
   const savedKey = claim ? JSON.stringify(claim.profile) : "";
   useEffect(() => {
-    if (claim) setForm(formFromProfile(claim.profile));
+    // A claim removed while the form is open takes its text with it, so the form does not offer the old words to a new claim.
+    setForm(claim ? formFromProfile(claim.profile) : EMPTY_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedKey]);
 
