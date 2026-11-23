@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_TIER_NAMES, API_TIERS, ApiKeyError, ApiMeter, hashApiKey, isApiTier, KEY_PATTERN, KEY_PREFIX_LENGTH, newApiKey, normalizeEmail, utcDay, type UsageRow, type UsageStore } from "./apiKeys";
+import { API_TIER_NAMES, API_TIERS, ApiKeyError, ApiMeter, hashApiKey, isApiTier, KEY_PATTERN, KEY_PREFIX_LENGTH, mailboxOf, newApiKey, normalizeEmail, utcDay, type UsageRow, type UsageStore } from "./apiKeys";
 
 /**
  * The key module without a database (docs/data-access-2026-10-19.md, stage D2): what a key looks like and what is stored of it, which
@@ -47,6 +47,16 @@ describe("an email", () => {
     for (const text of ["", "dev", "dev@", "@example.com", "dev@example", "dev@@example.com", "dev example@example.com", "dev@exa mple.com", "dev@example.c", "a@b.c", `${"x".repeat(65)}@example.com`, `dev@${"x".repeat(250)}.com`, "dev\n@example.com", "dev@example.com\u0000"]) {
       expect(normalizeEmail(text), JSON.stringify(text)).toBeNull();
     }
+  });
+});
+
+describe("the mailbox the key limit counts", () => {
+  it("takes a plus tag off, and escapes the pattern's own wildcards", () => {
+    expect(mailboxOf("ana+work@example.org")).toEqual({ exact: "ana@example.org", tagged: "ana+%@example.org" });
+    expect(mailboxOf("ana@example.org")).toEqual({ exact: "ana@example.org", tagged: "ana+%@example.org" });
+    expect(mailboxOf("a_b%c@ex_ample.org").tagged).toBe("a\\_b\\%c+%@ex\\_ample.org");
+    // A local part that starts with "+" has no tag to take off: it is kept whole.
+    expect(mailboxOf("+tag@example.org")).toEqual({ exact: "+tag@example.org", tagged: "+tag+%@example.org" });
   });
 });
 

@@ -23,7 +23,7 @@ export function FleetCards({ wallets, status }: Props) {
     <section aria-labelledby="fleet-heading" className="flex h-full flex-col rounded-2xl border border-white/[.1] bg-[#090D10]/80 p-5">
       <div data-owl-avoid="" className="max-w-3xl">
         <p className="eyebrow"><Term k="fleetSightings">Fleet sightings</Term></p>
-        <h2 id="fleet-heading" className="mt-2 text-xl tracking-[-.04em] text-[#F1FFF3]">Same wallet, many faces</h2>
+        <h2 id="fleet-heading" className="mt-2 text-xl tracking-[-.02em] text-[#F1FFF3]">Same wallet, many faces</h2>
       </div>
       <p data-owl-avoid="" className="mt-2 max-w-2xl text-sm leading-6 text-ns-ink-dim">
         Grouped by <Term k="registrant">registering wallet</Term> today, with more signals to come; a long list is worth a look, not a verdict.

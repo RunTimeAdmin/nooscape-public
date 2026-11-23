@@ -46,3 +46,21 @@ describe("the operator's payments alert", () => {
     expect(alert).toContain("onClick={() => void status.refetch()}");
   });
 });
+
+describe("the last low items of the audit", () => {
+  it("empties the claim form when the claim it was editing is removed", () => {
+    expect(read("../components/claim/ClaimPanel.tsx")).toContain("setForm(claim ? formFromProfile(claim.profile) : EMPTY_FORM);");
+  });
+
+  it("shows the directory's search results only for the words in the box, not the last ones answered", () => {
+    const page = read("./Home.tsx");
+    expect(page).toContain("const directoryHits = settledSearch === agentSearch.trim() ? (directorySearchQuery.data ?? undefined) : undefined;");
+    expect(page).toContain("directoryHits={directoryHits}");
+  });
+
+  it("takes the owl choice made in another tab", () => {
+    const owl = read("../contexts/OwlContext.tsx");
+    expect(owl).toContain('window.addEventListener("storage", onStorage);');
+    expect(owl).toContain('if (event.key === STORAGE_KEY) setEnabledState(event.newValue !== "off");');
+  });
+});

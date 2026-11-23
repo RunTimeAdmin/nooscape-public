@@ -84,7 +84,7 @@ export function OwlsCatch() {
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div data-owl-avoid="">
           <p className="eyebrow"><Term k="owlsCatch">Owl&rsquo;s Catch</Term></p>
-          <h2 id="owls-catch-heading" className="mt-2 text-xl tracking-[-.04em] text-[#F1FFF3]">Catch of the day</h2>
+          <h2 id="owls-catch-heading" className="mt-2 text-xl tracking-[-.02em] text-[#F1FFF3]">Catch of the day</h2>
         </div>
         {state.kind === "catch" && payload && (
           <p data-owl-avoid="" className="shrink-0 rounded-full border border-white/[.14] px-3 py-1.5 font-mono text-xs uppercase tracking-[.14em] text-ns-ink">

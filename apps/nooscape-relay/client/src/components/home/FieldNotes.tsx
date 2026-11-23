@@ -60,7 +60,7 @@ export function FieldNotes() {
       <div className="flex items-start justify-between gap-4">
         <div data-owl-avoid="">
           <p className="eyebrow"><Term k="fieldReports">Field Reports</Term></p>
-          <h2 id="field-notes-heading" className="mt-2 text-xl tracking-[-.04em] text-[#F1FFF3]">Notes from the Owl&rsquo;s rounds</h2>
+          <h2 id="field-notes-heading" className="mt-2 text-xl tracking-[-.02em] text-[#F1FFF3]">Notes from the Owl&rsquo;s rounds</h2>
         </div>
         {live.length > 0 && (
           <button

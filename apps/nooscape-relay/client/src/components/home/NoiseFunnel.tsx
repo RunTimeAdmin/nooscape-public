@@ -86,7 +86,7 @@ export function NoiseFunnel({ steps, status, asOfBlock, activity }: Props) {
       <div className="fog-head">
         <div data-owl-avoid="" className="max-w-xl">
           <p className="eyebrow"><Term k="clearTheFog">Clear the Fog</Term></p>
-          <h2 id="fog-heading" className="mt-2 text-xl tracking-[-.04em] text-ns-ink">See who&rsquo;s left after each check</h2>
+          <h2 id="fog-heading" className="mt-2 text-xl tracking-[-.02em] text-ns-ink">See who&rsquo;s left after each check</h2>
         </div>
         {ready && split && (
           <button type="button" data-owl-avoid="" aria-pressed={cleared} onClick={() => setCleared(value => !value)} className="fog-button">

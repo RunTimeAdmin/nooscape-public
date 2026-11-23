@@ -176,6 +176,17 @@ describe.skipIf(!dbReachable)("API keys against a real database", { timeout: 120
     await expect(keys.createApiKey({ email: "other@example.com", clientKey: "203.0.113.72" })).resolves.toMatchObject({ tier: "free" });
   });
 
+  it("counts plus-tagged forms of one mailbox together, and a wildcard in a mailbox's name matches nothing else", async () => {
+    for (const [index, email] of ["tag@example.com", "tag+one@example.com", "TAG+two@example.com"].entries()) await keys.createApiKey({ email, clientKey: `203.0.113.${90 + index}` });
+    await expect(keys.createApiKey({ email: "tag+three@example.com", clientKey: "203.0.113.93" })).rejects.toMatchObject({ code: "TOO_MANY_KEYS" });
+    await expect(keys.createApiKey({ email: "tag@example.com", clientKey: "203.0.113.94" })).rejects.toMatchObject({ code: "TOO_MANY_KEYS" });
+    // Another mailbox that starts the same, or one whose name is a LIKE wildcard, is not counted with it.
+    await expect(keys.createApiKey({ email: "tagger@example.com", clientKey: "203.0.113.95" })).resolves.toMatchObject({ tier: "free" });
+    for (const [index, email] of ["a_b@example.com", "a_b+1@example.com", "a_b+2@example.com"].entries()) await keys.createApiKey({ email, clientKey: `203.0.113.${100 + index}` });
+    await expect(keys.createApiKey({ email: "axb+1@example.com", clientKey: "203.0.113.103" })).resolves.toMatchObject({ tier: "free" });
+    await expect(keys.createApiKey({ email: "a_b+3@example.com", clientKey: "203.0.113.104" })).rejects.toMatchObject({ code: "TOO_MANY_KEYS" });
+  });
+
   it("limits sign-ups from one address to three a day, does not count an email that is not one, and does not store the address", async () => {
     for (let index = 0; index < 5; index += 1) await expect(keys.createApiKey({ email: "not an email", clientKey: "203.0.113.80" })).rejects.toMatchObject({ code: "BAD_EMAIL" });
     for (let index = 0; index < 3; index += 1) await keys.createApiKey({ email: `signup${index}@example.com`, clientKey: "203.0.113.80" });

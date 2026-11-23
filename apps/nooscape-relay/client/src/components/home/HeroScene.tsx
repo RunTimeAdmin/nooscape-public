@@ -154,7 +154,7 @@ export function HeroScene({ onAskTheOwl }: Props) {
         <div className="hero-grid">
           <h1 id="hero-heading" className="hero-headline" data-owl-avoid="">
             <span>{HERO_COPY.headline[0]}</span>
-            <span className="holographic-text">{HERO_COPY.headline[1]}</span>
+            <span className="hero-headline-sub">{HERO_COPY.headline[1]}</span>
           </h1>
 
           <div className="hero-owl" data-owl-perch="top-right" aria-hidden="true" />

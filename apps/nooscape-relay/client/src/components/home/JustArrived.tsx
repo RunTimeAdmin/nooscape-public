@@ -22,7 +22,7 @@ export function JustArrived() {
     <section aria-labelledby="arrived-heading" className="regions mb-5 rounded-2xl p-5">
       <div data-owl-avoid="" className="max-w-2xl">
         <p className="eyebrow">In the last {arrivals?.windowHours ?? 24} hours</p>
-        <h2 id="arrived-heading" className="mt-2 text-xl tracking-[-.04em] text-[#F1FFF3]">New to the Owl</h2>
+        <h2 id="arrived-heading" className="mt-2 text-xl tracking-[-.02em] text-[#F1FFF3]">New to the Owl</h2>
         <p className="mt-2 text-sm leading-6 text-ns-ink-dim">Entries the directory saw for the first time, by chain. A new entry is acknowledged, never reviewed or endorsed.</p>
       </div>
 

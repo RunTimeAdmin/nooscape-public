@@ -59,6 +59,12 @@ export function searchWithout(search: string, key: string): string {
   return kept.length > 0 ? `?${kept.join("&")}` : "";
 }
 
+/** The address with one key set (last), every other part kept as it was written. encodeURIComponent leaves "~" as it is. */
+export function searchWith(search: string, key: string, value: string): string {
+  const kept = partsOf(search).filter(part => keyOf(part) !== key);
+  return `?${[...kept, `${encodeURIComponent(key)}=${encodeURIComponent(value)}`].join("&")}`;
+}
+
 /** Our keys, in the order they are written. */
 const KEYS = ["q", "protocol", "evidence", "sort", "trusted", "state"] as const;
 

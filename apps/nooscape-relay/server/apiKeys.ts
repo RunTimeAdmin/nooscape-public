@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, count, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { API_TIER_NAMES, API_TIERS, KEY_PATTERN, KEY_PREFIX_LENGTH, type ApiTier } from "@shared/apiKey";
 import { apiKeys, apiUsage } from "../drizzle/schema";
 import { getDb, requireDb } from "./db";
@@ -62,6 +62,21 @@ export function normalizeEmail(raw: string): string | null {
   // eslint-disable-next-line no-control-regex
   if (email.length < 6 || email.length > 254 || /[\u0000-\u001F\u007F\s]/.test(email)) return null;
   return /^[^@]{1,64}@[^@]{1,190}\.[^@.]{2,}$/.test(email) ? email : null;
+}
+
+/**
+ * Who the limit of live keys counts: the mailbox, with any plus tag taken off. "ana+work@example.org" and "ana@example.org" reach the
+ * same inbox, so they share the limit; before, each tag was a new allowance. The emails are stored as given.
+ */
+export function mailboxOf(email: string): { exact: string; tagged: string | null } {
+  const at = email.lastIndexOf("@");
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const plus = local.indexOf("+");
+  const base = plus > 0 ? local.slice(0, plus) : local;
+  // A LIKE pattern for every tagged form of the mailbox, with the pattern's own wildcards escaped.
+  const escape = (text: string) => text.replace(/[\\%_]/g, character => `\\${character}`);
+  return { exact: `${base}@${domain}`, tagged: base.length > 0 ? `${escape(base)}+%@${escape(domain)}` : null };
 }
 
 export const isApiTier = (value: string): value is ApiTier => (API_TIER_NAMES as readonly string[]).includes(value);
@@ -127,7 +142,9 @@ export async function createApiKey(input: { email: string; clientKey: string }):
   const verdict = consumeRateLimit(`api-key-signup:${input.clientKey}`, SIGNUPS_PER_ADDRESS_PER_DAY, 24 * 60 * 60 * 1000);
   if (!verdict.allowed) throw new ApiKeyError("TOO_MANY_SIGNUPS");
   return withTables(async db => {
-    const [live] = await db.select({ total: count() }).from(apiKeys).where(and(eq(apiKeys.ownerEmail, email), isNull(apiKeys.revokedAt)));
+    const mailbox = mailboxOf(email);
+    const sameMailbox = mailbox.tagged ? or(eq(apiKeys.ownerEmail, mailbox.exact), like(apiKeys.ownerEmail, mailbox.tagged)) : eq(apiKeys.ownerEmail, mailbox.exact);
+    const [live] = await db.select({ total: count() }).from(apiKeys).where(and(sameMailbox, isNull(apiKeys.revokedAt)));
     if (Number(live?.total ?? 0) >= LIVE_KEYS_PER_EMAIL) throw new ApiKeyError("TOO_MANY_KEYS");
     const made = newApiKey();
     const id = randomUUID();
