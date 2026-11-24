@@ -2,7 +2,7 @@ import { generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { bytesToHex, concatBytes, hexToBytes } from "@noble/hashes/utils.js";
 import { addressOfUncompressedKey } from "./claimsCrypto";
-import { CONTRACT_REFUSED_REASON, type NewPayment, type PaymentLedger, type PaymentRow } from "./apiPayments";
+import { CONTRACT_REFUSED_REASON, FAILED_AFTER_BROADCAST, type NewPayment, type PaymentLedger, type PaymentRow } from "./apiPayments";
 import { ARC_MAINNET, base64Json, loadX402, railFor, requirements, type PaymentPayload, type X402Config, type X402Endpoint } from "./x402";
 import { transferAuthorizationDigest } from "./x402Crypto";
 
@@ -74,7 +74,9 @@ export function memoryLedger(options: { ready?: boolean } = {}) {
       if (!row || (row.status !== "settling" && row.status !== "open")) return false;
       row.status = change.status;
       row.transaction = change.status === "paid" ? (change.transaction ?? row.transaction) : (row.transaction ?? change.transaction ?? null);
-      row.reason = change.reason ?? null;
+      const reason = change.reason ?? null;
+      const marked = (row.reason ?? "").startsWith(FAILED_AFTER_BROADCAST) && !(reason ?? "").startsWith(FAILED_AFTER_BROADCAST);
+      row.reason = change.status !== "paid" && marked ? `${FAILED_AFTER_BROADCAST}; ${reason ?? ""}`.slice(0, 200) : reason;
       row.updatedAt = new Date();
       if (change.status === "paid") row.serves += 1;
       return true;
@@ -83,12 +85,12 @@ export function memoryLedger(options: { ready?: boolean } = {}) {
       const row = rows.find(item => item.id === id);
       if (!row || (row.status !== "settling" && row.status !== "open")) return false;
       row.status = "closed";
-      row.reason = ((row.reason ?? "").startsWith("failed after broadcast") ? `failed after broadcast; ${reason}` : reason).slice(0, 200);
+      row.reason = ((row.reason ?? "").startsWith(FAILED_AFTER_BROADCAST) ? `${FAILED_AFTER_BROADCAST}; ${reason}` : reason).slice(0, 200);
       row.updatedAt = new Date();
       return true;
     },
     openFor: async (network, payer) => rows.filter(row => row.network === network && row.payer === payer && (row.status === "settling" || row.status === "open")).length,
-    failedFor: async (network, payer, since) => rows.filter(row => row.network === network && row.payer === payer && (row.reason ?? "").startsWith("failed after broadcast") && row.updatedAt >= since).length,
+    failedFor: async (network, payer, since) => rows.filter(row => row.network === network && row.payer === payer && (row.reason ?? "").startsWith(FAILED_AFTER_BROADCAST) && row.updatedAt >= since).length,
     refusedFor: async (network, payer, since) => rows.filter(row => row.network === network && row.payer === payer && (row.reason ?? "").startsWith(CONTRACT_REFUSED_REASON) && row.updatedAt >= since).length,
     stale: async (network, before) => rows.filter(row => row.network === network && (row.status === "settling" || row.status === "open") && row.updatedAt < before).length,
     countServe: async (id, max) => {

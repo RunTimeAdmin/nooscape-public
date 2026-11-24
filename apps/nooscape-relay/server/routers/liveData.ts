@@ -825,7 +825,9 @@ export const liveDataRouter = router({
         try {
           const source = await getIngestionSource(input.sourceId);
           if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Ingestion source not found." });
-          await decideIngestionSource({ ...input, decidedByUserId: ctx.user.id });
+          const result = await decideIngestionSource({ ...input, decidedByUserId: ctx.user.id });
+          if (!result.from) throw new TRPCError({ code: "NOT_FOUND", message: "Ingestion source not found." });
+          if (!result.moved) throw new TRPCError({ code: "CONFLICT", message: `This source is ${result.from}: it cannot be made ${input.decision}.` });
           return { success: true } as const;
         } catch (error) {
           if (error instanceof TRPCError) throw error;
