@@ -51,6 +51,16 @@ export type PaymentSummary = { status: string; count: number; amount: number };
 /** The start of the reason recorded for a smart-contract wallet's payment that the facilitator refused after the chain check had passed it. It pauses the wallet for a short while. */
 export const CONTRACT_REFUSED_REASON = "refused after a passing check";
 
+/**
+ * The start of the reason recorded for a settlement the facilitator broadcast and that then failed. It pauses the wallet for a day, so a later
+ * write to the same payment (a resend's answer, the operator setting it aside) keeps it at the front of the reason. Only a settlement drops it.
+ */
+export const FAILED_AFTER_BROADCAST = "failed after broadcast";
+
+const MARKED = `${FAILED_AFTER_BROADCAST}%`;
+
+const reasonOf = (change: PaymentChange): string | null => (change.reason === undefined || change.reason === null ? null : change.reason.slice(0, 200));
+
 /** Where payments are kept. The default is the database; a test gives its own. */
 export type PaymentLedger = {
   /** Whether payments can be recorded: the table exists and the database answers. Held for a few seconds. */
@@ -145,7 +155,10 @@ export const dbPaymentLedger: PaymentLedger = {
         // A later send that names none, or another (a broadcast that reverted because the first had already spent the authorization), does not
         // replace it. Only a settlement replaces it, with the transaction that settled.
         transaction: change.status === "paid" ? (change.transaction ?? sql`${apiPayments.transaction}`) : sql`COALESCE(${apiPayments.transaction}, ${change.transaction ?? null})`,
-        reason: change.reason === undefined || change.reason === null ? null : change.reason.slice(0, 200),
+        reason:
+          change.status === "paid"
+            ? reasonOf(change)
+            : sql`CASE WHEN ${apiPayments.reason} LIKE ${MARKED} AND COALESCE(${reasonOf(change)}, '') NOT LIKE ${MARKED} THEN LEFT(CONCAT(${`${FAILED_AFTER_BROADCAST}; `}, COALESCE(${reasonOf(change)}, '')), 200) ELSE ${reasonOf(change)} END`,
         ...(change.status === "paid" ? { serves: sql`${apiPayments.serves} + 1` } : {}),
         updatedAt: new Date(),
       })
@@ -160,7 +173,7 @@ export const dbPaymentLedger: PaymentLedger = {
       // A settlement that failed after it was broadcast stays marked as such when the operator sets it aside: it still pauses the wallet.
       .set({
         status: "closed",
-        reason: sql`CASE WHEN ${apiPayments.reason} LIKE 'failed after broadcast%' THEN LEFT(CONCAT('failed after broadcast; ', ${reason}), 200) ELSE LEFT(${reason}, 200) END`,
+        reason: sql`CASE WHEN ${apiPayments.reason} LIKE ${MARKED} THEN LEFT(CONCAT(${`${FAILED_AFTER_BROADCAST}; `}, ${reason}), 200) ELSE LEFT(${reason}, 200) END`,
         updatedAt: new Date(),
       })
       .where(and(eq(apiPayments.id, id), inArray(apiPayments.status, ["settling", "open"])));
@@ -181,7 +194,7 @@ export const dbPaymentLedger: PaymentLedger = {
     const [counted] = await db
       .select({ total: sql<string>`count(*)` })
       .from(apiPayments)
-      .where(and(eq(apiPayments.network, network), eq(apiPayments.payer, payer), like(apiPayments.reason, "failed after broadcast%"), gte(apiPayments.updatedAt, since)));
+      .where(and(eq(apiPayments.network, network), eq(apiPayments.payer, payer), like(apiPayments.reason, MARKED), gte(apiPayments.updatedAt, since)));
     return Number(counted?.total ?? 0);
   },
 

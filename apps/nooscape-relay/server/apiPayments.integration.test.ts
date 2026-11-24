@@ -260,6 +260,12 @@ describe.skipIf(!dbReachable)("pay per call against a real database", { timeout:
     expect(await ledger.failedFor(ARC_TESTNET, wallet, day())).toBe(1);
     expect(await ledger.failedFor("eip155:5042", wallet, day())).toBe(0);
     expect(await ledger.failedFor(ARC_TESTNET, `0x${"d5".repeat(20)}`, day())).toBe(0);
+    // The answer to a resend keeps the mark in front of its own reason, and a second failure is not marked twice.
+    await ledger.resolve(failed.id, { status: "open", reason: "refused on resend: invalid_payload" });
+    expect(await ledger.find(ARC_TESTNET, wallet, failed.nonce)).toMatchObject({ reason: "failed after broadcast; refused on resend: invalid_payload" });
+    await ledger.resolve(failed.id, { status: "open", reason: "failed after broadcast: transaction_failed" });
+    expect(await ledger.find(ARC_TESTNET, wallet, failed.nonce)).toMatchObject({ reason: "failed after broadcast: transaction_failed" });
+    expect(await ledger.failedFor(ARC_TESTNET, wallet, day())).toBe(1);
     expect(await ledger.close(failed.id, "looked at it: reverted")).toBe(true);
     expect(await ledger.find(ARC_TESTNET, wallet, failed.nonce)).toMatchObject({ status: "closed", reason: "failed after broadcast; looked at it: reverted" });
     expect(await ledger.openFor(ARC_TESTNET, wallet)).toBe(0);

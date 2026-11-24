@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { CONTRACT_REFUSED_REASON, dbPaymentLedger, type PaymentLedger, type PaymentRow } from "./apiPayments";
+import { CONTRACT_REFUSED_REASON, dbPaymentLedger, FAILED_AFTER_BROADCAST, type PaymentLedger, type PaymentRow } from "./apiPayments";
 import { consumeRateLimit } from "./rateLimit";
 import {
   BASE_MAINNET,
@@ -243,7 +243,7 @@ export function createPaymentService(options: PaymentServiceOptions): PaymentSer
     // A transaction was named and the facilitator did not call it pending: it was broadcast and failed. The wallet is paused for a day.
     const failed = result.transaction !== undefined && !result.pending;
     if (failed && ctx.contract) noteContractFault(row.network);
-    const said = failed ? `failed after broadcast: ${result.reason}` : result.reason;
+    const said = failed ? `${FAILED_AFTER_BROADCAST}: ${result.reason}` : result.reason;
     // The ledger keeps the first transaction a payment named. A later send that names another (a broadcast that reverted because the first had
     // spent the authorization, for one) is told in the reason, because either may be the one that moved the money.
     const later = result.transaction !== undefined && row.transaction !== null && result.transaction !== row.transaction ? ` (a later send named ${result.transaction})` : "";

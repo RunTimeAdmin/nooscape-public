@@ -170,6 +170,27 @@ describe("a smart-contract wallet's payment", () => {
     expect((await service.charge(third.context, "s")).deliver).toBe(true);
   });
 
+  it("stays paused when the resend the 503 asks for does not settle either: the answer to the resend does not erase the failed settlement", async () => {
+    const tx = `0x${"d".repeat(64)}`;
+    const { service, store, wallet } = setup({
+      script: [() => Response.json({ success: false, errorReason: "transaction_failed", transaction: tx }), facilitatorAnswers.refused("invalid_exact_evm_payload_authorization_nonce")],
+    });
+    const payment = wallet.pay(cfg, "check");
+    const first = await service.verify("check", headerOf(payment), RESOURCE);
+    if (!first.ok) throw new Error("not accepted");
+    expect(statusOf(await service.charge(first.context, "s"))).toBe(503);
+    const resent = await service.verify("check", headerOf(payment), RESOURCE);
+    if (!resent.ok) throw new Error("not accepted");
+    await service.charge(resent.context, "s");
+    expect(store.rows).toHaveLength(1);
+    expect(store.rows[0]).toMatchObject({ status: "open", transaction: tx, sends: 2 });
+    expect(store.rows[0]!.reason).toBe("failed after broadcast; invalid_exact_evm_payload_authorization_nonce");
+    expect(await store.ledger.failedFor(cfg.network, wallet.address, new Date(Date.now() - 60_000))).toBe(1);
+    const next = await service.verify("check", headerOf(wallet.pay(cfg, "check")), RESOURCE);
+    if (!next.ok) throw new Error("not accepted");
+    expect(said(await service.charge(next.context, "s"))).toMatch(/paused for a day/);
+  });
+
   it("is not paused for a settlement the facilitator only called pending", async () => {
     const { service, wallet, store } = setup({ script: [facilitatorAnswers.pending(`0x${"e".repeat(64)}`)] });
     const first = await service.verify("check", headerOf(wallet.pay(cfg, "check")), RESOURCE);

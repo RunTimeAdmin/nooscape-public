@@ -1,6 +1,7 @@
 /** Source decisions and ingestion runs, and the observations each kind of source persists. Part of server/db.ts, which re-exports every module of this folder. */
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { canDecideSource, type SourceDecision, type SourceState } from "@shared/sourceTransitions";
 import { agentEndpoints, agentIdentities, agentPublicSnapshots, agentReadModel, agents, evidenceEvents, ingestionRuns, ingestionSources, IngestionSource, reviewItems, sourceObservationRuns, sourceObservations, sourceProjectionDecisions } from "../../drizzle/schema";
 import { type A2aNormalizedCandidate, type CatalogNormalizedCandidate, type Erc8004RegistryCandidate, type RawObservationInput, type SolanaRegistryCandidate } from "../ingestion/types";
 import { partyHostOf } from "../partyHost";
@@ -9,17 +10,24 @@ import { getDb, hashValue, mapPositionFromHandle, requireDb, safeErrorSummary, w
 
 export const decideIngestionSource = withInvalidation(decideIngestionSourceImpl, invalidateDirectoryReads);
 
+/**
+ * Moves a source to the decided state, if SOURCE_TRANSITIONS allows that move from the state it is in, and settles its pending review items.
+ * The row is locked while it is read, so two decisions sent at once cannot both pass the check. Returns the state it was in, and whether it moved.
+ */
 async function decideIngestionSourceImpl(input: {
   sourceId: string;
-  decision: "active" | "rejected" | "paused";
+  decision: SourceDecision;
   decidedByUserId: number;
   rationale: string;
-}) {
+}): Promise<{ moved: boolean; from: SourceState | null }> {
   const db = requireDb(await getDb());
   const now = new Date();
   const nextRunAt = input.decision === "active" ? now : null;
 
-  await db.transaction(async tx => {
+  return db.transaction(async tx => {
+    const [row] = await tx.select({ state: ingestionSources.state }).from(ingestionSources).where(eq(ingestionSources.id, input.sourceId)).for("update");
+    if (!row) return { moved: false, from: null };
+    if (!canDecideSource(row.state, input.decision)) return { moved: false, from: row.state };
     await tx
       .update(ingestionSources)
       .set({ state: input.decision, nextRunAt })
@@ -39,6 +47,7 @@ async function decideIngestionSourceImpl(input: {
           eq(reviewItems.status, "pending")
         )
       );
+    return { moved: true, from: row.state };
   });
 }
 
